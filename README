@@ -40,11 +40,14 @@ No further geometry computations are required, osgende will do them by itself.
 
 For example, you may import the Swiss extract from Geofabrik[1] like this:
 
-bzcat switzerland.osm.bz2 | osmosis --rx - --wp database=osm user=gis password=foo
+  bzcat switzerland.osm.bz2 | osmosis --rx - --wp database=osm user=gis password=foo
 
 In order to keep your database up-to-date you need to initialise the action script
-first so that the *_changeset tables are filled appropriately.
-TODO supply a script that does that
+first so that the *_changeset tables are filled appropriately. There is a script
+in contrib/ which sets up Osmosis action function:
+
+  psql -U gis -d osm -f contrib/osmosis_update_proc.sql
+
 
 Using osgende
 -------------
