@@ -1,0 +1,55 @@
+About osgende
+-------------
+
+osgende is a Python-framework for creating customized Postgresql databases from
+OSM data. Its philosophy is not to import the data directly from the OSM-XML
+but instead it expects OSM data to have been imported into a Postgresql
+database by Osmosis. This way it is also possible to support incremental
+updates.
+
+Requirements
+------------
+
+- Osmosis            http://wiki.openstreetmap.org/wiki/Osmosis
+
+    Needed for maintaining the full OSM database.
+    You may also try the import script that ships with osgende, however, 
+    consider this experimental.
+
+
+- psycopg >= 2.3.0    http://initd.org/psycopg/
+    
+    Python bindings for PostgreSQL
+    Please note that Debian still ships version 2.2.1 which does not yet
+    have hstore support.
+
+- Shapely             http://trac.gispython.org/lab/wiki/Shapely
+
+    Python bindings for the geos library.
+    (available as Debian package: python-shapely)
+
+
+Usage
+-----
+
+Setting up Osmosis
+------------------
+
+osgende expects data to have been imported into a PostGIS Snapshot Schema.
+No further geometry computations are required, osgende will do them by itself.
+
+For example, you may import the Swiss extract from Geofabrik[1] like this:
+
+bzcat switzerland.osm.bz2 | osmosis --rx - --wp database=osm user=gis password=foo
+
+In order to keep your database up-to-date you need to initialise the action script
+first so that the *_changeset tables are filled appropriately.
+TODO supply a script that does that
+
+Using osgende
+-------------
+
+Further information on using osgende can be found at
+
+http://dev.lonvia.de/trac/wiki/OsgendeDocs
+
