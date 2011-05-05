@@ -206,7 +206,7 @@ class PGTable(PGObject):
                          ('%s,' * len(values))[:-1]),
                      values.values())
 
-    def update_values(self, values, where, data=None):
+    def update_values(self, tags, where, data=None):
         """Update rows in the table. 'values'must be a dict type where the keys
            identify the column.
         """
