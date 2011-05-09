@@ -28,13 +28,13 @@ class NodeSubTable(PGTable):
        the geometry and 'transform' to give a transformation function.
 
        For update to work properly, the table needs to have the action
-       module installed and expects the *_changes tables to be existent.
+       module installed and expects the *_changeset tables to be existent.
        (TODO: link to action_function script.)
     """
 
     def __init__(self, db, name, subset, schema=None, geom='geom', transform='%s'):
         PGTable.__init__(self, db, name, schema=schema)
-        updateset = "id IN (SELECT id FROM node_changes WHERE action <> 'D')"
+        updateset = "id IN (SELECT id FROM node_changeset WHERE action <> 'D')"
         if subset is None:
             self.wherequery = ""
             self.updatequery = "WHERE %s"% updateset
@@ -57,7 +57,7 @@ class NodeSubTable(PGTable):
 
         # delete any objects that might have been changed
         self.query("""DELETE FROM %s 
-                       WHERE id IN (SELECT id FROM node_changes)
+                       WHERE id IN (SELECT id FROM node_changeset)
                    """ % (self.table))
         # reinsert those that are not deleted
         self.insert_objects(self.updatequery)
