@@ -25,6 +25,8 @@ from optparse import OptionParser
 import os
 from math import pi,cos,sin,log,exp,atan
 from datetime import datetime
+from Queue import Queue
+import threading
 
 import psycopg2
 import mapnik2 as mapnik
@@ -82,7 +84,7 @@ class MapnikOverlayGenerator:
 
        'dataquery' is only necessary in the update process in order to 
        delete tiles that no longer contain any data. If 'changequery' 
-       determined that a tile has been changed, but 'dataquery'yields no 
+       determined that a tile has been changed, but 'dataquery' yields no 
        data, then the tile is deleted.
        
        Both query must contain a '%s' placeholder for the BBOX of the tile. 
@@ -91,7 +93,8 @@ class MapnikOverlayGenerator:
        query to spped up the process.
    """
 
-    def __init__(self, dba, minversion=501, dataquery=None, changequery=None):
+    def __init__(self, dba, minversion=501, dataquery=None, changequery=None, numprocesses=1):
+        self.num_threads = numprocesses
         self.conn = psycopg2.connect(dba)
         if dataquery is None:
             self.dataquery = None
@@ -136,7 +139,7 @@ class MapnikOverlayGenerator:
             if self.cursor.fetchone() is None:
                 return
 
-        # is there somethign on the tile?
+        # is there something on the tile?
         hasdata = True
         if self.dataquery is not None:
             self.cursor.execute(self.dataquery % params)
@@ -148,12 +151,10 @@ class MapnikOverlayGenerator:
             os.mkdir(tdir)
         tile_url = os.path.join(tdir, "%d.png" % y)
         if hasdata:
-            bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
-            self.map.zoom_to_box(bbox)
-
-            im = mapnik.Image(256, 256)
-            mapnik.render(self.map, im)
-            im.save(tile_url, 'png256')
+            try:
+                self.queue.put((tile_url, c0, c1))
+            except KeyboardInterrupt:
+                raise SystemExit("Ctrl-c detected, exiting...")
         else:
             try:
                 os.remove(tile_url)
@@ -186,16 +187,57 @@ class MapnikOverlayGenerator:
 
         self._create_zoom_dirs(zrange[0], zrange[1])
 
-        self.map = mapnik.Map(256, 256)
-        mapnik.load_map(self.map, stylefile)
-
-        self.projection = mapnik.Projection(self.map.srs)
+        # set up the rendering threads
+        print "Using", self.num_threads, "parallel threads."
+        self.queue = Queue(32*self.num_threads)
+        self.projection = None
+        renderers = []
+        for i in range(self.num_threads):
+            renderer = RenderThread(stylefile, self.queue)
+            if self.projection is None:
+                self.projection = mapnik.Projection(renderer.map.srs)
+            render_thread = threading.Thread(target=renderer.loop)
+            render_thread.start()
+            renderers.append(render_thread)
 
         self.cursor = self.conn.cursor()
         for x in range(xrange[0], xrange[1]):
             for y in range(yrange[0], yrange[1]):
                 self._render_tile(x,y, zrange[0], zrange[1]-1)
         self.cursor.close()
+
+        for i in range(self.num_threads):
+            self.queue.put(None)
+        print "Waiting for queue (",datetime.isoformat(datetime.now()),")"
+        for r in renderers:
+            print "Waiting for thread (",datetime.isoformat(datetime.now()),")"
+            r.join()
+
+class RenderThread:
+
+    def __init__(self, stylefile, queue):
+        self.tile_queue = queue
+        self.map = mapnik.Map(256, 256)
+        mapnik.load_map(self.map, stylefile)
+
+    def render_tile(self, request):
+        bbox = mapnik.Box2d(request[1].x, request[1].y, 
+                            request[2].x, request[2].y)
+        self.map.zoom_to_box(bbox)
+
+        im = mapnik.Image(256, 256)
+        mapnik.render(self.map, im)
+        im.save(request[0], 'png256')
+
+
+    def loop(self):
+        while True:
+            req = self.tile_queue.get()
+            if req is None:
+                self.tile_queue.task_done()
+                break
+
+            self.render_tile(req)
 
 def make_table_query(table):
     if table is None:
@@ -204,6 +246,13 @@ def make_table_query(table):
         return """SELECT 'a' FROM %s WHERE ST_Intersects(geom, %%s) LIMIT 1""" % table
 
 if __name__ == '__main__':
+    # if Python 2.6+, get us the number of processes, otherwise just invent a number
+    try:
+        import multiprocessing
+        numproc = multiprocessing.cpu_count()
+    except (ImportError,NotImplementedError):
+        numproc = 4
+
     # fun with command line options
     parser = OptionParser(description=__doc__,
                           usage='%prog [options] <stylefile> <tiledir>')
@@ -221,6 +270,8 @@ if __name__ == '__main__':
                        help='table to query for existing objects (column is always geom)')
     parser.add_option('-c', action='store', dest='changetable', default=None,
                        help='table to query for updated objects (column is always geom)')
+    parser.add_option('-j', action='store', dest='numprocesses', default=numproc, type='int',
+            help='number of parallel processes to use (default: %d)' % numproc)
 
     (options, args) = parser.parse_args()
 
@@ -259,6 +310,7 @@ if __name__ == '__main__':
     renderer = MapnikOverlayGenerator('user=osm dbname=planet',
                          minversion=701,
                          dataquery=dataquery,
-                         changequery=changequery)
+                         changequery=changequery,
+                         numprocesses=options.numprocesses)
     #renderer.render('hiking/styles/default.xml', '/secondary/osm/tiles/nghiking', box)
     renderer.render(args[0], args[1], box)
