@@ -70,7 +70,7 @@ class GoogleProjection:
 
 
 class MapnikOverlayGenerator:
-    """Generates tiles on Google format in a top-down way.
+    """Generates tiles in Google format in a top-down way.
      
        It will start at the lowest zoomlevel, render a tile, then its 
        subtiles and so on until the highest zoomlevel. Then it proceeds 
@@ -79,7 +79,7 @@ class MapnikOverlayGenerator:
        been changed, 'dataquery' should return all renderable data.
 
        'changequery' determines if a tile is rendered at all. If no data 
-       is returned by this query, the tile is skiped and so are all its 
+       is returned by this query, the tile is skipped and so are all its 
        subtiles.
 
        'dataquery' is only necessary in the update process in order to 
@@ -87,14 +87,37 @@ class MapnikOverlayGenerator:
        determined that a tile has been changed, but 'dataquery' yields no 
        data, then the tile is deleted.
        
-       Both query must contain a '%s' placeholder for the BBOX of the tile. 
-       The result of the query is not inspected, it is only checked, if any 
+       Both queries must contain a '%s' placeholder for the BBOX of the tile. 
+       The result of the query is not inspected. It is only checked, if any 
        data is returned. Therefore it is advisable to add a 'LIMIT 1' to the 
-       query to spped up the process.
+       query to speed up the process.
+
+       'numprocesses' changes the number of parallel processes to use.
+
+       If 'tilenumber_rewrite' is True, then for tiles of zoomlevel 10 and
+       above an additional intermediate directory in order to avoid having
+       too many files per directory. The first three digits make up the 
+       first level, the remaining digits the second level. For tile numbers
+       below 1000, the second part is 'o'.
+
+       With this schema tiles can still served statically with Apache if
+       the following rewrite rules are used:
+
+       ..
+
+         RewriteRule ^(.*)/([0-9]{2})/([0-9]?[0-9]?[0-9]?)([0-9]*)/([0-9]?[0-9]?[0-9]?)([0-9]*).png$ /$1/$2/$3/$4/$5/$6.png 
+         RewriteRule (.*[0-9])//([0-9].*)     $1/o/$2
+         RewriteRule (.*)/.png                $1/o.png
+
+       Note: this tile numbering schema will work up to about level 20,
+             afterwards another split should be done, which is not yet
+             implemented.
    """
 
-    def __init__(self, dba, minversion=501, dataquery=None, changequery=None, numprocesses=1):
+    def __init__(self, dba, minversion=501, dataquery=None, changequery=None, 
+                  numprocesses=1, tilenumber_rewrite=False):
         self.num_threads = numprocesses
+        self.tilenumber_rewrite=tilenumber_rewrite
         self.conn = psycopg2.connect(dba)
         if dataquery is None:
             self.dataquery = None
@@ -114,11 +137,36 @@ class MapnikOverlayGenerator:
         if self.mapnik_version < minversion:
           raise Exception("Mapnik is too old. Need version above %d." % minversion)
 
-    def _create_zoom_dirs(self, zfrom, zto):
-        for z in range(zfrom, zto):
-            zoomdir = os.path.join(self.tiledir, "%d" % z)
-            if not os.path.isdir(zoomdir):
-                os.mkdir(zoomdir)
+
+    def _get_tile_uri(self, zoom, x, y):
+        """Compute the tile URI and create directories as required.
+        """
+        if self.tilenumber_rewrite and zoom >= 10:
+            # split mode
+            if x < 1000:
+                tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x, 'o')
+            else:
+                xdir = '%d' % x
+                tdir = os.path.join(self.tiledir, "%d" % zoom, 
+                                    xdir[:3], xdir[3:])
+            if y < 1000:
+                tilefile = 'o.png'
+                tdir = os.path.join(tdir, '%d' % y)
+            else:
+                ydir = '%d.png' % y
+                tilefile = ydir[3:]
+                tdir = os.path.join(tdir, ydir[:3])
+
+        else:
+            # write tile numbers as is
+            tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x)
+            tilefile = '%d.png'% y
+
+        if not os.path.isdir(tdir):
+            os.makedirs(tdir)
+
+        return os.path.join(tdir, tilefile)
+
 
     def _render_tile(self, x, y, zoom, maxzoom):
         if zoom < 10:
@@ -146,10 +194,7 @@ class MapnikOverlayGenerator:
             if self.cursor.fetchone() is None:
                 hasdata = False
               
-        tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x)
-        if not os.path.isdir(tdir):
-            os.mkdir(tdir)
-        tile_url = os.path.join(tdir, "%d.png" % y)
+        tile_url = self._get_tile_uri(zoom, x, y)
         if hasdata:
             try:
                 self.queue.put((tile_url, c0, c1))
@@ -185,11 +230,9 @@ class MapnikOverlayGenerator:
 
         self.gprojection = GoogleProjection(zrange[1])
 
-        self._create_zoom_dirs(zrange[0], zrange[1])
-
         # set up the rendering threads
         print "Using", self.num_threads, "parallel threads."
-        self.queue = Queue(32*self.num_threads)
+        self.queue = Queue(4*self.num_threads)
         self.projection = None
         renderers = []
         for i in range(self.num_threads):
@@ -200,18 +243,18 @@ class MapnikOverlayGenerator:
             render_thread.start()
             renderers.append(render_thread)
 
-        self.cursor = self.conn.cursor()
-        for x in range(xrange[0], xrange[1]):
-            for y in range(yrange[0], yrange[1]):
-                self._render_tile(x,y, zrange[0], zrange[1]-1)
-        self.cursor.close()
-
-        for i in range(self.num_threads):
-            self.queue.put(None)
-        print "Waiting for queue (",datetime.isoformat(datetime.now()),")"
-        for r in renderers:
-            print "Waiting for thread (",datetime.isoformat(datetime.now()),")"
-            r.join()
+        try:
+            self.cursor = self.conn.cursor()
+            for x in range(xrange[0], xrange[1]):
+                for y in range(yrange[0], yrange[1]):
+                    self._render_tile(x,y, zrange[0], zrange[1]-1)
+            self.cursor.close()
+        finally:
+            for i in range(self.num_threads):
+                self.queue.put(None)
+            for r in renderers:
+                print "Waiting for thread (",datetime.isoformat(datetime.now()),")"
+                r.join()
 
 class RenderThread:
 
@@ -246,7 +289,7 @@ def make_table_query(table):
         return """SELECT 'a' FROM %s WHERE ST_Intersects(geom, %%s) LIMIT 1""" % table
 
 if __name__ == '__main__':
-    # if Python 2.6+, get us the number of processes, otherwise just invent a number
+    # if Python 2.6+, get us the number of CPUs, otherwise just invent a number
     try:
         import multiprocessing
         numproc = multiprocessing.cpu_count()
@@ -272,6 +315,8 @@ if __name__ == '__main__':
                        help='table to query for updated objects (column is always geom)')
     parser.add_option('-j', action='store', dest='numprocesses', default=numproc, type='int',
             help='number of parallel processes to use (default: %d)' % numproc)
+    parser.add_option('-r', action='store_true', dest='rewrite_tileschema', default=False,
+                       help='split tile numbers for high zoom levels')
 
     (options, args) = parser.parse_args()
 
@@ -311,6 +356,7 @@ if __name__ == '__main__':
                          minversion=701,
                          dataquery=dataquery,
                          changequery=changequery,
-                         numprocesses=options.numprocesses)
+                         numprocesses=options.numprocesses,
+                         tilenumber_rewrite=options.rewrite_tileschema)
     #renderer.render('hiking/styles/default.xml', '/secondary/osm/tiles/nghiking', box)
     renderer.render(args[0], args[1], box)
