@@ -169,7 +169,7 @@ class MapnikOverlayGenerator:
 
 
     def _render_tile(self, x, y, zoom, maxzoom):
-        if zoom < 10:
+        if zoom < 7:
             print "Rendering Zoom",zoom,"tile",x,"/",y,"(",datetime.isoformat(datetime.now()),")"
 
         # reproject...
