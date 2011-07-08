@@ -231,4 +231,22 @@ class PGTable(PGObject):
                          ('%s,' * len(tags))[:-1], where),
                     params)
 
+    def get_column_type(self, column):
+        """Return the type of the column as a string or None if the
+           column does not exist.
+        """
+        schema = 'public' if self._table.schema is None else self._table.schema
+        return self.select_one("""
+            SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) 
+              FROM pg_catalog.pg_attribute a
+             WHERE a.attname = %s 
+               AND a.attrelid = (
+                     SELECT c.oid
+                     FROM pg_catalog.pg_class c
+                          LEFT JOIN pg_catalog.pg_namespace n 
+                          ON n.oid = c.relnamespace
+                     WHERE c.relname = %s
+                       AND n.nspname = %s )
+         """ % (column, self._table.table, schema)
+
 
