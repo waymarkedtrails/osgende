@@ -46,6 +46,20 @@ def connect(dba='dbname=osmosis user=osm'):
         return ret
 
 
+class PGTableName(object):
+    """Represents the name of a table. This includes next to the name of the
+       table also an optional schema name.
+    """
+
+    def __init__(self, name, schema=None):
+        self.table = name
+        self.schema = schema
+        if schema is None:
+            self.fullname = name
+        else:
+            self.fullname = '%s.%s' % (schema, name)
+
+
 class PGObject(object):
     """This base class for all database-related objects provides convenience
        functions for common SQL tasks."""
@@ -148,18 +162,14 @@ class PGObject(object):
 class PGTable(PGObject):
     """The base class for all derived tables.
 
-       Each table is related to one specific database table, given as 'name'
-       in the constructor.
+       Each table is related to one specific database table. `name` must
+       be a `PGTableName` object containing the name of the table.
     """
 
-    def __init__(self, db, name, schema = None):
+    def __init__(self, db, name):
         PGObject.__init__(self, db)
-        self._schema = schema
         self._table = name
-        if schema is None:
-            self.table = name
-        else:
-            self.table = '%s.%s'% (schema, name)
+        self.table = name.fullname
 
     def create(self, layout):
         """Create a new table with the liven layout.
@@ -180,25 +190,26 @@ class PGTable(PGObject):
 
     def add_geometry_column(self, column='geom', proj='4326', geom="GEOMETRY", with_index=False):
         """Add a geometry column to the given table."""
-        schema = self._schema if self._schema is not None else ''
+        schema = self._table.schema if self._table.schema is not None else ''
         self.query("SELECT AddGeometryColumn(%s, %s, %s, %s, %s, 2)",
-                        (schema, self._table, column, proj, geom))
+                        (schema, self._table.table, column, proj, geom))
         if with_index:
             self.create_geometry_index(column)
 
     def create_index(self, col):
         """Create an index over the given column(s)."""
-        self.query("CREATE INDEX %s_%s on %s (%s)" % (self._table, col, self.table, col))
+        self.query("CREATE INDEX %s_%s on %s (%s)" 
+                    % (self._table.name, col, self.table, col))
 
     def create_geometry_index(self, col='geom'):
         """Create an index over a geomtry column using a gist index."""
         self.query("""CREATE INDEX %s_%s on %s 
                         using gist (%s GIST_GEOMETRY_OPS)"""
-                        % (self._table, col, self.table, col))
+                      % (self._table.name, col, self.table, col))
 
     def insert_values(self, values):
-        """Insert a row into the table. 'values' must be a dict type where the keys
-           identify the column.
+        """Insert a row into the table. 'values' must be a dict type where the 
+           keys identify the column.
         """
         self.query("INSERT INTO %s (%s) VALUES (%s)" % 
                         (self.table, 
@@ -207,7 +218,7 @@ class PGTable(PGObject):
                      values.values())
 
     def update_values(self, tags, where, data=None):
-        """Update rows in the table. 'values'must be a dict type where the keys
+        """Update rows in the table. 'tags' must be a dict type where the keys
            identify the column.
         """
         if data is None:

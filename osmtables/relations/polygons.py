@@ -58,8 +58,8 @@ class RelationPolygons(subtable.OsmosisSubTable):
     """
 
     def __init__(self, db, name, subset = None, child_tags=[], 
-                      geom='geom', transform='%s',schema=None):
-        subtable.OsmosisSubTable.__init__(self, db, 'relation', name, subset, schema)
+                      geom='geom', transform='%s'):
+        subtable.OsmosisSubTable.__init__(self, db, 'relation', name, subset)
         self._child_tags = child_tags
         self._geomcol = geom
         self._transform = transform

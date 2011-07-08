@@ -30,8 +30,8 @@ class RelationHierarchy(PGTable):
        faster.
     """
 
-    def __init__(self, db, name="relations_hier", subset=None, schema=None):
-        PGTable.__init__(self, db, name, schema=schema)
+    def __init__(self, db, name="relations_hier", subset=None):
+        PGTable.__init__(self, db, name)
 
         if subset is None:
             self._subset = """SELECT DISTINCT relation_id 

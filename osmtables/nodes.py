@@ -32,8 +32,8 @@ class NodeSubTable(PGTable):
        (TODO: link to action_function script.)
     """
 
-    def __init__(self, db, name, subset, schema=None, geom='geom', transform='%s'):
-        PGTable.__init__(self, db, name, schema=schema)
+    def __init__(self, db, name, subset, geom='geom', transform='%s'):
+        PGTable.__init__(self, db, name)
         updateset = "id IN (SELECT id FROM node_changeset WHERE action <> 'D')"
         if subset is None:
             self.wherequery = ""

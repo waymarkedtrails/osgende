@@ -33,8 +33,8 @@ class OsmosisSubTable(PGTable):
        (TODO: link to action_function script.)
     """
 
-    def __init__(self, db, basetable, name, subset, schema=None):
-        PGTable.__init__(self, db, name, schema=schema)
+    def __init__(self, db, basetable, name, subset):
+        PGTable.__init__(self, db, name)
         updateset = "id IN (SELECT id FROM %s_changeset WHERE action <> 'D')" % basetable
         if subset is None:
             self.wherequery = ""
@@ -84,20 +84,20 @@ class OsmosisSubTable(PGTable):
         """ Transform OSM tags into database table columns.
             'osmid' contains the ID of the OSM object to be transformed,
             tags is a hash of OSM tag values. The function should return
-            a hash of valies, where the key is the table column.
+            a hash of values, where the key is the table column.
 
             This is just a dummy function that should be overwritten by
             derived classes to do something meaningful.
 
             Note that the OSM id should not be explictly saved, it will be
-            always put in a coolumn called 'id'.
+            always put in a column called 'id'.
         """
         return {}
 
     def init_update(self):
         """ This funtion is called before the construction of update of the
             table is started. By default, it doesn't do anything but it can
-            be overwritten to initialisation of datastructures or the
+            be overwritten to do initialisation of datastructures or the
             database (e.g. prepare queries).
         """
         pass
