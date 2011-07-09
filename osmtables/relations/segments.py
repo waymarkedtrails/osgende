@@ -16,6 +16,9 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from common.postgisconn import PGTable
+from common.geom import FusableWay
+import shapely.geometry as sgeom
+from datetime import datetime as dt
 
 class RelationSegments(PGTable):
     """ Builds a routable network out of OSM route relations.
@@ -50,7 +53,7 @@ class RelationSegments(PGTable):
                     %s
                     ways       bigint[],
                     rels       bigint[]
-                )""" % coltype)
+                )""" % country_col)
 
         self.add_geometry_column("geom", "900913", 'LINESTRING', with_index=with_geom_index)
 
@@ -59,7 +62,8 @@ class RelationSegments(PGTable):
         """
         self.first_new_id = self.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         self.truncate()
-        wayproc = _WayCollector(self, self.country_table, self.country_column, creation_mode=True)
+        wayproc = _WayCollector(self, self.country_table, self.country_column, 
+                                self.subset, creation_mode=True)
 
         sortedrels = list(wayproc.relations)
         sortedrels.sort()
@@ -82,7 +86,8 @@ class RelationSegments(PGTable):
         """
         self.first_new_id = self.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         wayproc = _WayCollector(self, self.counrty_table, 
-                                self.country_column, precompute_intersections=False)
+                                self.country_column, self.subset,
+                                precompute_intersections=False)
         # print "Valid relations:", wayproc.relations
 
         print dt.now(), "Collecting points eggected by update"
@@ -171,10 +176,11 @@ class _WayCollector:
        of multiple relations.
     """
 
-    def __init__(self, table, cntrytab, cntrycol
+    def __init__(self, table, cntrytab, cntrycol, subset,
                   creation_mode=False, precompute_intersections=True):
         self.table = table
-        if self.country_table is None:
+        self.subset = subset
+        if cntrytab is None:
             self._write_segment = self._write_segment_without_country
         else:
             self._write_segment = self._write_segment_with_country
@@ -308,7 +314,7 @@ class _WayCollector:
             ) as weighted
             GROUP BY nid
           ) as total
-          WHERE sum > 1; """ % (subset))
+          WHERE sum > 1; """ % (self.subset))
 
         for ele in c:
             self.intersections.add(ele['nid'])
@@ -380,7 +386,7 @@ class _WayCollector:
             
             self.table.query("""INSERT INTO %s 
                                    (nodes, rels, ways, geom)
-                                   VALUES(%%s, %%s, %%s, %%s, %%s
+                                   VALUES(%%s, %%s, %%s, %%s
                                    )""" % (self.table.table),
                                  (way.nodes,
                                   relations, 

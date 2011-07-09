@@ -199,13 +199,13 @@ class PGTable(PGObject):
     def create_index(self, col):
         """Create an index over the given column(s)."""
         self.query("CREATE INDEX %s_%s on %s (%s)" 
-                    % (self._table.name, col, self.table, col))
+                    % (self._table.table, col, self.table, col))
 
     def create_geometry_index(self, col='geom'):
         """Create an index over a geomtry column using a gist index."""
         self.query("""CREATE INDEX %s_%s on %s 
                         using gist (%s GIST_GEOMETRY_OPS)"""
-                      % (self._table.name, col, self.table, col))
+                      % (self._table.table, col, self.table, col))
 
     def insert_values(self, values):
         """Insert a row into the table. 'values' must be a dict type where the 
@@ -247,6 +247,6 @@ class PGTable(PGObject):
                           ON n.oid = c.relnamespace
                      WHERE c.relname = %s
                        AND n.nspname = %s )
-         """ % (column, self._table.table, schema)
+         """ % (column, self._table.table, schema))
 
 
