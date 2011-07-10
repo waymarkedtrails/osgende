@@ -43,7 +43,7 @@ class RelationSegments(PGTable):
         if self.country_table is None:
             country_col = ''
         else:
-            coltype = self.get_column_type(self.country_column)
+            coltype = self.country_table.get_column_type(self.country_column)
             if coltype is None:
                 raise Exception("column in country table not found")
             country_col = 'country %s,' % coltype

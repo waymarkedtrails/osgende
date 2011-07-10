@@ -247,6 +247,6 @@ class PGTable(PGObject):
                           ON n.oid = c.relnamespace
                      WHERE c.relname = %s
                        AND n.nspname = %s )
-         """ % (column, self._table.table, schema))
+         """, (column, self._table.table, schema))
 
 
