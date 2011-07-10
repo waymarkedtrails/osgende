@@ -85,7 +85,7 @@ class RelationSegments(PGTable):
         """Update changed segments.
         """
         self.first_new_id = self.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
-        wayproc = _WayCollector(self, self.counrty_table, 
+        wayproc = _WayCollector(self, self.country_table, 
                                 self.country_column, self.subset,
                                 precompute_intersections=False)
         # print "Valid relations:", wayproc.relations
@@ -113,7 +113,7 @@ class RelationSegments(PGTable):
                                   WHERE action = 'M')
               )
             ))
-            """ % (self.table, subset))
+            """ % (self.table, self.subset))
 
         #print "Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes")
 
@@ -152,7 +152,7 @@ class RelationSegments(PGTable):
                                       AND c.action != 'D'
                                       AND m.relation_id = r.id
                                       AND m.member_type = 'W'
-                                      AND %s""" % (subset))
+                                      AND %s""" % (self.subset))
         for c in cur:
             # print c[0]
             wayproc.add_way(c[0])
