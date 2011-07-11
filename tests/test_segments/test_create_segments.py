@@ -227,7 +227,7 @@ class TestRelationTypes(st.CreateSegmentTableTestCase):
 
     out = [
         { 'nodes' : [1,2,3],
-          'ways' : [1], "rels" : [2,3,4]
+          'ways' : [1], "rels" : [2,5]
         }
     ]
 
