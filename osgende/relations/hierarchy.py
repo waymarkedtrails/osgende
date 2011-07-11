@@ -15,7 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from common.postgisconn import PGTable
+from osgende.common.postgisconn import PGTable
 
 class RelationHierarchy(PGTable):
     """Table describing the relation hierarchies of the OSM relations table.

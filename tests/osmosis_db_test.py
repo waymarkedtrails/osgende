@@ -18,7 +18,7 @@
 """
 
 import unittest
-import common.postgisconn as pgconn
+import osgende.common.postgisconn as pgconn
 import shapely.geometry as sgeom
 import psycopg2
 from datetime import datetime
@@ -70,19 +70,19 @@ class OsmosisDBTest(unittest.TestCase):
         nodeset = set()
 
         # first create the ways
-        tab = pgconn.PGTable(self.db, "ways")
+        tab = pgconn.PGTable(self.db, pgconn.PGTableName("ways"))
         for w in self.ways:
             self._add_way(tab, w)
             nodeset.update(w['nodes'])
 
         # now add nodes
-        tab = pgconn.PGTable(self.db,"nodes")
+        tab = pgconn.PGTable(self.db,pgconn.PGTableName("nodes"))
         for n in nodeset:
             self._add_node(tab, n)
 
         # finally the relations
-        tab = pgconn.PGTable(self.db,"relations")
-        tabmem = pgconn.PGTable(self.db,"relation_members")
+        tab = pgconn.PGTable(self.db,pgconn.PGTableName("relations"))
+        tabmem = pgconn.PGTable(self.db,pgconn.PGTableName("relation_members"))
         for r in self.rels:
             self._add_relation(tab, tabmem, r)
 
@@ -94,8 +94,8 @@ class OsmosisDBTest(unittest.TestCase):
         nodeset = set()
 
         # first create the ways
-        tab = pgconn.PGTable(self.db, "ways")
-        action = pgconn.PGTable(self.db, "way_changeset")
+        tab = pgconn.PGTable(self.db, pgconn.PGTableName("ways"))
+        action = pgconn.PGTable(self.db, pgconn.PGTableName("way_changeset"))
         for w in self.upways:
             if w['id'] < 0:
                 tab.query("DELETE FROM ways WHERE id = %s", (-w['id'],))
@@ -119,8 +119,8 @@ class OsmosisDBTest(unittest.TestCase):
             nodeset.difference_update(w['nodes'])
 
         print "Adding nodes",nodeset
-        tab = pgconn.PGTable(self.db,"nodes")
-        action = pgconn.PGTable(self.db, "node_changeset")
+        tab = pgconn.PGTable(self.db,pgconn.PGTableName("nodes"))
+        action = pgconn.PGTable(self.db, pgconn.PGTableName("node_changeset"))
         for n in nodeset:
             self._add_node(tab, n)
             action.insert_values({ 'id' : n, 'action' : 'A' })
@@ -137,9 +137,9 @@ class OsmosisDBTest(unittest.TestCase):
                 tab.query("UPDATE nodes SET geom=%s WHERE id = %s", (geom,n))
 
         # finally the relations
-        tab = pgconn.PGTable(self.db,"relations")
-        tabmem = pgconn.PGTable(self.db, "relation_members")
-        action = pgconn.PGTable(self.db, "relation_changeset")
+        tab = pgconn.PGTable(self.db,pgconn.PGTableName("relations"))
+        tabmem = pgconn.PGTable(self.db, pgconn.PGTableName("relation_members"))
+        action = pgconn.PGTable(self.db, pgconn.PGTableName("relation_changeset"))
         for r in self.uprels:
             if r['id'] < 0:
                 tab.query("DELETE FROM relations WHERE id = %s", (-r['id'],))

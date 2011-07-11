@@ -15,14 +15,14 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from common.geom import FusableWay,Bbox
-import osmtables.subtable as subtable
+from osgende.common.geom import FusableWay,Bbox
+import osgende
 import shapely.geometry as sgeom
 import shapely.ops as sops
 import shapely.geos as geos
 
 
-class RelationPolygons(subtable.OsmosisSubTable):
+class RelationPolygons(osgende.OsmosisSubTable):
     """Table of polygons created from relations (aka multipolygons).
 
        Tries to reconstruct polygons in a fault tolerant way. It should be able to
@@ -59,7 +59,7 @@ class RelationPolygons(subtable.OsmosisSubTable):
 
     def __init__(self, db, name, subset = None, child_tags=[], 
                       geom='geom', transform='%s'):
-        subtable.OsmosisSubTable.__init__(self, db, 'relation', name, subset)
+        osgende.OsmosisSubTable.__init__(self, db, 'relation', name, subset)
         self._child_tags = child_tags
         self._geomcol = geom
         self._transform = transform

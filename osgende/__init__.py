@@ -1,5 +1,5 @@
-# This file is part of Osgende
-# Copyright (C) 2010-11 Sarah Hoffmann
+# This file is part of Lonvia's Hiking Map
+# Copyright (C) 2010 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -15,5 +15,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-import common
-import osmtables
+""" A collection of classes that provide general implementation of tables
+    derived from the Osmosis pgsnapshot schema.
+"""
+
+from subtable import OsmosisSubTable
+from relations import RelationHierarchy, RelationPolygons, RelationSegments
+from nodes import NodeSubTable
+

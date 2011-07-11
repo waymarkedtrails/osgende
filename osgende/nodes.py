@@ -14,97 +14,80 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
-""" 
-Definitions shared between the different table type.
+"""
+Tables for nodes
 """
 
-from common.postgisconn import PGTable
+from osgende.common.postgisconn import PGTable
 
-class OsmosisSubTable(PGTable):
+class NodeSubTable(PGTable):
     """Most basic table type to construct simple derived table from
-       the nodes, ways or relations table.
-
-       'basetable' specifies the Osmosis table to use as basis.
-
+       the nodes table. The difference to OsmosisSubTable is that 
+       it also the geometry of the node is copied into the table.
+       Use 'geom' to state the name of the column that should contain
+       the geometry and 'transform' to give a transformation function.
 
        For update to work properly, the table needs to have the action
-       module installed and expects the *_changes tables to be existent.
+       module installed and expects the *_changeset tables to be existent.
        (TODO: link to action_function script.)
     """
 
-    def __init__(self, db, basetable, name, subset):
+    def __init__(self, db, name, subset, geom='geom', transform='%s'):
         PGTable.__init__(self, db, name)
-        updateset = "id IN (SELECT id FROM %s_changeset WHERE action <> 'D')" % basetable
+        updateset = "id IN (SELECT id FROM node_changeset WHERE action <> 'D')"
         if subset is None:
             self.wherequery = ""
             self.updatequery = "WHERE %s"% updateset
         else:
             self.wherequery = "WHERE %s" % subset
             self.updatequery = "WHERE %s AND %s" % (subset, updateset)
-        self.basetable = basetable
+        self.geom = geom
+        self.transform = transform
 
     def construct(self):
         """Fill the table"""
 
-        self.init_update()
+        print "Constructing objects in table..."
         self.truncate()
         self.insert_objects(self.wherequery)
-        self.finish_update()
 
     def update(self):
         """Update table
         """
 
-        self.init_update()
         # delete any objects that might have been changed
         self.query("""DELETE FROM %s 
-                       WHERE id IN (SELECT id FROM %s_changeset)
-                   """ % (self.table, self.basetable))
+                       WHERE id IN (SELECT id FROM node_changeset)
+                   """ % (self.table))
         # reinsert those that are not deleted
         self.insert_objects(self.updatequery)
-        # finish up
-        self.finish_update()
 
  
     def insert_objects(self, wherequery):
-        cur = self.select("SELECT id, tags FROM %ss %s" 
-                         % (self.basetable, wherequery))
+        cur = self.select("SELECT id, tags, geom FROM nodes %s" 
+                         % (wherequery))
         for obj in cur:
             tags = self.transform_tags(obj['id'], obj['tags'])
 
-            query = ("INSERT INTO %s (id, %s) VALUES (%s, %s)" % 
-                        (self.table, 
-                         ','.join(tags.keys()), obj['id'],
-                         ','.join(['%s' for i in range(0,len(tags))])))
-            #print self.cursor().mogrify(query, tags.values())
-            self.query(query, tags.values())
+            query = ("INSERT INTO %s (id, %s, %s) VALUES (%s, %s, %s)" % 
+                        (self.table, self.geom,
+                         ','.join(tags.keys()), obj['id'], self.transform,
+                         ','.join(['%s' for i in range(len(tags))])))
+            params = [obj['geom']]
+            params.extend(tags.values())
+            self.query(query, params)
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
             'osmid' contains the ID of the OSM object to be transformed,
             tags is a hash of OSM tag values. The function should return
-            a hash of values, where the key is the table column.
+            a hash of valies, where the key is the table column.
 
             This is just a dummy function that should be overwritten by
             derived classes to do something meaningful.
 
             Note that the OSM id should not be explictly saved, it will be
-            always put in a column called 'id'.
+            always put in a coolumn called 'id'.
         """
         return {}
 
-    def init_update(self):
-        """ This funtion is called before the construction of update of the
-            table is started. By default, it doesn't do anything but it can
-            be overwritten to do initialisation of datastructures or the
-            database (e.g. prepare queries).
-        """
-        pass
-
-    def finish_update(self):
-        """ The counterpart of init_update() is called after the data has been
-            written to the table (but before any commit()). Overwrite it to do
-            something useful.
-        """
-        pass
