@@ -90,30 +90,38 @@ class RelationSegments(PGTable):
                                 precompute_intersections=False)
         # print "Valid relations:", wayproc.relations
 
+        print dt.now(), "Collecting changed and new ways"
+        self.query("""CREATE TEMP TABLE temp_updated_ways AS
+                      (SELECT id, nodes FROM ways
+                         WHERE id IN
+                         (SELECT DISTINCT member_id FROM
+                          (SELECT relation_id, member_id
+                             FROM relation_members rm, relations r
+                            WHERE r.id = rm.relation_id
+                              AND rm.member_type = 'W'
+                              AND %s) as relmem
+                          WHERE relation_id IN (SELECT id FROM relation_changeset 
+                                                WHERE action != 'D')
+                             OR member_id IN (SELECT id FROM way_changeset 
+                                              WHERE action = 'M')
+                          )
+                      )""" % (self.subset))
+        print dt.now(), "Adding those ways to changeset"
+        cur = self.select_cursor("SELECT id, nodes FROM temp_updated_ways")
+        for c in cur:
+            wayproc.add_way(c[0], c[1])
+
+
         print dt.now(), "Collecting points effected by update"
         # collect all nodes that are affected by the update
         self.query("""CREATE TEMP TABLE temp_updated_nodes AS
             ((SELECT unnest(nodes) as id FROM %s
-              WHERE ways && ARRAY(SELECT id FROM way_changeset 
-                                  WHERE action != 'C')
-                 OR rels && ARRAY(SELECT id FROM relation_changeset 
-                                  WHERE action != 'C'))
+              WHERE ways && ARRAY(SELECT id FROM way_changeset)
+                 OR rels && ARRAY(SELECT id FROM relation_changeset))
             UNION
-            (SELECT unnest(nodes) as id FROM ways
-             WHERE id IN
-             (SELECT DISTINCT member_id FROM
-              (SELECT relation_id, member_id
-                 FROM relation_members rm, relations r
-                WHERE r.id = rm.relation_id
-                  AND rm.member_type = 'W'
-                  AND %s) as relmem
-              WHERE relation_id IN (SELECT id FROM relation_changeset 
-                                    WHERE action != 'D')
-                 OR member_id IN (SELECT id FROM way_changeset 
-                                  WHERE action = 'M')
-              )
-            ))
-            """ % (self.table, self.subset))
+            (SELECT unnest(nodes) as id FROM temp_updated_ways)
+            )
+            """ % (self.table))
 
         #print "Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes")
 
@@ -143,20 +151,6 @@ class RelationSegments(PGTable):
                 wayproc.add_way(w)
             uptable.add(c[1], 'D')
     
-        # finally, add the ways of new arrivals (and newly arrived ways, actually)
-        print dt.now(), "New relations and ways..." 
-        cur = self.select_cursor("""SELECT DISTINCT member_id
-                                    FROM relation_members m, relations r,
-                                         relation_changeset c
-                                    WHERE c.id = r.id
-                                      AND c.action != 'D'
-                                      AND m.relation_id = r.id
-                                      AND m.member_type = 'W'
-                                      AND %s""" % (self.subset))
-        for c in cur:
-            # print c[0]
-            wayproc.add_way(c[0])
-
         # done, add the result back to the table
         print dt.now(), "Processing segments"
         wayproc.process_segments()
@@ -204,7 +198,7 @@ class _WayCollector:
         # actual collection of fusable ways
         self.relgroups = {}
 
-    def add_way(self, way):
+    def add_way(self, way, nodes=None):
         """Add another OSM way accroding to its relations.
         """
         if way in self.waysdone:
@@ -232,13 +226,14 @@ class _WayCollector:
 
         membership = tuple(membership)
         # get the nodes
-        nodes = self.table.select_one("""SELECT nodes FROM ways
-                                   WHERE id = %s""", (way,))
+        if nodes is None:
+            nodes = self.table.select_one("""SELECT nodes FROM ways
+                                       WHERE id = %s""", (way,))
 
         if nodes:
             # remove duplicated nodes if they immediately follow each other
-            # This needs to be done to resolve an as of yet unresolved Potlach bug,
-            # see: http://trac.openstreetmap.org/ticket/2501
+            # This needs to be done to resolve an as of yet unresolved Potlach 
+            # bug, see: http://trac.openstreetmap.org/ticket/2501
             for i in range(len(nodes)-1,0,-1):
                 if nodes[i] == nodes[i-1]: del nodes[i]
             if not membership in self.relgroups:
