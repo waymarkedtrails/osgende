@@ -90,7 +90,7 @@ class RelationSegments(PGTable):
                                 precompute_intersections=False)
         # print "Valid relations:", wayproc.relations
 
-        print dt.now(), "Collecting points eggected by update"
+        print dt.now(), "Collecting points effected by update"
         # collect all nodes that are affected by the update
         self.query("""CREATE TEMP TABLE temp_updated_nodes AS
             ((SELECT unnest(nodes) as id FROM %s
