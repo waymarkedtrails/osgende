@@ -113,13 +113,18 @@ class RelationSegments(PGTable):
 
 
         print dt.now(), "Collecting points effected by update"
-        # collect all nodes that are affected by the update
+        # collect all nodes that are affected by the update:
+        #  1. nodes in segments whose relation or ways have changed
+        #  2. nodes in added or changed ways
+        #  3. nodes that have been moved
         self.query("""CREATE TEMP TABLE temp_updated_nodes AS
             ((SELECT unnest(nodes) as id FROM %s
               WHERE ways && ARRAY(SELECT id FROM way_changeset)
                  OR rels && ARRAY(SELECT id FROM relation_changeset))
             UNION
             (SELECT unnest(nodes) as id FROM temp_updated_ways)
+            UNION
+             (SELECT id FROM node_changeset WHERE action = 'M')
             )
             """ % (self.table))
 
@@ -137,20 +142,6 @@ class RelationSegments(PGTable):
                 wayproc.add_way(w)
             uptable.add(c[1], 'D')
 
-
-        # now get all segments where nodes have been changed
-        print dt.now(), "Segments with modified nodes..."
-        cur = self.select_cursor("""DELETE FROM %s
-                                    WHERE nodes && 
-                                           ARRAY(SELECT id FROM node_changeset
-                                                 WHERE action = 'M')
-                                    RETURNING ways, geom """ % (self.table))
-        for c in cur:
-            for w in c[0]:
-                #print w
-                wayproc.add_way(w)
-            uptable.add(c[1], 'D')
-    
         # done, add the result back to the table
         print dt.now(), "Processing segments"
         wayproc.process_segments()
