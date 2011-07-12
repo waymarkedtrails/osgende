@@ -118,9 +118,10 @@ class RelationSegments(PGTable):
         #  2. nodes in added or changed ways
         #  3. nodes that have been moved
         self.query("""CREATE TEMP TABLE temp_updated_nodes AS
-            ((SELECT unnest(nodes) as id FROM %s
+            ((SELECT unnest(ARRAY[nodes[1],nodes[array_length(nodes,1)]]) as id FROM %s
               WHERE ways && ARRAY(SELECT id FROM way_changeset)
-                 OR rels && ARRAY(SELECT id FROM relation_changeset))
+                 OR rels && ARRAY(SELECT id FROM relation_changeset)
+             )
             UNION
             (SELECT unnest(nodes) as id FROM temp_updated_ways)
             UNION
