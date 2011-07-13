@@ -131,17 +131,35 @@ class RelationSegments(PGTable):
 
         #print "Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes")
 
+        # create a temporary function that scans our temporary
+        # node table. This is hopefully faster than a full cross scan.
+        self.query("""CREATE OR REPLACE FUNCTION temp_updated_nodes_find(a ANYARRAY) RETURNS bool AS
+                      $$
+                        DECLARE
+                          ele bigint;
+                        BEGIN
+                         FOR ele IN SELECT unnest(a) LOOP
+                           PERFORM * FROM temp_updated_nodes WHERE id = ele LIMIT 1;
+                           IF FOUND THEN RETURN true; END IF;
+                         END LOOP;
+                         RETURN false;
+                        END
+                        $$
+                        LANGUAGE plpgsql;
+                       CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id); 
+                   """)
         # throw out all segments that have one of these points
         print dt.now(), "Segments with bad intersections..."
         cur = self.select_cursor("""DELETE FROM %s
-                                    WHERE nodes && 
-                                           ARRAY(SELECT id FROM temp_updated_nodes)
+                                    WHERE temp_updated_nodes_find(nodes) 
                                     RETURNING ways, geom""" % (self.table))
         for c in cur:
             for w in c[0]:
                 #print w
                 wayproc.add_way(w)
             uptable.add(c[1], 'D')
+
+        self.query("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
         # done, add the result back to the table
         print dt.now(), "Processing segments"
