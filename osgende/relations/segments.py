@@ -94,18 +94,24 @@ class RelationSegments(PGTable):
         self.query("""CREATE TEMP TABLE temp_updated_ways AS
                       (SELECT id, nodes FROM ways
                          WHERE id IN
-                         (SELECT DISTINCT member_id FROM
-                          (SELECT relation_id, member_id
+                         ((SELECT member_id
                              FROM relation_members rm, relations r
                             WHERE r.id = rm.relation_id
                               AND rm.member_type = 'W'
-                              AND %s) as relmem
-                          WHERE relation_id IN (SELECT id FROM relation_changeset 
+                              AND %s
+                              AND relation_id IN (SELECT id FROM relation_changeset 
                                                 WHERE action != 'D')
-                             OR member_id IN (SELECT id FROM way_changeset 
-                                              WHERE action = 'M')
                           )
-                      )""" % (self.subset))
+                         UNION
+                          (SELECT member_id
+                             FROM relation_members rm, relations r
+                            WHERE r.id = rm.relation_id
+                              AND rm.member_type = 'W'
+                              AND %s
+                              AND member_id IN (SELECT id FROM way_changeset 
+                                              WHERE action = 'M')
+                          ))
+                      )""" % (self.subset, self.subset))
         print dt.now(), "Adding those ways to changeset"
         cur = self.select_cursor("SELECT id, nodes FROM temp_updated_ways")
         for c in cur:
