@@ -36,7 +36,7 @@ import struct
 import xml.parsers.expat
 from optparse import OptionParser
 
-from common import postgisconn
+from osgende.common import postgisconn
 
 class DbDumper:
     tempdir = '.'
@@ -248,7 +248,7 @@ class OSMImporter:
                 {'relation_id' : self.current['id'],
                  'member_id': attrs['ref'],
                  'member_type' : attrs['type'][0].upper(),
-                 'member_role' : '"%s"' % attrs['role'].translate(OSMImporter.sqltrans),
+                 'member_role' : '%s' % attrs['role'].translate(OSMImporter.sqltrans),
                  'sequence_id' : self.memberseq})
         self.memberseq += 1 
 
@@ -306,7 +306,7 @@ if __name__ == '__main__':
 
     if len(args) == 0:
         OSMImporter(options).readfile('-')
-    if len(args) == 1:
+    elif len(args) == 1:
         OSMImporter(options).readfile(args[0])
     else:
         parser.print_help()
