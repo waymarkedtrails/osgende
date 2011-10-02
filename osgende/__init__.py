@@ -22,4 +22,5 @@
 from subtable import OsmosisSubTable
 from relations import RelationHierarchy, RelationPolygons, RelationSegments
 from nodes import NodeSubTable
-
+from poi import PoiSubTable
+from update import UpdatedGeometriesTable
