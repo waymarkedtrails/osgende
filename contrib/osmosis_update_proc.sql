@@ -24,5 +24,10 @@ CREATE OR REPLACE FUNCTION osmosisUpdate() RETURNS void AS $$
                WHERE member_type = 'W'
                  AND member_id IN (SELECT id FROM actions WHERE data_type = 'W')
                  AND relation_id NOT IN (SELECT id FROM relation_changeset);
+  INSERT INTO relation_changeset 
+               SELECT DISTINCT relation_id, 'M' FROM relation_members
+               WHERE member_type = 'N'
+                 AND member_id IN (SELECT id FROM actions WHERE data_type = 'N')
+                 AND relation_id NOT IN (SELECT id FROM relation_changeset);
   
 $$ LANGUAGE SQL;
