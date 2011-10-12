@@ -33,11 +33,12 @@ class RelationSegments(PGTable):
         country of the Segment is only calculated when it is updated. If a segment
         changes a country due to movement of a boundary, this will go undetected.
     """
-    def __init__(self, db, name, subset, country_table=None, country_column='code'):
+    def __init__(self, db, name, subset, country_table=None, country_column='code', uptable=None):
         PGTable.__init__(self, db, name)
         self.subset = subset
         self.country_table = country_table
         self.country_column = country_column
+        self.update_table = uptable
 
     def create(self, with_geom_index=True):
         if self.country_table is None:
@@ -81,7 +82,7 @@ class RelationSegments(PGTable):
 
 
 
-    def update(self, uptable):
+    def update(self):
         """Update changed segments.
         """
         self.first_new_id = self.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
@@ -163,7 +164,8 @@ class RelationSegments(PGTable):
             for w in c[0]:
                 #print w
                 wayproc.add_way(w)
-            uptable.add(c[1], 'D')
+            if self.update_table is not None:
+                self.update_table.add(c[1], 'D')
 
         self.query("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
@@ -172,9 +174,10 @@ class RelationSegments(PGTable):
         wayproc.process_segments()
 
         # add all newly created segments to the update table
-        uptable.query("""INSERT INTO %s (action,geom) 
+        if self.update_table is not None:
+            self.update_table.query("""INSERT INTO %s (action,geom) 
                       SELECT 'C', geom FROM %s WHERE id >= %%s"""
-                     % (uptable.table, self.table), (self.first_new_id, )) 
+                     % (self.update_table.table, self.table), (self.first_new_id, )) 
 
 
 class _WayCollector:

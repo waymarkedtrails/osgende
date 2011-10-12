@@ -76,3 +76,5 @@ class RelationHierarchy(PGTable):
             todo = (res is not None)
             depth += 1
 
+    def update(self):
+        self.construct()
