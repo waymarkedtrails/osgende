@@ -1,4 +1,4 @@
-# This file is part of Lonvia's Hiking Map
+# This file is part of Osgende
 # Copyright (C) 2011 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
@@ -18,15 +18,12 @@
 Simple importer of OSM planet dumps and diffs into a simplified Osmosis
 style postgresql database.
 
-Diffs must be applied in correct order in order to keep database integrety.
+Diffs must be applied in correct order in order to keep database integrity.
 However, diffs can be savely reapplied, i.e. it is possible to reapply an
 older diff iff all diffs that follow are reapplied as well.
 
 Diffs must not contain duplicates. Use osmosis' simplifyChange to remove
 duplicates.
-
-WARNING: This code is not yet properly tested (i.e. not at all). Use at
-         your own risk.
 """
 
 import sys
