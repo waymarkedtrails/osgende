@@ -405,7 +405,7 @@ class _WayCollector:
                                  (way.nodes,
                                   relations, 
                                   way.ways, line))
-            self.table.db.commit()
+            #self.table.db.commit()
         else:
             print "Warning: empty way", way
 
