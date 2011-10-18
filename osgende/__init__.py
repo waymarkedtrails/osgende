@@ -20,6 +20,6 @@
 """
 
 from subtable import OsmosisSubTable
-from relations import RelationHierarchy, RelationPolygons, RelationSegments
+from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
 from nodes import NodeSubTable
 from update import UpdatedGeometriesTable

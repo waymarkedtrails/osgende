@@ -17,4 +17,4 @@
 
 from hierarchy import RelationHierarchy
 from polygons import RelationPolygons
-from segments import RelationSegments
+from segments import RelationSegments, RelationSegmentRoutes

@@ -59,7 +59,8 @@ class OsmosisSubTable(PGTable):
         self.init_update()
         # delete any objects that might have been changed
         self.query("""DELETE FROM %s 
-                       WHERE id IN (SELECT id FROM %s_changeset)
+                       WHERE id IN (SELECT id FROM %s_changeset
+                                    WHERE ACTION <> 'A')
                    """ % (self.table, self.basetable))
         # reinsert those that are not deleted
         self.insert_objects(self.updatequery)

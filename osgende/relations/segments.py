@@ -17,12 +17,13 @@
 
 from osgende.common.postgisconn import PGTable
 from osgende.common.geom import FusableWay
+from osgende.subtable import OsmosisSubTable
 import shapely.geometry as sgeom
 from datetime import datetime as dt
 
 class RelationSegments(PGTable):
     """ Builds a routable network out of OSM route relations.
-    
+
         Segments are the basic way system of the network.
 
         This table only collects the information about the network geometry.
@@ -63,14 +64,14 @@ class RelationSegments(PGTable):
         """
         self.first_new_id = self.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         self.truncate()
-        wayproc = _WayCollector(self, self.country_table, self.country_column, 
+        wayproc = _WayCollector(self, self.country_table, self.country_column,
                                 self.subset, creation_mode=True)
 
         sortedrels = list(wayproc.relations)
         sortedrels.sort()
         for rel in sortedrels:
             print "Processing relation",rel
-            ways = self.select_column("""SELECT member_id FROM relation_members 
+            ways = self.select_column("""SELECT member_id FROM relation_members
                                   WHERE member_type = 'W' AND
                                         relation_id = %s""", (rel,))
             if ways:
@@ -86,7 +87,7 @@ class RelationSegments(PGTable):
         """Update changed segments.
         """
         self.first_new_id = self.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
-        wayproc = _WayCollector(self, self.country_table, 
+        wayproc = _WayCollector(self, self.country_table,
                                 self.country_column, self.subset,
                                 precompute_intersections=False)
         # print "Valid relations:", wayproc.relations
@@ -100,7 +101,7 @@ class RelationSegments(PGTable):
                             WHERE r.id = rm.relation_id
                               AND rm.member_type = 'W'
                               AND %s
-                              AND relation_id IN (SELECT id FROM relation_changeset 
+                              AND relation_id IN (SELECT id FROM relation_changeset
                                                 WHERE action != 'D')
                           )
                          UNION
@@ -109,7 +110,7 @@ class RelationSegments(PGTable):
                             WHERE r.id = rm.relation_id
                               AND rm.member_type = 'W'
                               AND %s
-                              AND member_id IN (SELECT id FROM way_changeset 
+                              AND member_id IN (SELECT id FROM way_changeset
                                               WHERE action = 'M')
                           ))
                       )""" % (self.subset, self.subset))
@@ -153,12 +154,12 @@ class RelationSegments(PGTable):
                         END
                         $$
                         LANGUAGE plpgsql;
-                       CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id); 
+                       CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id);
                    """)
         # throw out all segments that have one of these points
         print dt.now(), "Segments with bad intersections..."
         cur = self.select_cursor("""DELETE FROM %s
-                                    WHERE temp_updated_nodes_find(nodes) 
+                                    WHERE temp_updated_nodes_find(nodes)
                                     RETURNING ways, geom""" % (self.table))
         for c in cur:
             for w in c[0]:
@@ -175,9 +176,9 @@ class RelationSegments(PGTable):
 
         # add all newly created segments to the update table
         if self.update_table is not None:
-            self.update_table.query("""INSERT INTO %s (action,geom) 
+            self.update_table.query("""INSERT INTO %s (action,geom)
                       SELECT 'C', geom FROM %s WHERE id >= %%s"""
-                     % (self.update_table.table, self.table), (self.first_new_id, )) 
+                     % (self.update_table.table, self.table), (self.first_new_id, ))
 
 
 class _WayCollector:
@@ -251,7 +252,7 @@ class _WayCollector:
 
         if nodes:
             # remove duplicated nodes if they immediately follow each other
-            # This needs to be done to resolve an as of yet unresolved Potlach 
+            # This needs to be done to resolve an as of yet unresolved Potlach
             # bug, see: http://trac.openstreetmap.org/ticket/2501
             for i in range(len(nodes)-1,0,-1):
                 if nodes[i] == nodes[i-1]: del nodes[i]
@@ -283,7 +284,7 @@ class _WayCollector:
             intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
         else:
             intersections = None
-            
+
         for (rels, collector) in self.relgroups.iteritems():
             # print "Processing collector", collector
             relids = [x for (x,y) in rels]
@@ -312,19 +313,19 @@ class _WayCollector:
             SELECT nid, sum(w), count(*)
             FROM (
               SELECT nodes[i] as nid,
-                     (case when i = 1 or i = array_length(nodes,1) then 0.5 
+                     (case when i = 1 or i = array_length(nodes,1) then 0.5
                       else 1 end) as w
               FROM (
                   SELECT nodes, generate_subscripts(nodes, 1) as i
                   FROM ways
-                  WHERE id IN 
-                    (SELECT DISTINCT member_id 
+                  WHERE id IN
+                    (SELECT DISTINCT member_id
                      FROM relation_members
                      WHERE member_type = 'W'
                        AND relation_id IN
                              (SELECT id FROM relations WHERE %s)
                     )
-              ) as nodelist 
+              ) as nodelist
             ) as weighted
             GROUP BY nid
           ) as total
@@ -341,10 +342,10 @@ class _WayCollector:
         countries = {}
         prevpoints = (0,0)
         for n in way.nodes:
-            res = self.table.select_row("""SELECT n.geom, c.%s 
+            res = self.table.select_row("""SELECT n.geom, c.%s
                                          FROM (SELECT ST_Transform(geom,900913) as geom
-                                               FROM nodes WHERE id=%%s) as n 
-                                           LEFT JOIN %s c 
+                                               FROM nodes WHERE id=%%s) as n
+                                           LEFT JOIN %s c
                                            ON ST_Within(n.geom,c.geom)
                                          LIMIT 1
                                       """ % (self.country_column, self.country_table)
@@ -363,13 +364,13 @@ class _WayCollector:
             bestcountry = max(countries.iteritems(), key=lambda x: x[1])[0]
             line = sgeom.LineString(points)
             line._crs = 900913
-            
-            self.table.query("""INSERT INTO %s 
+
+            self.table.query("""INSERT INTO %s
                                    (nodes, country, rels, ways, geom)
                                    VALUES(%%s, %%s, %%s, %%s, %%s
                                    )""" % (self.table.table),
                                  (way.nodes, bestcountry,
-                                  relations, 
+                                  relations,
                                   way.ways, line))
             self.table.db.commit()
         else:
@@ -377,7 +378,7 @@ class _WayCollector:
 
 
 
-    def _write_segment_without_country(self, way, relations):    
+    def _write_segment_without_country(self, way, relations):
         points = []
         # get the node geometries and the countries
         countries = {}
@@ -397,13 +398,13 @@ class _WayCollector:
         if len(points) > 1:
             line = sgeom.LineString(points)
             line._crs = 900913
-            
-            self.table.query("""INSERT INTO %s 
+
+            self.table.query("""INSERT INTO %s
                                    (nodes, rels, ways, geom)
                                    VALUES(%%s, %%s, %%s, %%s
                                    )""" % (self.table.table),
                                  (way.nodes,
-                                  relations, 
+                                  relations,
                                   way.ways, line))
             #self.table.db.commit()
         else:
@@ -431,7 +432,7 @@ class _SegmentCollector:
            the way is split at this point before adding it to the list.
         """
         # find all nodes that are forced intersecions
-        splitidx = [x for x in range(len(nodes)) 
+        splitidx = [x for x in range(len(nodes))
                      if nodes[x] in self.intersections]
         # print "Split points:", splitidx
         if len(splitidx) == 0 or splitidx[0] != 0:
@@ -479,4 +480,57 @@ class _SegmentCollector:
             self.add(w.ways[0], w.nodes)
 
 
+class RelationSegmentRoutes(OsmosisSubTable):
+    """A relation collection class that gets updated according to
+       the changes in a RelationSegment table. If an optional hierarchy
+       table is provided, super relations will be updated as well.
+    """
+
+    def __init__(self, db, name, subset, segmenttable, hiertable=None):
+        OsmosisSubTable.__init__(self, db, 'relation', name, subset)
+        self.segment_table = segmenttable
+        self.hierarchy_table = hiertable
+
+
+    def update(self):
+        firstid = self.segment_table.first_new_id
+        self.init_update()
+        # delete any objects that might have been deleted
+        # (Note: a relation also might get deleted from this table
+        # because it lost its relevant tags
+        self.query("""DELETE FROM %s
+                       WHERE id IN (SELECT id FROM relation_changeset
+                                    WHERE action <> 'A')
+                   """ % (self.table))
+        # Collect all changed relations in a temporary table
+        tmptable = '__%s_tmp_changedrels' % self._table.table
+        if self.hierarchy_table is None:
+            self.query("""CREATE TEMP TABLE %s AS
+                            SELECT DISTINCT unnest(rels)
+                            FROM %s WHERE id >= %%s
+                       """ % (tmptable, self.segment_table.table),
+                       firstid)
+        else:
+            query = """CREATE TEMP TABLE %s AS
+                            (SELECT DISTINCT parent FROM %s
+                            WHERE child IN
+                            ((SELECT DISTINCT unnest(rels)
+                              FROM %s WHERE id >= %%s)
+                             UNION
+                             (SELECT id FROM relation_changeset
+                              WHERE action <> 'D')))
+                       """ % (tmptable,
+                              self.hierarchy_table.table,
+                              self.segment_table.table)
+            #print query
+            self.query(query, (firstid,))
+        self.query("""DELETE FROM %s
+                       WHERE id IN (SELECT * FROM %s)
+                   """ % (self.table, tmptable))
+        # reinsert those that are not deleted
+        self.insert_objects("WHERE id IN (SELECT * FROM %s)" % tmptable)
+        # drop the temporary table
+        self.query("DROP TABLE %s" % tmptable)
+        # finish up
+        self.finish_update()
 
