@@ -20,7 +20,8 @@ Map generation using Mapnik.
 # Code esentially borrowed from tile generation scrips of openstreetmap.org.
 # See: http://trac.openstreetmap.org/browser/applications/rendering/mapnik/generate_tiles.py
 
-from optparse import OptionParser
+from copy import copy
+from optparse import OptionParser, Option, OptionValueError
 
 import os
 from math import pi,cos,sin,log,exp,atan
@@ -48,7 +49,7 @@ class GoogleProjection:
             self.zc.append((e,e))
             self.Ac.append(c)
             c *= 2
-                
+
     def minmax (self, a,b,c):
         a = max(a,b)
         a = min(a,c)
@@ -60,7 +61,7 @@ class GoogleProjection:
          f = self.minmax(sin(DEG_TO_RAD * ll[1]),-0.9999,0.9999)
          g = round(d[1] + 0.5*log((1+f)/(1-f))*-self.Cc[zoom])
          return (e,g)
-     
+
     def fromPixelToLL(self,px,zoom):
          e = self.zc[zoom]
          f = (px[0] - e[0])/self.Bc[zoom]
@@ -71,32 +72,32 @@ class GoogleProjection:
 
 class MapnikOverlayGenerator:
     """Generates tiles in Google format in a top-down way.
-     
-       It will start at the lowest zoomlevel, render a tile, then its 
-       subtiles and so on until the highest zoomlevel. Then it proceeds 
-       to the next tile. The rendering process can be influences with 
-       two query strings. 'changequery' should capture all data that has 
+
+       It will start at the lowest zoomlevel, render a tile, then its
+       subtiles and so on until the highest zoomlevel. Then it proceeds
+       to the next tile. The rendering process can be influences with
+       two query strings. 'changequery' should capture all data that has
        been changed, 'dataquery' should return all renderable data.
 
-       'changequery' determines if a tile is rendered at all. If no data 
-       is returned by this query, the tile is skipped and so are all its 
+       'changequery' determines if a tile is rendered at all. If no data
+       is returned by this query, the tile is skipped and so are all its
        subtiles.
 
-       'dataquery' is only necessary in the update process in order to 
-       delete tiles that no longer contain any data. If 'changequery' 
-       determined that a tile has been changed, but 'dataquery' yields no 
+       'dataquery' is only necessary in the update process in order to
+       delete tiles that no longer contain any data. If 'changequery'
+       determined that a tile has been changed, but 'dataquery' yields no
        data, then the tile is deleted.
-       
-       Both queries must contain a '%s' placeholder for the BBOX of the tile. 
-       The result of the query is not inspected. It is only checked, if any 
-       data is returned. Therefore it is advisable to add a 'LIMIT 1' to the 
+
+       Both queries must contain a '%s' placeholder for the BBOX of the tile.
+       The result of the query is not inspected. It is only checked, if any
+       data is returned. Therefore it is advisable to add a 'LIMIT 1' to the
        query to speed up the process.
 
        'numprocesses' changes the number of parallel processes to use.
 
        If 'tilenumber_rewrite' is True, then for tiles of zoomlevel 10 and
        above an additional intermediate directory in order to avoid having
-       too many files per directory. The first three digits make up the 
+       too many files per directory. The first three digits make up the
        first level, the remaining digits the second level. For tile numbers
        below 1000, the second part is 'o'.
 
@@ -105,7 +106,7 @@ class MapnikOverlayGenerator:
 
        ..
 
-         RewriteRule ^(.*)/([0-9]{2})/([0-9]?[0-9]?[0-9]?)([0-9]*)/([0-9]?[0-9]?[0-9]?)([0-9]*).png$ /$1/$2/$3/$4/$5/$6.png 
+         RewriteRule ^(.*)/([0-9]{2})/([0-9]?[0-9]?[0-9]?)([0-9]*)/([0-9]?[0-9]?[0-9]?)([0-9]*).png$ /$1/$2/$3/$4/$5/$6.png
          RewriteRule (.*[0-9])//([0-9].*)     $1/o/$2
          RewriteRule (.*)/.png                $1/o.png
 
@@ -114,7 +115,7 @@ class MapnikOverlayGenerator:
              implemented.
    """
 
-    def __init__(self, dba, minversion=501, dataquery=None, changequery=None, 
+    def __init__(self, dba, minversion=501, dataquery=None, changequery=None,
                   numprocesses=1, tilenumber_rewrite=False):
         self.num_threads = numprocesses
         self.tilenumber_rewrite=tilenumber_rewrite
@@ -127,7 +128,7 @@ class MapnikOverlayGenerator:
             self.changequery = None
         else:
             self.changequery = changequery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
-        
+
         try:
           self.mapnik_version = mapnik.mapnik_version()
         except:
@@ -147,7 +148,7 @@ class MapnikOverlayGenerator:
                 tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x, 'o')
             else:
                 xdir = '%d' % x
-                tdir = os.path.join(self.tiledir, "%d" % zoom, 
+                tdir = os.path.join(self.tiledir, "%d" % zoom,
                                     xdir[:3], xdir[3:])
             if y < 1000:
                 tilefile = 'o.png'
@@ -193,7 +194,7 @@ class MapnikOverlayGenerator:
             self.cursor.execute(self.dataquery % params)
             if self.cursor.fetchone() is None:
                 hasdata = False
-              
+
         tile_url = self._get_tile_uri(zoom, x, y)
         if hasdata:
             try:
@@ -264,7 +265,7 @@ class RenderThread:
         mapnik.load_map(self.map, stylefile)
 
     def render_tile(self, request):
-        bbox = mapnik.Box2d(request[1].x, request[1].y, 
+        bbox = mapnik.Box2d(request[1].x, request[1].y,
                             request[2].x, request[2].y)
         self.map.zoom_to_box(bbox)
 
@@ -282,6 +283,40 @@ class RenderThread:
 
             self.render_tile(req)
 
+
+class MapGenOptions(Option):
+    """ Adds two types to the action parser: intrange and inttuple.
+
+        'intrange' expects a range in the form of <from>-<to> and
+        returns a Python tuple range(from,to+1).
+
+        'inttuple' epects two comma-separated integers.
+    """
+
+
+    def check_intrange(option, opt, value):
+        try:
+            pos = value.index('-')
+            return (int(value[0:pos]), int(value[pos+1:])+1)
+        except:
+            raise optparse.OptionValueError(
+            "option %s: expect a range, e.g 0-19, got %s" % (opt, value))
+
+    def check_inttuple(option, opt, value):
+        try:
+            pos = value.index(',')
+            return (int(value[0:pos]), int(value[pos+1:]))
+        except:
+            raise optparse.OptionValueError(
+            "option %s: expect a tuple of numbers, e.g 10,19, got %s" % (opt, value))
+
+
+    TYPES = Option.TYPES + ("intrange","inttuple")
+    TYPE_CHECKER = copy(Option.TYPE_CHECKER)
+    TYPE_CHECKER["intrange"] = check_intrange
+    TYPE_CHECKER["inttuple"] = check_inttuple
+
+
 def make_table_query(table):
     if table is None:
         return None
@@ -298,6 +333,7 @@ if __name__ == '__main__':
 
     # fun with command line options
     parser = OptionParser(description=__doc__,
+                          option_class=MapGenOptions,
                           usage='%prog [options] <stylefile> <tiledir>')
     parser.add_option('-d', action='store', dest='database', default='planet',
                        help='name of database')
@@ -305,9 +341,9 @@ if __name__ == '__main__':
                        help='database user')
     parser.add_option('-p', action='store', dest='password', default='',
                        help='password for database')
-    parser.add_option('-z', action='store', dest='zoom', default='0-16',
+    parser.add_option('-z', action='store', type='intrange', dest='zoom', default='0-16',
                        help='zoom levels to create tiles for')
-    parser.add_option('-t', action='store', dest='tiles', default='',
+    parser.add_option('-t', action='store', type='inttuple', dest='tiles', default=None,
                        help='tile to render on lowest zoomlevel(x,y)')
     parser.add_option('-q', action='store', dest='datatable', default=None,
                        help='table to query for existing objects (column is always geom)')
@@ -324,39 +360,30 @@ if __name__ == '__main__':
         parser.print_help()
         exit(-1)
 
-    zoom = [int(x) for x in options.zoom.split('-')]
-    if len(zoom) != 2 or zoom[0] >= zoom[1]:
-        print "Zoom paramter must be of format <minzoom>-<maxzoom>. (you gave: %s)" % zoom
-        parser.print_help()
-        exit(-1)
-    zoom[1] += 1
+    print options.zoom
 
-    maxtilenr = 2**zoom[0]
-    if options.tiles:
-        tilepos = [int(x) for x in options.tiles.split(',')]
-        if len(tilepos) != 2:
-            print "Tile parameter must be of format x,y. You gave: %s" % tilepos
-            exit(-1)
-        x,y = tilepos
+    maxtilenr = 2**options.zoom[0]
+    if options.tiles is not None:
+        x,y = options.tiles
         if x >= maxtilenr:
             print "x position of tile exceeds limit (%d)." % maxtilenr
             exit(-1)
         if y >= maxtilenr:
             print "x position of tile exceeds limit (%d)." % maxtilenr
             exit(-1)
-        
-        box = (zoom, (x,x+1), (y,y+1))
+
+        box = (options.zoom, (x,x+1), (y,y+1))
     else:
-        box = (zoom, (0,maxtilenr), (0,maxtilenr))
-        
-        
+        box = (options.zoom, (0,maxtilenr), (0,maxtilenr))
+
+    print box
+
     dataquery = make_table_query(options.datatable)
     changequery = make_table_query(options.changetable)
-    renderer = MapnikOverlayGenerator('user=osm dbname=planet',
+    renderer = MapnikOverlayGenerator('user=%s dbname=%s' % (options.username, options.database),
                          minversion=701,
                          dataquery=dataquery,
                          changequery=changequery,
                          numprocesses=options.numprocesses,
                          tilenumber_rewrite=options.rewrite_tileschema)
-    #renderer.render('hiking/styles/default.xml', '/secondary/osm/tiles/nghiking', box)
     renderer.render(args[0], args[1], box)
