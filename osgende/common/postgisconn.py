@@ -30,21 +30,6 @@ from psycpg2shapely import initialisePsycopgTypes
 
 # make sure that all strings are in unicode
 psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
-#psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
-
-def connect(dba='dbname=osmosis user=osm'):
-        """Create conntection to the database using the creadentials given in the `dba` string."""
-        # register the Shapely types
-        initialisePsycopgTypes(psycopg_module=psycopg2,
-                        psycopg_extensions_module=psycopg2.extensions,
-                        connect_string=dba)
-
-        ret = psycopg2.connect(dba)
-
-        psycopg2.extras.register_hstore(ret, globally=False, unicode=True)
-
-        return ret
-
 
 class PGTableName(object):
     """Represents the name of a table. This includes next to the name of the
@@ -60,12 +45,20 @@ class PGTableName(object):
             self.fullname = '%s.%s' % (schema, name)
 
 
-class PGObject(object):
+class PGDatabase(object):
     """This base class for all database-related objects provides convenience
        functions for common SQL tasks."""
 
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, dba):
+        # register the Shapely types
+        initialisePsycopgTypes(psycopg_module=psycopg2,
+                        psycopg_extensions_module=psycopg2.extensions,
+                        connect_string=dba)
+
+        self.conn = psycopg2.connect(dba)
+
+        psycopg2.extras.register_hstore(self.conn, globally=False, unicode=True)
+        
 
     def cursor(self):
         """Return the cursor of the instance.
@@ -76,7 +69,7 @@ class PGObject(object):
         try:
             self._cursor
         except AttributeError:
-            self._cursor = psycopg2.extensions.connection.cursor(self.db)
+            self._cursor = psycopg2.extensions.connection.cursor(self.conn)
         
         return self._cursor
 
@@ -87,12 +80,15 @@ class PGObject(object):
 
     def prepare(self, funcname, query):
         """Prepare an SQL query. """
-        self.query("PREPARE %s AS %s;" % (funcname, query))
+        self.query("PREPARE %s AS %s" % (funcname, query))
 
     def deallocate(self, funcname):
         """Free a previously prepared statement.
         """
-        self.query("DEALLOCATE %s;" % funcname)
+        self.query("DEALLOCATE %s" % funcname)
+
+    def commit(self):
+        self.conn.commit()
 
     def select_column(self, query, data=None):
         """Execute the given query and return the first column as a list.
@@ -137,10 +133,10 @@ class PGObject(object):
         """
         if name is None:
             cur = psycopg2.extensions.connection.cursor(
-                     self.db, cursor_factory=psycopg2.extras.RealDictCursor)
+                     self.conn, cursor_factory=psycopg2.extras.RealDictCursor)
         else:
             cur = psycopg2.extensions.connection.cursor(
-                     self.db, name, cursor_factory=psycopg2.extras.RealDictCursor)
+                     self.conn, name, cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(query, data)
         return cur
 
@@ -152,14 +148,14 @@ class PGObject(object):
 
         """
         if name is None:
-            cur = psycopg2.extensions.connection.cursor(self.db)
+            cur = psycopg2.extensions.connection.cursor(self.conn)
         else:
-            cur = psycopg2.extensions.connection.cursor(self.db, name)
+            cur = psycopg2.extensions.connection.cursor(self.conn, name)
         cur.execute(query, data)
         return cur
 
 
-class PGTable(PGObject):
+class PGTable(object):
     """The base class for all derived tables.
 
        Each table is related to one specific database table. `name` must
@@ -167,43 +163,49 @@ class PGTable(PGObject):
     """
 
     def __init__(self, db, name):
-        PGObject.__init__(self, db)
+        self.db = db
         self._table = name
         self.table = name.fullname
 
-    def create(self, layout):
-        """Create a new table with the liven layout.
-           The layout can be either a description of the rows or an
-           SQL query. The first must be given with enclosing brackets, 
-           the latter must be preceeded by AS.
+    def copy_create(self, query):
+        """Create a new table using an SQL query.
         """
         self.drop()
-        self.query("CREATE TABLE %s %s" % (self.table, layout))
+        self.db.query("CREATE TABLE %s AS (%s)" % (self.table, query))
+
+    def layout(self, columns):
+        """Create a new table from the specified columns.
+           Columns must be a list of 2-tuples, each containing the
+           name of the column and its type including possible modifiers. """
+        self.drop()
+        self.db.query("CREATE TABLE %s (%s)" %
+                       (self.table, 
+                        ', '.join(['%s %s' % x for x in columns]))) 
 
     def drop(self):
         """Drop the table or do nothing if it doesn't exist yet."""
-        self.query("DROP TABLE IF EXISTS %s CASCADE" % (self.table))
+        self.db.query("DROP TABLE IF EXISTS %s CASCADE" % (self.table))
 
     def truncate(self):
         """Truncate the entire table."""
-        self.query("TRUNCATE TABLE %s CASCADE" % (self.table))
+        self.db.query("TRUNCATE TABLE %s CASCADE" % (self.table))
 
     def add_geometry_column(self, column='geom', proj='4326', geom="GEOMETRY", with_index=False):
         """Add a geometry column to the given table."""
         schema = self._table.schema if self._table.schema is not None else ''
-        self.query("SELECT AddGeometryColumn(%s, %s, %s, %s, %s, 2)",
+        self.db.query("SELECT AddGeometryColumn(%s, %s, %s, %s, %s, 2)",
                         (schema, self._table.table, column, proj, geom))
         if with_index:
             self.create_geometry_index(column)
 
     def create_index(self, col):
         """Create an index over the given column(s)."""
-        self.query("CREATE INDEX %s_%s on %s (%s)" 
+        self.db.query("CREATE INDEX %s_%s on %s (%s)" 
                     % (self._table.table, col, self.table, col))
 
     def create_geometry_index(self, col='geom'):
         """Create an index over a geomtry column using a gist index."""
-        self.query("""CREATE INDEX %s_%s on %s 
+        self.db.query("""CREATE INDEX %s_%s on %s 
                         using gist (%s GIST_GEOMETRY_OPS)"""
                       % (self._table.table, col, self.table, col))
 
@@ -211,7 +213,7 @@ class PGTable(PGObject):
         """Insert a row into the table. 'values' must be a dict type where the 
            keys identify the column.
         """
-        self.query("INSERT INTO %s (%s) VALUES (%s)" % 
+        self.db.query("INSERT INTO %s (%s) VALUES (%s)" % 
                         (self.table, 
                          ','.join(values.keys()),
                          ('%s,' * len(values))[:-1]),
@@ -225,18 +227,22 @@ class PGTable(PGObject):
             params = tags.values()
         else:
             params = tags.values() + list(data)
-        self.query("UPDATE %s SET (%s) = (%s) WHERE %s" % 
+        self.db.query("UPDATE %s SET (%s) = (%s) WHERE %s" % 
                         (self.table, 
                          ','.join(tags.keys()),
                          ('%s,' * len(tags))[:-1], where),
                     params)
+
+    def delete(self, wherequery):
+        """Delete the colums matching the given query."""
+        self.db.query("DELETE FROM %s WHERE %s"% (self.table, wherequery))
 
     def get_column_type(self, column):
         """Return the type of the column as a string or None if the
            column does not exist.
         """
         schema = 'public' if self._table.schema is None else self._table.schema
-        return self.select_one("""
+        return self.db.select_one("""
             SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) 
               FROM pg_catalog.pg_attribute a
              WHERE a.attname = %s 

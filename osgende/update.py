@@ -33,10 +33,10 @@ class UpdatedGeometriesTable(PGTable):
         PGTable.__init__(self, db, name)
 
     def create(self):
-        PGTable.create(self, "(action  char(1))")
+        self.layout((("action", "char(1)"),))
         self.add_geometry_column("geom", "900913", 'GEOMETRY', with_index=True)
 
     def add(self, geom, action='M'):
-        self.query("INSERT INTO %s (action, geom) VALUES (%%s, %%s)"
+        self.db.query("INSERT INTO %s (action, geom) VALUES (%%s, %%s)"
                      % (self.table), (action, geom))
 

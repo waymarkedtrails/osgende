@@ -66,22 +66,23 @@ class RelationPolygons(osgende.OsmosisSubTable):
 
 
     def insert_objects(self, wherequery):
-        cur = self.select("SELECT id, tags FROM relations %s" 
+        cur = self.db.select("SELECT id, tags FROM relations %s" 
                          % (wherequery))
         for obj in cur:
             poly = self.compute_polygon(obj['id'], obj['tags'])
             if poly is not None:
                 tags = self.transform_tags(obj['id'], obj['tags'])
-                values = [obj['id'], poly]
-                values.extend(tags.values())
+                if tags is not None:
+                    values = [obj['id'], poly]
+                    values.extend(tags.values())
 
-                self.query("INSERT INTO %s (id, %s, %s) VALUES (%%s, %s, %s)" % 
-                            (self.table, 
-                             self._geomcol,
-                             ','.join(tags.keys()),
-                             self._transform,
-                             ','.join(['%s' for i in range(0,len(tags))])),
-                            tuple(values))
+                    self.db.query("INSERT INTO %s (id, %s, %s) VALUES (%%s, %s, %s)" % 
+                                (self.table, 
+                                 self._geomcol,
+                                 ','.join(tags.keys()),
+                                 self._transform,
+                                 ','.join(['%s' for i in range(0,len(tags))])),
+                                tuple(values))
 
     def compute_polygon(self, rid, tags):
         print "Computing polygon out of relation", rid, "Tags:", tags
@@ -140,7 +141,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
         badcoords = []
         distances = []
         for node in badnodes.iterkeys():
-            pt = self.select_one("SELECT geom FROM nodes WHERE id=%s", (node,))
+            pt = self.db.select_one("SELECT geom FROM nodes WHERE id=%s", (node,))
             for (n2,pt2) in badcoords:
                 distances.append((node, n2, pt.distance(pt2)))
             badcoords.append((node, pt))
@@ -183,7 +184,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
 
     def collect_ways(self, rid, tags, ways, nodelist, waysdone):
         # find all the ways and their start and end node
-        cur = self.select("""SELECT member_type as type, member_id as id
+        cur = self.db.select("""SELECT member_type as type, member_id as id
                                FROM relation_members
                               WHERE relation_id = %s""", (rid,))
         for obj in cur:
@@ -192,7 +193,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                     # test eligibility
                     issubrel = True
                     if len(self._child_tags) > 0:
-                        subtags = self.select_one("""SELECT tags 
+                        subtags = self.db.select_one("""SELECT tags 
                                                      FROM relations 
                                                      WHERE id = %s""",
                                                   (obj['id'],))
@@ -204,7 +205,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
             elif obj['type'] == 'W':
                 if not obj['id'] in waysdone:
                     waysdone.add(obj['id'])
-                    nodes = self.select_one("SELECT nodes FROM ways WHERE id=%s"
+                    nodes = self.db.select_one("SELECT nodes FROM ways WHERE id=%s"
                                               % obj['id'])
                     if nodes is not None and len(nodes) > 1:
                         # drop ways that are made of only one node.
@@ -240,7 +241,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
         # First: get all the geometries of the nodes
         points = []
         for n in way.nodes:
-            p = self.select_one("SELECT geom FROM nodes WHERE id = %s", (n,))
+            p = self.db.select_one("SELECT geom FROM nodes WHERE id = %s", (n,))
             points.append(p.coords[0])
 
         # if the list is not a closed way, close it

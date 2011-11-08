@@ -21,9 +21,9 @@ Tables for nodes
 from osgende.common.postgisconn import PGTable
 
 class NodeSubTable(PGTable):
-    """Most basic table type to construct simple derived table from
+    """Most basic table type to construct a simple derived table from
        the nodes table. The difference to OsmosisSubTable is that 
-       it also the geometry of the node is copied into the table.
+       it also copies the geometry of the node to the table.
        Use 'geom' to state the name of the column that should contain
        the geometry and 'transform' to give a transformation function.
 
@@ -56,26 +56,26 @@ class NodeSubTable(PGTable):
         """
 
         # delete any objects that might have been changed
-        self.query("""DELETE FROM %s 
-                       WHERE id IN (SELECT id FROM node_changeset)
-                   """ % (self.table))
+        self.delete("id IN (SELECT id FROM node_changeset)")
         # reinsert those that are not deleted
         self.insert_objects(self.updatequery)
 
  
     def insert_objects(self, wherequery):
-        cur = self.select("SELECT id, tags, geom FROM nodes %s" 
+        cur = self.db.select("SELECT id, tags, geom FROM nodes %s" 
                          % (wherequery))
+        # XXX this really should make use of the COPY function
         for obj in cur:
             tags = self.transform_tags(obj['id'], obj['tags'])
-
-            query = ("INSERT INTO %s (id, %s, %s) VALUES (%s, %s, %s)" % 
-                        (self.table, self.geom,
-                         ','.join(tags.keys()), obj['id'], self.transform,
-                         ','.join(['%s' for i in range(len(tags))])))
-            params = [obj['geom']]
-            params.extend(tags.values())
-            self.query(query, params)
+    
+            if tags is not None:
+                query = ("INSERT INTO %s (id, %s, %s) VALUES (%s, %s, %s)" % 
+                            (self.table, self.geom,
+                             ','.join(tags.keys()), obj['id'], self.transform,
+                             ','.join(['%s' for i in range(len(tags))])))
+                params = [obj['geom']]
+                params.extend(tags.values())
+                self.db.query(query, params)
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
@@ -87,7 +87,7 @@ class NodeSubTable(PGTable):
             derived classes to do something meaningful.
 
             Note that the OSM id should not be explictly saved, it will be
-            always put in a coolumn called 'id'.
+            always put in a column called 'id'.
         """
         return {}
 

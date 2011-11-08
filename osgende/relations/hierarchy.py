@@ -25,9 +25,6 @@ class RelationHierarchy(PGTable):
        IDs that should be included. If no subset is given only relations
        that actually have sub- or super-relations are included. If subset
        is given all relations given in the subset will appear.
-
-       This table does not support updating because recreation is simply
-       faster.
     """
 
     def __init__(self, db, name="relations_hier", subset=None):
@@ -43,17 +40,18 @@ class RelationHierarchy(PGTable):
     def create(self):
         """(Re)create a new, empty hierarchy table.
         """
-        PGTable.create(self, """( parent bigint,
-                                   child bigint,
-                                   depth int
-                         )""")
+        self.layout((
+                    ('parent', 'bigint'),
+                    ('child',  'bigint'),
+                    ('depth',  'int')
+                   ))
 
     def construct(self):
         """Fill the table from the current relation table.
         """
         self.truncate()
         # compute top-level relations
-        self.query("""INSERT INTO %s
+        self.db.query("""INSERT INTO %s
                           SELECT id as parent, id as child, 1 as depth
                             FROM (%s) as s""" % (self.table, self._subset))
 
@@ -63,7 +61,7 @@ class RelationHierarchy(PGTable):
         while todo:
             # then go through the recursive parts
             print "Recursion",depth
-            res = self.select_one("""INSERT INTO %s
+            res = self.db.select_one("""INSERT INTO %s
                             SELECT h.parent, m.member_id, %s 
                             FROM relation_members m, %s h 
                             WHERE h.depth=%s 
@@ -77,4 +75,8 @@ class RelationHierarchy(PGTable):
             depth += 1
 
     def update(self):
+        """Update the table.
+
+           The table is actually simply reconstructed because that is faster.
+        """
         self.construct()

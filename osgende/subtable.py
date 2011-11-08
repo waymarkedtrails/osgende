@@ -58,10 +58,8 @@ class OsmosisSubTable(PGTable):
 
         self.init_update()
         # delete any objects that might have been changed
-        self.query("""DELETE FROM %s 
-                       WHERE id IN (SELECT id FROM %s_changeset
-                                    WHERE ACTION <> 'A')
-                   """ % (self.table, self.basetable))
+        self.delete("""id IN (SELECT id FROM %s_changeset WHERE ACTION <> 'A')
+                   """ % (self.basetable))
         # reinsert those that are not deleted
         self.insert_objects(self.updatequery)
         # finish up
@@ -69,17 +67,14 @@ class OsmosisSubTable(PGTable):
 
  
     def insert_objects(self, wherequery):
-        cur = self.select("SELECT id, tags FROM %ss %s" 
+        cur = self.db.select("SELECT id, tags FROM %ss %s" 
                          % (self.basetable, wherequery))
         for obj in cur:
             tags = self.transform_tags(obj['id'], obj['tags'])
 
-            query = ("INSERT INTO %s (id, %s) VALUES (%s, %s)" % 
-                        (self.table, 
-                         ','.join(tags.keys()), obj['id'],
-                         ','.join(['%s' for i in range(0,len(tags))])))
-            #print self.cursor().mogrify(query, tags.values())
-            self.query(query, tags.values())
+            if tags is not None:
+                tags['id'] = obj['id']
+                self.insert_values(tags)
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
