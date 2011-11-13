@@ -33,7 +33,7 @@ import struct
 import xml.parsers.expat
 from optparse import OptionParser
 
-from osgende.common import postgisconn
+import osgende.common.postgisconn as postgisconn
 
 class DbDumper:
     tempdir = '.'
@@ -91,7 +91,7 @@ class OSMImporter:
     def readfile(self, filename):
         dba = ('dbname=%s user=%s password=%s' % 
                (self.options.database, self.options.username, self.options.password))
-        self.db = postgisconn.connect(dba)
+        self.db = postgisconn.PGDatabase(dba)
         self.cursor = self.db.cursor()
 
         parser = xml.parsers.expat.ParserCreate()
