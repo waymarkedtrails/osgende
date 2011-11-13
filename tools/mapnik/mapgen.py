@@ -24,13 +24,116 @@ from copy import copy
 from optparse import OptionParser, Option, OptionValueError
 
 import os
+import sqlite3
 from math import pi,cos,sin,log,exp,atan
 from datetime import datetime
-from Queue import Queue
+from Queue import Queue, Full
 import threading
 
 import psycopg2
 import mapnik2 as mapnik
+
+class TileWriterFilesystem:
+    """
+       If 'tilenumber_rewrite' is True, then for tiles of zoomlevel 10 and
+       above an additional intermediate directory in order to avoid having
+       too many files per directory. The first three digits make up the
+       first level, the remaining digits the second level. For tile numbers
+       below 1000, the second part is 'o'.
+
+       With this schema tiles can still be served statically with Apache if
+       the following rewrite rules are used:
+
+       ..
+
+         RewriteRule ^(.*)/([0-9]{2})/([0-9]?[0-9]?[0-9]?)([0-9]*)/([0-9]?[0-9]?[0-9]?)([0-9]*).png$ /$1/$2/$3/$4/$5/$6.png
+         RewriteRule (.*[0-9])//([0-9].*)     $1/o/$2
+         RewriteRule (.*)/.png                $1/o.png
+
+       Note: this tile numbering schema will work up to about level 20,
+             afterwards another split should be done, which is not yet
+             implemented.
+    """
+
+    def __init__(self, basedir, tilenumber_rewrite=False):
+        self.tiledir = basedir
+        self.tilenumber_rewrite = tilenumber_rewrite
+
+
+    def _get_tile_uri(self, zoom, x, y):
+        """Compute the tile URI and create directories as required.
+        """
+        if self.tilenumber_rewrite and zoom >= 10:
+            # split mode
+            if x < 1000:
+                tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x, 'o')
+            else:
+                xdir = '%d' % x
+                tdir = os.path.join(self.tiledir, "%d" % zoom,
+                                    xdir[:3], xdir[3:])
+            if y < 1000:
+                tilefile = 'o.png'
+                tdir = os.path.join(tdir, '%d' % y)
+            else:
+                ydir = '%d.png' % y
+                tilefile = ydir[3:]
+                tdir = os.path.join(tdir, ydir[:3])
+
+        else:
+            # write tile numbers as is
+            tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x)
+            tilefile = '%d.png'% y
+
+        if not os.path.isdir(tdir):
+            os.makedirs(tdir)
+
+        return os.path.join(tdir, tilefile)
+
+    def setup(self):
+        pass
+
+    def finish(self):
+        pass
+
+    def remove_tile(self, zoom, x, y):
+        try:
+            os.remove(self._get_tile_uri(zoom, x, y))
+        except:
+            pass # don't care if that doesn't work
+
+    def save_tile(self, image, zoom, x, y):
+        image.save(self._get_tile_uri(zoom, x, y), 'png256')
+
+
+class TileWriterSqlite3:
+
+    def __init__(self, sqlitedb, tablename):
+        self.sqlitedb = sqlitedb
+        self.deletequery = "DELETE FROM %s WHERE zoom=? AND tilex=? AND tiley=?" % tablename
+        self.insertquery = "INSERT OR REPLACE INTO %s VALUES(?, ?, ?, ?)" % tablename
+
+        # try to create the table
+        db = sqlite3.connect(sqlitedb)
+        try:
+            db.execute("CREATE TABLE %s (zoom int, tilex int, tiley int, pixbuf blob, CONSTRAINT pk PRIMARY KEY (zoom, tilex, tiley))" % tablename)
+        except sqlite3.OperationalError:
+            # assume that the table already exists
+            pass
+
+    def setup(self):
+        self.db = sqlite3.connect(self.sqlitedb)
+
+    def finish(self):
+        self.db.commit()
+
+    def remove_tile(self, zoom, x, y):
+        self.db.execute(self.deletequery, (zoom, x, y))
+
+    def save_tile(self, image, zoom, x, y):
+        self.db.execute(self.insertquery, (zoom, x, y, sqlite3.Binary(image.tostring('png'))))
+
+
+
 
 DEG_TO_RAD = pi/180
 RAD_TO_DEG = 180/pi
@@ -95,30 +198,11 @@ class MapnikOverlayGenerator:
 
        'numprocesses' changes the number of parallel processes to use.
 
-       If 'tilenumber_rewrite' is True, then for tiles of zoomlevel 10 and
-       above an additional intermediate directory in order to avoid having
-       too many files per directory. The first three digits make up the
-       first level, the remaining digits the second level. For tile numbers
-       below 1000, the second part is 'o'.
-
-       With this schema tiles can still served statically with Apache if
-       the following rewrite rules are used:
-
-       ..
-
-         RewriteRule ^(.*)/([0-9]{2})/([0-9]?[0-9]?[0-9]?)([0-9]*)/([0-9]?[0-9]?[0-9]?)([0-9]*).png$ /$1/$2/$3/$4/$5/$6.png
-         RewriteRule (.*[0-9])//([0-9].*)     $1/o/$2
-         RewriteRule (.*)/.png                $1/o.png
-
-       Note: this tile numbering schema will work up to about level 20,
-             afterwards another split should be done, which is not yet
-             implemented.
    """
 
-    def __init__(self, dba, minversion=501, dataquery=None, changequery=None,
-                  numprocesses=1, tilenumber_rewrite=False):
+    def __init__(self, dba, dataquery=None, changequery=None,
+                  numprocesses=1):
         self.num_threads = numprocesses
-        self.tilenumber_rewrite=tilenumber_rewrite
         self.conn = psycopg2.connect(dba)
         # read-only connection and the DB won't change in between
         # no transactions required
@@ -132,49 +216,22 @@ class MapnikOverlayGenerator:
         else:
             self.changequery = changequery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
 
+
+    def check_mapnik_version(self, minversion):
         try:
-          self.mapnik_version = mapnik.mapnik_version()
+          mapnik_version = mapnik.mapnik_version()
         except:
           # hrmpf, old version
-          self.mapnik_version = 500
-        print "Mapnik Version:",self.mapnik_version
-        if self.mapnik_version < minversion:
+          mapnik_version = 500
+        print "Mapnik Version:",mapnik_version
+        if mapnik_version < minversion:
           raise Exception("Mapnik is too old. Need version above %d." % minversion)
-
-
-    def _get_tile_uri(self, zoom, x, y):
-        """Compute the tile URI and create directories as required.
-        """
-        if self.tilenumber_rewrite and zoom >= 10:
-            # split mode
-            if x < 1000:
-                tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x, 'o')
-            else:
-                xdir = '%d' % x
-                tdir = os.path.join(self.tiledir, "%d" % zoom,
-                                    xdir[:3], xdir[3:])
-            if y < 1000:
-                tilefile = 'o.png'
-                tdir = os.path.join(tdir, '%d' % y)
-            else:
-                ydir = '%d.png' % y
-                tilefile = ydir[3:]
-                tdir = os.path.join(tdir, ydir[:3])
-
-        else:
-            # write tile numbers as is
-            tdir = os.path.join(self.tiledir, "%d" % zoom, "%d" % x)
-            tilefile = '%d.png'% y
-
-        if not os.path.isdir(tdir):
-            os.makedirs(tdir)
-
-        return os.path.join(tdir, tilefile)
 
 
     def _render_tile(self, x, y, zoom, maxzoom):
         if zoom < 7:
             print "Rendering Zoom",zoom,"tile",x,"/",y,"(",datetime.isoformat(datetime.now()),")"
+
 
         # reproject...
         p0 = self.gprojection.fromPixelToLL((x * 256.0, (y+1) * 256.0), zoom)
@@ -198,18 +255,21 @@ class MapnikOverlayGenerator:
             if self.cursor.fetchone() is None:
                 hasdata = False
 
-        tile_url = self._get_tile_uri(zoom, x, y)
         if hasdata:
             try:
-                self.queue.put((tile_url, c0, c1))
+                while True:
+                    try:
+                        self.queue.put(((zoom, x, y), c0, c1), True, 2)
+                        break
+                    except Full:
+                        # check that all our threads are still alive
+                        if self.num_threads+1 > threading.active_count():
+                           raise Exception("Internal error. %d threads died." 
+                                   % (self.num_threads-threading.active_count()))
             except KeyboardInterrupt:
                 raise SystemExit("Ctrl-c detected, exiting...")
         else:
-            try:
-                os.remove(tile_url)
-            except:
-                pass # don't care if that doesn't work
-
+            self.outqueue.put(((zoom, x, y), None))
 
         if zoom < maxzoom:
             self._render_tile(2*x, 2*y, zoom+1, maxzoom)
@@ -220,16 +280,15 @@ class MapnikOverlayGenerator:
 
 
 
-    def render(self, stylefile, outdir, box):
+    def render(self, writer, stylefile, box):
         """
             Render all non-empty tiles in a certain range.
-            'stylefile' is the Mapnik XML style file to use, in 'outdir'
-            the rendered tiles are stored. 'box' must contain a triple
+            'stylefile' is the Mapnik XML style file to use. 
+            'box' must contain a triple
             of from/to tuples: zoomlevels, tiles in x range, tiles in y range.
             x and y are tile numbers for the highest zoomlevel to be rendered.
             All tuples are Python ranges, i.e. the to value is non-inclusive.
         """
-        self.tiledir = outdir
         zrange, xrange, yrange = box
 
         self.gprojection = GoogleProjection(zrange[1])
@@ -237,15 +296,19 @@ class MapnikOverlayGenerator:
         # set up the rendering threads
         print "Using", self.num_threads, "parallel threads."
         self.queue = Queue(4*self.num_threads)
+        self.outqueue = Queue(10*self.num_threads)
         self.projection = None
         renderers = []
         for i in range(self.num_threads):
-            renderer = RenderThread(stylefile, self.queue)
+            renderer = RenderThread(self.outqueue, stylefile, self.queue)
             if self.projection is None:
                 self.projection = mapnik.Projection(renderer.map.srs)
             render_thread = threading.Thread(target=renderer.loop)
             render_thread.start()
             renderers.append(render_thread)
+        writeobj = WriterThread(self.outqueue, writer)
+        writer_thread = threading.Thread(target=writeobj.loop)
+        writer_thread.start()
 
         try:
             self.cursor = self.conn.cursor()
@@ -259,11 +322,42 @@ class MapnikOverlayGenerator:
             for r in renderers:
                 print "Waiting for thread (",datetime.isoformat(datetime.now()),")"
                 r.join()
+            self.outqueue.put(None)
+            writer_thread.join()
+
+
+class WriterThread:
+
+    def __init__(self, outqueue, writer):
+        self.outqueue = outqueue
+        self.writer = writer
+
+    def loop(self):
+        self.writer.setup()
+        try:
+            while True:
+                req = self.outqueue.get()
+                if req is None:
+                    break
+
+                #print "Writing", req
+
+                if req[1] is None:
+                    self.writer.remove_tile(*req[0])
+                else:
+                    self.writer.save_tile(req[1], *req[0])
+
+                self.outqueue.task_done()
+        finally:
+            self.writer.finish()
+
+
 
 class RenderThread:
 
-    def __init__(self, stylefile, queue):
+    def __init__(self, outqueue, stylefile, queue):
         self.tile_queue = queue
+        self.outqueue = outqueue
         self.map = mapnik.Map(256, 256)
         mapnik.load_map(self.map, stylefile)
 
@@ -274,17 +368,17 @@ class RenderThread:
 
         im = mapnik.Image(256, 256)
         mapnik.render(self.map, im)
-        im.save(request[0], 'png256')
+        self.outqueue.put((request[0], im))
 
 
     def loop(self):
         while True:
             req = self.tile_queue.get()
             if req is None:
-                self.tile_queue.task_done()
                 break
 
             self.render_tile(req)
+            self.tile_queue.task_done()
 
 
 class MapGenOptions(Option):
@@ -337,7 +431,7 @@ if __name__ == '__main__':
     # fun with command line options
     parser = OptionParser(description=__doc__,
                           option_class=MapGenOptions,
-                          usage='%prog [options] <stylefile> <tiledir>')
+                          usage='%prog [options] <stylefile> <output location>')
     parser.add_option('-d', action='store', dest='database', default='planet',
                        help='name of database')
     parser.add_option('-u', action='store', dest='username', default='osm',
@@ -354,16 +448,19 @@ if __name__ == '__main__':
                        help='table to query for updated objects (column is always geom)')
     parser.add_option('-j', action='store', dest='numprocesses', default=numproc, type='int',
             help='number of parallel processes to use (default: %d)' % numproc)
+    parser.add_option('-o', action='store', dest='output', default='filesystem', type='choice',
+                       choices=('filesystem', 'sqlite3'),
+                       help='where to output the tiles')
     parser.add_option('-r', action='store_true', dest='rewrite_tileschema', default=False,
-                       help='split tile numbers for high zoom levels')
+                       help='for filesystem storage: split tile numbers for high zoom levels')
+    parser.add_option('-T', action='store', dest='table', default='maps',
+                       help='for sqlite3 storage: table to store the tiles into')
 
     (options, args) = parser.parse_args()
 
     if len(args) != 2:
         parser.print_help()
         exit(-1)
-
-    print options.zoom
 
     maxtilenr = 2**options.zoom[0]
     if options.tiles is not None:
@@ -379,14 +476,21 @@ if __name__ == '__main__':
     else:
         box = (options.zoom, (0,maxtilenr), (0,maxtilenr))
 
-    print box
+
+    if options.output == 'filesystem':
+        writer = TileWriterFilesystem(args[1], options.rewrite_tileschema)
+    elif options.output == 'sqlite3':
+        writer = TileWriterSqlite3(args[1], options.table)
+    else:
+        print 'Unknown storage backend', options.output
+        exit(-1)
+
 
     dataquery = make_table_query(options.datatable)
     changequery = make_table_query(options.changetable)
     renderer = MapnikOverlayGenerator('user=%s dbname=%s' % (options.username, options.database),
-                         minversion=701,
                          dataquery=dataquery,
                          changequery=changequery,
-                         numprocesses=options.numprocesses,
-                         tilenumber_rewrite=options.rewrite_tileschema)
-    renderer.render(args[0], args[1], box)
+                         numprocesses=options.numprocesses)
+    renderer.check_mapnik_version(701)
+    renderer.render(writer, args[0], box)
