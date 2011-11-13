@@ -120,6 +120,9 @@ class MapnikOverlayGenerator:
         self.num_threads = numprocesses
         self.tilenumber_rewrite=tilenumber_rewrite
         self.conn = psycopg2.connect(dba)
+        # read-only connection and the DB won't change in between
+        # no transactions required
+        self.conn.set_isolation_level(0)
         if dataquery is None:
             self.dataquery = None
         else:
