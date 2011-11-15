@@ -19,8 +19,5 @@
     derived from the Osmosis pgsnapshot schema.
 """
 
-import mapdb
-from subtable import OsmosisSubTable
-from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
-import nodes
-from update import UpdatedGeometriesTable
+from nodes import NodeSubTable
+from poi import PoiSubTable

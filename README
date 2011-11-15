@@ -32,6 +32,12 @@ Requirements
 Usage
 -----
 
+Creating Databases
+------------------
+
+Osgende needs the Postgis and hstore extensions enabled. It also requires a set
+of functions of its own, which can be found in contrib/osgende_func.sql.
+
 Setting up Osmosis
 ------------------
 
@@ -47,6 +53,7 @@ first so that the *_changeset tables are filled appropriately. There is a script
 in contrib/ which sets up Osmosis action function:
 
   psql -U gis -d osm -f contrib/osmosis_update_proc.sql
+
 
 
 Using osgende
