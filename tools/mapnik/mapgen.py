@@ -130,7 +130,7 @@ class TileWriterSqlite3:
         self.db.execute(self.deletequery, (zoom, x, y))
 
     def save_tile(self, image, zoom, x, y):
-        self.db.execute(self.insertquery, (zoom, x, y, sqlite3.Binary(image.tostring('png'))))
+        self.db.execute(self.insertquery, (zoom, x, y, sqlite3.Binary(image.tostring('png256'))))
 
 
 
