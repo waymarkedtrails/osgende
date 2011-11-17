@@ -353,13 +353,13 @@ class _WayCollector:
               FROM (
                   SELECT nodes, generate_subscripts(nodes, 1) as i
                   FROM ways
-                  WHERE id = ANY(ARRAY
+                  WHERE id IN
                     (SELECT DISTINCT member_id
                      FROM relation_members
                      WHERE member_type = 'W'
-                       AND relation_id = ANY(ARRAY
-                             (SELECT id FROM relations WHERE %s))
-                    ))
+                       AND relation_id IN
+                             (SELECT id FROM relations WHERE %s)
+                    )
               ) as nodelist
             ) as weighted
             GROUP BY nid
@@ -393,7 +393,7 @@ class _WayCollector:
             line = sgeom.LineString(points)
             line._crs = 900913
 
-            self.db.query("EXECUTE osg_insert_segment(%s, %s, %s, %s, %s)"
+            self.db.query("EXECUTE osg_insert_segment(%s, %s, %s, %s, %s)",
                                  (way.nodes, bestcountry,
                                   relations, way.ways, line))
             #self.db.commit()
