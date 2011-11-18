@@ -18,6 +18,8 @@
 from osgende.common.postgisconn import PGTable
 from osgende.common.geom import FusableWay
 from osgende.subtable import OsmosisSubTable
+import osgende.common.threads as othreads
+import osgende.common.base as obase
 import shapely.geometry as sgeom
 from datetime import datetime as dt
 
@@ -123,6 +125,7 @@ class RelationSegments(PGTable):
                 # Put the ways collected so far into segments
                 wayproc.process_segments()
 
+        wayproc.finish()
         self._cleanup_db()
 
 
@@ -211,6 +214,7 @@ class RelationSegments(PGTable):
         # done, add the result back to the table
         print dt.now(), "Processing segments"
         wayproc.process_segments()
+        wayproc.finish()
 
         # add all newly created segments to the update table
         if self.update_table is not None:
@@ -257,6 +261,9 @@ class _WayCollector:
 
         # actual collection of fusable ways
         self.relgroups = {}
+
+        # the worker threads
+        self.workers = othreads.WorkerQueue(self._process_next, obase.num_threads)
 
     def add_way(self, way, nodes=None):
         """Add another OSM way accroding to its relations.
@@ -316,17 +323,28 @@ class _WayCollector:
         """Fuse and write out the ways collected so far.
         """
         if self.intersections_from_ways:
-            intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
+            self.processing_intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
         else:
-            intersections = None
+            self.processing_intersections = None
 
-        for (rels, collector) in self.relgroups.iteritems():
+        while self.relgroups:
+            (rels, collector) = self.relgroups.popitem()
             # print "Processing collector", collector
             relids = [x for (x,y) in rels]
-            collector.make_segments(intersections=intersections)
-            for w in collector.ways:
-                self._write_segment(w, relids)
-        self.relgroups = {}
+            self.workers.add_task((relids, collector))
+
+    def _process_next(self, item):
+        (relids, collector) = item
+        collector.make_segments(intersections=self.processing_intersections)
+        for w in collector.ways:
+            self._write_segment(w, relids)
+
+    def finish(self):
+        """Finish up any pending operations.
+           Needs only to be called once after all segments have been processed.
+        """
+        self.workers.finish()
+        del self.intersections
 
     def _get_intersections(self):
         """ Find all potential mid-way intersections.
@@ -376,8 +394,12 @@ class _WayCollector:
         # get the node geometries and the countries
         countries = {}
         prevpoints = (0,0)
+
+        # need an extra cursor for thread-safty reasons
+        cur = self.db.create_cursor()
         for n in way.nodes:
-            res = self.db.select_row("EXECUTE osg_get_point_geom(%s)", (n,))
+            cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
+            res = cur.fetchone()
             if res is not None:
                 pnts = (res[0].x, res[0].y)
                 if pnts == prevpoints:
@@ -393,7 +415,7 @@ class _WayCollector:
             line = sgeom.LineString(points)
             line._crs = 900913
 
-            self.db.query("EXECUTE osg_insert_segment(%s, %s, %s, %s, %s)",
+            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s, %s)",
                                  (way.nodes, bestcountry,
                                   relations, way.ways, line))
             #self.db.commit()
@@ -407,8 +429,12 @@ class _WayCollector:
         # get the node geometries and the countries
         countries = {}
         prevpoints = (0,0)
+        
+        # need an extra cursor for thread-safty reasons
+        cur = self.db.create_cursor()
         for n in way.nodes:
-            res = self.db.select_row("EXECUTE osg_get_point_geom(%s)", (n,))
+            cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
+            res = cur.fetchone()
             if res is not None:
                 pnts = (res[0].x, res[0].y)
                 if pnts == prevpoints:
@@ -422,10 +448,8 @@ class _WayCollector:
             line = sgeom.LineString(points)
             line._crs = 900913
 
-            self.db.query("EXECUTE osg_insert_segment(%s, %s, %s, %s)",
-                                 (way.nodes,
-                                  relations,
-                                  way.ways, line))
+            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s)",
+                         (way.nodes, relations, way.ways, line))
             #self.db.commit()
         else:
             print "Warning: empty way", way

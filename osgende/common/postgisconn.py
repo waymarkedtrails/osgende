@@ -73,6 +73,20 @@ class PGDatabase(object):
         
         return self._cursor
 
+    def create_cursor(self, name=None):
+        """Return a standard cursor.
+
+           If a name is given, a server-side cursor is created.
+           (See psycopg2 documentation.)
+
+        """
+        if name is None:
+            cur = psycopg2.extensions.connection.cursor(self.conn)
+        else:
+            cur = psycopg2.extensions.connection.cursor(self.conn, name)
+        return cur
+
+
     def query(self, query, data=None):
         """Execute a simple query without caring for the result."""
         cur = self.cursor()

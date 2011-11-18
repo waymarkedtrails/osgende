@@ -1,5 +1,5 @@
-# This file is part of Lonvia's Hiking Map
-# Copyright (C) 2010 Sarah Hoffmann
+# This file is part of Osgende
+# Copyright (C) 2010-11 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -14,13 +14,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
-""" A collection of classes that provide general implementation of tables
-    derived from the Osmosis pgsnapshot schema.
+"""
+Basic settings.
 """
 
-from subtable import OsmosisSubTable
-from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
-from nodes import NodeSubTable
-from update import UpdatedGeometriesTable
-import common
+num_threads = 4
+"""Number of threads to use when building up tables. Note that these threads
+   are created by the tables themselves when processing the data.
+"""
