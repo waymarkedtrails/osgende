@@ -19,7 +19,6 @@ from osgende.common.postgisconn import PGTable
 from osgende.common.geom import FusableWay
 from osgende.subtable import OsmosisSubTable
 import osgende.common.threads as othreads
-import osgende.common.base as obase
 import shapely.geometry as sgeom
 from datetime import datetime as dt
 
@@ -263,7 +262,7 @@ class _WayCollector:
         self.relgroups = {}
 
         # the worker threads
-        self.workers = othreads.WorkerQueue(self._process_next, obase.num_threads)
+        self.workers = othreads.WorkerQueue(self._process_next, self.numthreads)
 
     def add_way(self, way, nodes=None):
         """Add another OSM way accroding to its relations.
