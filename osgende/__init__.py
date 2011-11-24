@@ -24,3 +24,4 @@ from subtable import OsmosisSubTable
 from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
 import nodes
 from update import UpdatedGeometriesTable
+import common

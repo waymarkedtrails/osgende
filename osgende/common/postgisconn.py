@@ -73,6 +73,20 @@ class PGDatabase(object):
         
         return self._cursor
 
+    def create_cursor(self, name=None):
+        """Return a standard cursor.
+
+           If a name is given, a server-side cursor is created.
+           (See psycopg2 documentation.)
+
+        """
+        if name is None:
+            cur = psycopg2.extensions.connection.cursor(self.conn)
+        else:
+            cur = psycopg2.extensions.connection.cursor(self.conn, name)
+        return cur
+
+
     def query(self, query, data=None):
         """Execute a simple query without caring for the result."""
         cur = self.cursor()
@@ -166,6 +180,23 @@ class PGTable(object):
         self.db = db
         self._table = name
         self.table = name.fullname
+        self.numthreads = None
+
+    def set_num_threads(self, num):
+        """Set the number of worker threads to use when processing the
+           table. Note that this is the number of additional threads
+           created when processing, so the total number of threads in
+           the system is num+1. Setting num to None (the default) disables
+           parallel processing.
+
+           This option is not used by PGTable itself but by many of the
+           specialised subtables. Refer to the documentation there on notes
+           how to make the tables thread-safe. In particular, note, that
+           you cannot use the default cursor object but need to create
+           an extra one in the context of threads. At the moment, that
+           means that you cannot use any of the convenience functions.
+        """
+        self.numthreads = num
 
     def copy_create(self, query):
         """Create a new table using an SQL query.

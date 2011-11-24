@@ -1,4 +1,4 @@
-# This file is part of Lonvia's Hiking Map
+# This file is part of Osgende
 # Copyright (C) 2011 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
@@ -16,8 +16,24 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """
 Map generation using Mapnik.
+
+The program supports different storage options for the tiles.
+
+filesystem: stores the tiles directly in the file system. Output location
+            should be the base directory for the tiles. They are then stored
+            at z/x/y.png.
+
+sqlite3:    stores the tiles into a SQlite3 database. Output location must be
+            the file holding the database. The writer expects the table to
+            have the following columns: zoom, tilex, tily and pixbuf. It will
+            create a suitable table if none exists under the given name.
+
+postgresql: store the tile into a PostgreSQL database. Output location should
+            be the name of the database to use. The writer expects the table to
+            have the following columns: zoom, tilex, tily and pixbuf. It will
+            create a suitable table if none exists under the given name.
 """
-# Code esentially borrowed from tile generation scrips of openstreetmap.org.
+# Code was inspired by the tile generation scrips of openstreetmap.org.
 # See: http://trac.openstreetmap.org/browser/applications/rendering/mapnik/generate_tiles.py
 
 from copy import copy
@@ -131,6 +147,52 @@ class TileWriterSqlite3:
 
     def save_tile(self, image, zoom, x, y):
         self.db.execute(self.insertquery, (zoom, x, y, sqlite3.Binary(image.tostring('png256'))))
+
+
+class TileWriterPSQL:
+
+    def __init__(self, dba, tablename):
+        self.db = psycopg2.connect(dba)
+        # set into autocommit mode so that tiles still can be
+        # read while the db is updated
+        self.db.set_isolation_level(0)
+
+        # prepare out queries
+        cur = self.db.cursor()
+        # try to create the table
+        try:
+            cur.execute("CREATE TABLE %s (zoom int, tilex int, tiley int, pixbuf bytea, CONSTRAINT %s_pk PRIMARY KEY (zoom, tilex, tiley))" % (tablename, tablename))
+        except psycopg2.ProgrammingError:
+            # assume that the table already exists
+            pass
+        cur.execute("""PREPARE delete_tile(int, int, int) AS 
+                DELETE FROM %s WHERE zoom=$1 AND tilex=$2 AND tiley=$3"""
+                % tablename)
+        cur.execute("""PREPARE update_tile(int, int, int, bytea) AS
+                UPDATE %s SET pixbuf=$4 WHERE zoom=$1 AND tilex=$2 AND tiley=$3"""
+                % tablename)
+        cur.execute("""PREPARE insert_tile(int, int, int, bytea) AS
+                INSERT INTO %s (zoom, tilex, tiley, pixbuf)
+                VALUES($1,$2,$3,$4)"""
+                % tablename)
+
+
+    def setup(self):
+        self.cursor = self.db.cursor()
+
+    def finish(self):
+        pass
+
+    def remove_tile(self, zoom, x, y):
+        self.cursor.execute("EXECUTE delete_tile(%s, %s, %s)", (zoom, x, y))
+
+    def save_tile(self, image, zoom, x, y):
+        binary = psycopg2.Binary(image.tostring('png256'))
+        self.cursor.execute("EXECUTE update_tile(%s, %s, %s, %s)", 
+                (zoom, x, y, binary))
+        if self.cursor.rowcount < 1:
+            self.cursor.execute("EXECUTE insert_tile(%s, %s, %s, %s)", 
+                (zoom, x, y, binary))
 
 
 
@@ -263,7 +325,7 @@ class MapnikOverlayGenerator:
                         break
                     except Full:
                         # check that all our threads are still alive
-                        if self.num_threads+1 > threading.active_count():
+                        if self.num_threads+2 > threading.active_count():
                            raise Exception("Internal error. %d threads died." 
                                    % (self.num_threads-threading.active_count()))
             except KeyboardInterrupt:
@@ -429,9 +491,10 @@ if __name__ == '__main__':
         numproc = 4
 
     # fun with command line options
-    parser = OptionParser(description=__doc__,
+    parser = OptionParser(epilog=__doc__,
                           option_class=MapGenOptions,
                           usage='%prog [options] <stylefile> <output location>')
+    OptionParser.format_epilog = lambda self, formatter: self.epilog
     parser.add_option('-d', action='store', dest='database', default='planet',
                        help='name of database')
     parser.add_option('-u', action='store', dest='username', default='osm',
@@ -449,12 +512,12 @@ if __name__ == '__main__':
     parser.add_option('-j', action='store', dest='numprocesses', default=numproc, type='int',
             help='number of parallel processes to use (default: %d)' % numproc)
     parser.add_option('-o', action='store', dest='output', default='filesystem', type='choice',
-                       choices=('filesystem', 'sqlite3'),
-                       help='where to output the tiles')
+                       choices=('filesystem', 'sqlite3', 'postgresql'),
+                       help='where to output the tiles, default: filesystem (see also below)')
     parser.add_option('-r', action='store_true', dest='rewrite_tileschema', default=False,
                        help='for filesystem storage: split tile numbers for high zoom levels')
     parser.add_option('-T', action='store', dest='table', default='maps',
-                       help='for sqlite3 storage: table to store the tiles into')
+                       help='for DB storage: table to store the tiles into')
 
     (options, args) = parser.parse_args()
 
@@ -481,6 +544,9 @@ if __name__ == '__main__':
         writer = TileWriterFilesystem(args[1], options.rewrite_tileschema)
     elif options.output == 'sqlite3':
         writer = TileWriterSqlite3(args[1], options.table)
+    elif options.output == 'postgresql':
+        writer = TileWriterPSQL('user=%s dbname=%s' % 
+                                 (options.username, args[1]), options.table)
     else:
         print 'Unknown storage backend', options.output
         exit(-1)
@@ -488,7 +554,8 @@ if __name__ == '__main__':
 
     dataquery = make_table_query(options.datatable)
     changequery = make_table_query(options.changetable)
-    renderer = MapnikOverlayGenerator('user=%s dbname=%s' % (options.username, options.database),
+    renderer = MapnikOverlayGenerator('user=%s dbname=%s' % 
+                                        (options.username, options.database),
                          dataquery=dataquery,
                          changequery=changequery,
                          numprocesses=options.numprocesses)

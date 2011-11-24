@@ -18,6 +18,7 @@
 from osgende.common.postgisconn import PGTable
 from osgende.common.geom import FusableWay
 from osgende.subtable import OsmosisSubTable
+import osgende.common.threads as othreads
 import shapely.geometry as sgeom
 from datetime import datetime as dt
 
@@ -58,9 +59,54 @@ class RelationSegments(PGTable):
         self.layout(columns)
         self.add_geometry_column("geom", "900913", 'LINESTRING', with_index=with_geom_index)
 
+    def _prepare_db(self):
+        self.db.prepare("osg_get_ways(bigint)",
+                 """SELECT member_id FROM relation_members
+                            WHERE member_type = 'W' AND relation_id = $1""")
+        self.db.prepare("osg_get_way_nodes(bigint)",
+                "SELECT nodes FROM ways WHERE id = $1")
+        self.db.prepare("osg_get_way_rels(bigint)",
+                """SELECT relation_id, member_role
+                              FROM relation_members
+                              WHERE member_type = 'W'
+                                AND member_id = $1
+                              ORDER BY relation_id""")
+        if self.country_table is None:
+            # table without a country column
+            self.db.prepare("osg_get_point_geom(bigint)",
+                    """SELECT ST_Transform(geom,900913) as geom
+                         FROM nodes WHERE id=$1""")
+            self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
+                    """INSERT INTO %s (nodes, rels, ways, geom)
+                                   VALUES($1, $2, $3, $4)"""% (self.table))
+        else:
+            # table with country column
+            coltype = self.country_table.get_column_type(self.country_column)
+            if coltype is None:
+                raise Exception("column in country table not found")
+            self.db.prepare("osg_get_point_geom(bigint)",
+                    """SELECT n.geom, c.%s
+                         FROM (SELECT ST_Transform(geom,900913) as geom
+                                 FROM nodes WHERE id=$1) as n
+                              LEFT JOIN %s c
+                                ON ST_Within(n.geom,c.geom)
+                        LIMIT 1""" % (self.country_column, self.country_table.table))
+            self.db.prepare("osg_insert_segment(bigint[], %s, bigint[], bigint[], geometry)" % (coltype),
+                    """INSERT INTO %s (nodes, country, rels, ways, geom)
+                       VALUES($1, $2, $3, $4, $5)""" % (self.table))
+
+
+    def _cleanup_db(self):
+        self.db.deallocate("osg_get_ways")
+        self.db.deallocate("osg_get_way_nodes")
+        self.db.deallocate("osg_get_way_rels")
+        self.db.deallocate("osg_get_point_geom")
+        self.db.deallocate("osg_insert_segment")
+
     def construct(self):
         """Collect all segments.
         """
+        self._prepare_db()
         self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         self.truncate()
         wayproc = _WayCollector(self, self.country_table, self.country_column,
@@ -69,10 +115,8 @@ class RelationSegments(PGTable):
         sortedrels = list(wayproc.relations)
         sortedrels.sort()
         for rel in sortedrels:
-            print "Processing relation",rel
-            ways = self.db.select_column("""SELECT member_id FROM relation_members
-                                  WHERE member_type = 'W' AND
-                                        relation_id = %s""", (rel,))
+            print dt.now(), "Processing relation",rel
+            ways = self.db.select_column("""EXECUTE osg_get_ways(%s)""", (rel,))
             if ways:
                 for w in ways:
                     wayproc.add_way(w)
@@ -80,11 +124,15 @@ class RelationSegments(PGTable):
                 # Put the ways collected so far into segments
                 wayproc.process_segments()
 
+        wayproc.finish()
+        self._cleanup_db()
+
 
 
     def update(self):
         """Update changed segments.
         """
+        self._prepare_db()
         self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         wayproc = _WayCollector(self, self.country_table,
                                 self.country_column, self.subset,
@@ -165,12 +213,14 @@ class RelationSegments(PGTable):
         # done, add the result back to the table
         print dt.now(), "Processing segments"
         wayproc.process_segments()
+        wayproc.finish()
 
         # add all newly created segments to the update table
         if self.update_table is not None:
             self.db.query("""INSERT INTO %s (action,geom)
                       SELECT 'C', geom FROM %s WHERE id >= %%s"""
                      % (self.update_table.table, self.table), (self.first_new_id, ))
+        self._cleanup_db()
 
 
 class _WayCollector:
@@ -211,6 +261,9 @@ class _WayCollector:
         # actual collection of fusable ways
         self.relgroups = {}
 
+        # the worker threads
+        self.workers = othreads.WorkerQueue(self._process_next, self.numthreads)
+
     def add_way(self, way, nodes=None):
         """Add another OSM way accroding to its relations.
         """
@@ -219,11 +272,7 @@ class _WayCollector:
 
 
         # Determine the set of relation/role pairs for each way
-        wcur = self.db.select_cursor("""SELECT relation_id, member_role
-                              FROM relation_members
-                              WHERE member_type = 'W'
-                                AND member_id = %s
-                              ORDER BY relation_id""", (way,))
+        wcur = self.db.select_cursor("EXECUTE osg_get_way_rels(%s)", (way,))
         membership = []
         for c in wcur:
             # print "Potential member",c
@@ -240,8 +289,7 @@ class _WayCollector:
         membership = tuple(membership)
         # get the nodes
         if nodes is None:
-            nodes = self.db.select_one("""SELECT nodes FROM ways
-                                       WHERE id = %s""", (way,))
+            nodes = self.db.select_one("EXECUTE osg_get_way_nodes(%s)", (way,))
 
         if nodes:
             # remove duplicated nodes if they immediately follow each other
@@ -274,17 +322,28 @@ class _WayCollector:
         """Fuse and write out the ways collected so far.
         """
         if self.intersections_from_ways:
-            intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
+            self.processing_intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
         else:
-            intersections = None
+            self.processing_intersections = None
 
-        for (rels, collector) in self.relgroups.iteritems():
+        while self.relgroups:
+            (rels, collector) = self.relgroups.popitem()
             # print "Processing collector", collector
             relids = [x for (x,y) in rels]
-            collector.make_segments(intersections=intersections)
-            for w in collector.ways:
-                self._write_segment(w, relids)
-        self.relgroups = {}
+            self.workers.add_task((relids, collector))
+
+    def _process_next(self, item):
+        (relids, collector) = item
+        collector.make_segments(intersections=self.processing_intersections)
+        for w in collector.ways:
+            self._write_segment(w, relids)
+
+    def finish(self):
+        """Finish up any pending operations.
+           Needs only to be called once after all segments have been processed.
+        """
+        self.workers.finish()
+        del self.intersections
 
     def _get_intersections(self):
         """ Find all potential mid-way intersections.
@@ -311,13 +370,13 @@ class _WayCollector:
               FROM (
                   SELECT nodes, generate_subscripts(nodes, 1) as i
                   FROM ways
-                  WHERE id = ANY(ARRAY
+                  WHERE id IN
                     (SELECT DISTINCT member_id
                      FROM relation_members
                      WHERE member_type = 'W'
-                       AND relation_id = ANY(ARRAY
-                             (SELECT id FROM relations WHERE %s))
-                    ))
+                       AND relation_id IN
+                             (SELECT id FROM relations WHERE %s)
+                    )
               ) as nodelist
             ) as weighted
             GROUP BY nid
@@ -334,15 +393,12 @@ class _WayCollector:
         # get the node geometries and the countries
         countries = {}
         prevpoints = (0,0)
+
+        # need an extra cursor for thread-safty reasons
+        cur = self.db.create_cursor()
         for n in way.nodes:
-            res = self.db.select_row("""SELECT n.geom, c.%s
-                                         FROM (SELECT ST_Transform(geom,900913) as geom
-                                               FROM nodes WHERE id=%%s) as n
-                                           LEFT JOIN %s c
-                                           ON ST_Within(n.geom,c.geom)
-                                         LIMIT 1
-                                      """ % (self.country_column, self.country_table)
-                                   ,(n,))
+            cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
+            res = cur.fetchone()
             if res is not None:
                 pnts = (res[0].x, res[0].y)
                 if pnts == prevpoints:
@@ -358,13 +414,9 @@ class _WayCollector:
             line = sgeom.LineString(points)
             line._crs = 900913
 
-            self.db.query("""INSERT INTO %s
-                                   (nodes, country, rels, ways, geom)
-                                   VALUES(%%s, %%s, %%s, %%s, %%s
-                                   )""" % (self.table),
+            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s, %s)",
                                  (way.nodes, bestcountry,
-                                  relations,
-                                  way.ways, line))
+                                  relations, way.ways, line))
             #self.db.commit()
         else:
             print "Warning: empty way", way
@@ -376,9 +428,12 @@ class _WayCollector:
         # get the node geometries and the countries
         countries = {}
         prevpoints = (0,0)
+        
+        # need an extra cursor for thread-safty reasons
+        cur = self.db.create_cursor()
         for n in way.nodes:
-            res = self.db.select_row("""SELECT ST_Transform(geom,900913) as geom
-                                               FROM nodes WHERE id=%s""", (n,))
+            cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
+            res = cur.fetchone()
             if res is not None:
                 pnts = (res[0].x, res[0].y)
                 if pnts == prevpoints:
@@ -392,13 +447,8 @@ class _WayCollector:
             line = sgeom.LineString(points)
             line._crs = 900913
 
-            self.db.query("""INSERT INTO %s
-                                   (nodes, rels, ways, geom)
-                                   VALUES(%%s, %%s, %%s, %%s
-                                   )""" % (self.table),
-                                 (way.nodes,
-                                  relations,
-                                  way.ways, line))
+            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s)",
+                         (way.nodes, relations, way.ways, line))
             #self.db.commit()
         else:
             print "Warning: empty way", way
