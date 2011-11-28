@@ -32,7 +32,12 @@ class NodeSubTable(PGTable):
        (TODO: link to action_function script.)
     """
 
-    def __init__(self, db, name, subset, geom='geom', transform='%s'):
+    # Name of predefined columns
+    column_id = 'id'
+    column_geom = 'geom'
+    srid = '900913'
+
+    def __init__(self, db, name, subset, transform='%s'):
         PGTable.__init__(self, db, name)
         updateset = "id IN (SELECT id FROM node_changeset WHERE action <> 'D')"
         if subset is None:
@@ -41,8 +46,21 @@ class NodeSubTable(PGTable):
         else:
             self.wherequery = "WHERE %s" % subset
             self.updatequery = "WHERE %s AND %s" % (subset, updateset)
-        self.geom = geom
+        if self.srid != '4326':
+            transform = 'ST_Transform(%s, %s)' % (transform, self.srid)
         self.transform = transform
+
+    def layout(self, columns):
+        """ Layout the table as specified in PGTable.layout() but
+            it will add a column for the OSM id. The name of the column
+            is specified in 'column_id'.
+        """
+        fullcol = [(self.column_id, 'bigint PRIMARY KEY')]
+        fullcol.extend(columns)
+        PGTable.layout(self, fullcol)
+        self.add_geometry_column(self.column_geom, self.srid, 
+                                 'POINT', with_index=True)
+        
 
     def construct(self):
         """Fill the table"""
@@ -62,20 +80,25 @@ class NodeSubTable(PGTable):
 
  
     def insert_objects(self, wherequery):
+        workers = othreads.WorkerQueue(self._process_next, self.numthreads)
         cur = self.db.select("SELECT id, tags, geom FROM nodes %s" 
                          % (wherequery))
         # XXX this really should make use of the COPY function
         for obj in cur:
-            tags = self.transform_tags(obj['id'], obj['tags'])
-    
-            if tags is not None:
-                query = ("INSERT INTO %s (id, %s, %s) VALUES (%s, %s, %s)" % 
-                            (self.table, self.geom,
-                             ','.join(tags.keys()), obj['id'], self.transform,
-                             ','.join(['%s' for i in range(len(tags))])))
-                params = [obj['geom']]
-                params.extend(tags.values())
-                self.db.query(query, params)
+            workers.add_task(obj)
+
+
+    def _process_next(self, obj):
+        tags = self.transform_tags(obj['id'], obj['tags'])
+
+        if tags is not None:
+            query = ("INSERT INTO %s (%s, %s, %s) VALUES (%s, %s, %s)" % 
+                        (self.table, self.column_id, self.column_geom,
+                         ','.join(tags.keys()), obj['id'], self.transform,
+                         ','.join(['%s' for i in range(len(tags))])))
+            params = [obj['geom']]
+            params.extend(tags.values())
+            self.db.query(query, params, cur=self.db.create_cursor())
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
@@ -86,8 +109,10 @@ class NodeSubTable(PGTable):
             This is just a dummy function that should be overwritten by
             derived classes to do something meaningful.
 
-            Note that the OSM id should not be explictly saved, it will be
-            always put in a column called 'id'.
+            Note that the OSM id and geometry will be automatically added.
+
+            If worker threads are used, then this function needs to be 
+            thread-safe.
         """
         return {}
 

@@ -20,6 +20,7 @@ Definitions shared between the different table type.
 """
 
 from osgende.common.postgisconn import PGTable
+import osgende.common.threads as othreads
 
 class OsmosisSubTable(PGTable):
     """Most basic table type to construct simple derived table from
@@ -33,9 +34,13 @@ class OsmosisSubTable(PGTable):
        (TODO: link to action_function script.)
     """
 
+    # Name of predefined columns
+    column_id = 'id'
+
     def __init__(self, db, basetable, name, subset):
         PGTable.__init__(self, db, name)
-        updateset = "id IN (SELECT id FROM %s_changeset WHERE action <> 'D')" % basetable
+        updateset = "%s IN (SELECT id FROM %s_changeset WHERE action <> 'D')" % \
+                      (self.column_id, basetable)
         if subset is None:
             self.wherequery = ""
             self.updatequery = "WHERE %s"% updateset
@@ -43,6 +48,16 @@ class OsmosisSubTable(PGTable):
             self.wherequery = "WHERE %s" % subset
             self.updatequery = "WHERE %s AND %s" % (subset, updateset)
         self.basetable = basetable
+
+    def layout(self, columns):
+        """ Layout the table as specified in PGTable.layout() but
+            it will add a column for the OSM id. The name of the column
+            is specified in 'column_id'.
+        """
+        fullcol = [(self.column_id, 'bigint PRIMARY KEY')]
+        fullcol.extend(columns)
+        PGTable.layout(self, fullcol)
+        
 
     def construct(self):
         """Fill the table"""
@@ -67,14 +82,23 @@ class OsmosisSubTable(PGTable):
 
  
     def insert_objects(self, wherequery):
+        # the worker threads
+        workers = othreads.WorkerQueue(self._process_next, self.numthreads)
+
         cur = self.db.select("SELECT id, tags FROM %ss %s" 
                          % (self.basetable, wherequery))
         for obj in cur:
-            tags = self.transform_tags(obj['id'], obj['tags'])
+            workers.add_task(obj)
 
-            if tags is not None:
-                tags['id'] = obj['id']
-                self.insert_values(tags)
+        workers.finish()
+
+    def _process_next(self, obj):
+        tags = self.transform_tags(obj['id'], obj['tags'])
+
+        if tags is not None:
+            tags['id'] = obj['id']
+            self.insert_values(tags, self.db.create_cursor())
+
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
@@ -87,6 +111,10 @@ class OsmosisSubTable(PGTable):
 
             Note that the OSM id should not be explictly saved, it will be
             always put in a column called 'id'.
+
+            If worker threads are enabled for the table, then this function
+            will be executed within a thread, so make sure all commands
+            are thread-safe.
         """
         return {}
 

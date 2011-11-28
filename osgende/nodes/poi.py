@@ -77,7 +77,8 @@ class PoiSubTable(PGTable):
                    (self.column_kind, 'char(1)')]
         fullcol.extend(columns)
         PGTable.layout(self, fullcol)
-        self.add_geometry_column(self.column_geom, self.srid, 'POINT', with_index=True)
+        self.add_geometry_column(self.column_geom, self.srid,
+                                 'POINT', with_index=True)
 
     def construct(self):
         """Fill the table"""

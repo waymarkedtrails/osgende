@@ -110,7 +110,8 @@ class RelationSegments(PGTable):
         self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         self.truncate()
         wayproc = _WayCollector(self, self.country_table, self.country_column,
-                                self.subset, creation_mode=True)
+                                self.subset, creation_mode=True,
+                                numthreads=self.num_threads)
 
         sortedrels = list(wayproc.relations)
         sortedrels.sort()
@@ -136,7 +137,7 @@ class RelationSegments(PGTable):
         self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         wayproc = _WayCollector(self, self.country_table,
                                 self.country_column, self.subset,
-                                precompute_intersections=False)
+                                precompute_intersections=False, numthreads=self.num_threads)
         # print "Valid relations:", wayproc.relations
 
         print dt.now(), "Collecting changed and new ways"
@@ -233,7 +234,8 @@ class _WayCollector:
     """
 
     def __init__(self, table, cntrytab, cntrycol, subset,
-                  creation_mode=False, precompute_intersections=True):
+                  creation_mode=False, precompute_intersections=True,
+                  numthreads=0):
         self.table = table.table
         self.db = table.db
         self.subset = subset
@@ -262,7 +264,7 @@ class _WayCollector:
         self.relgroups = {}
 
         # the worker threads
-        self.workers = othreads.WorkerQueue(self._process_next, self.numthreads)
+        self.workers = othreads.WorkerQueue(self._process_next, numthreads)
 
     def add_way(self, way, nodes=None):
         """Add another OSM way accroding to its relations.

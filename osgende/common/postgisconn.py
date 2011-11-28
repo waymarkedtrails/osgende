@@ -87,31 +87,33 @@ class PGDatabase(object):
         return cur
 
 
-    def query(self, query, data=None):
+    def query(self, query, data=None, cur=None):
         """Execute a simple query without caring for the result."""
-        cur = self.cursor()
-        cur.execute(query + ";", data)
+        if cur is None:
+            cur = self.cursor()
+        cur.execute(query, data)
 
-    def prepare(self, funcname, query):
+    def prepare(self, funcname, query, cur=None):
         """Prepare an SQL query. """
-        self.query("PREPARE %s AS %s" % (funcname, query))
+        self.query("PREPARE %s AS %s" % (funcname, query), cur=cur)
 
-    def deallocate(self, funcname):
+    def deallocate(self, funcname, cur=None):
         """Free a previously prepared statement.
         """
-        self.query("DEALLOCATE %s" % funcname)
+        self.query("DEALLOCATE %s" % funcname, cur=cur)
 
     def commit(self):
         self.conn.commit()
 
-    def select_column(self, query, data=None):
+    def select_column(self, query, data=None, cur=None):
         """Execute the given query and return the first column as a list.
 
            The query is expected to return exactly one column of data. Any
            other columns are discarded.
 
         """
-        cur = self.cursor()
+        if cur is None:
+            cur = self.cursor()
         cur.execute(query, data)
         if cur.rowcount == 0:
             return None
@@ -121,9 +123,10 @@ class PGDatabase(object):
             res.append(r[0])
         return res
 
-    def select_one(self, query, data=None, default=None):
+    def select_one(self, query, data=None, default=None, cur=None):
         """Execute the given query and return the first result."""
-        cur = self.cursor()
+        if cur is None:
+            cur = self.cursor()
         cur.execute(query, data)
         res = cur.fetchone()
         if res is not None:
@@ -131,15 +134,16 @@ class PGDatabase(object):
         else:
             return default
 
-    def select_row(self, query, data=None):
+    def select_row(self, query, data=None, cur=None):
         """Execute the query and return the first row of results as a tuple."""
-        cur = self.cursor()
+        if cur is None:
+            cur = self.cursor()
         cur.execute(query, data)
         res = cur.fetchone()
         return res
 
     def select(self, query, data=None, name=None):
-        """General query, returning a real dictionary cursor.
+        """General query, returning a new real dictionary cursor.
 
            If a name is given, a server-side cursor is created.
            (See psycopg2 documentation.)
@@ -240,7 +244,7 @@ class PGTable(object):
                         using gist (%s GIST_GEOMETRY_OPS)"""
                       % (self._table.table, col, self.table, col))
 
-    def insert_values(self, values):
+    def insert_values(self, values, cur=None):
         """Insert a row into the table. 'values' must be a dict type where the 
            keys identify the column.
         """
@@ -248,7 +252,7 @@ class PGTable(object):
                         (self.table, 
                          ','.join(values.keys()),
                          ('%s,' * len(values))[:-1]),
-                     values.values())
+                     values.values(), cur=cur)
 
     def update_values(self, tags, where, data=None):
         """Update rows in the table. 'tags' must be a dict type where the keys

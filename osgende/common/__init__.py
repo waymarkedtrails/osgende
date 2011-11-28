@@ -20,5 +20,4 @@
 
 import postgisconn
 import geom
-import base
 import threads
