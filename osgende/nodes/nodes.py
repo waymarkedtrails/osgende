@@ -80,12 +80,14 @@ class NodeSubTable(PGTable):
 
  
     def insert_objects(self, wherequery):
-        workers = othreads.WorkerQueue(self._process_next, self.numthreads)
+        workers = self.create_worker_queue(self._process_next)
         cur = self.db.select("SELECT id, tags, geom FROM nodes %s" 
                          % (wherequery))
         # XXX this really should make use of the COPY function
         for obj in cur:
             workers.add_task(obj)
+
+        workers.finish()
 
 
     def _process_next(self, obj):
@@ -98,7 +100,7 @@ class NodeSubTable(PGTable):
                          ','.join(['%s' for i in range(len(tags))])))
             params = [obj['geom']]
             params.extend(tags.values())
-            self.db.query(query, params, cur=self.db.create_cursor())
+            self.thread.cursor.execute(query, params)
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
@@ -112,7 +114,8 @@ class NodeSubTable(PGTable):
             Note that the OSM id and geometry will be automatically added.
 
             If worker threads are used, then this function needs to be 
-            thread-safe.
+            thread-safe. You can make use of the thread-local cursor in
+            self.thread.cursor when accessing the DB.
         """
         return {}
 

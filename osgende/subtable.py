@@ -20,7 +20,7 @@ Definitions shared between the different table type.
 """
 
 from osgende.common.postgisconn import PGTable
-import osgende.common.threads as othreads
+
 
 class OsmosisSubTable(PGTable):
     """Most basic table type to construct simple derived table from
@@ -83,7 +83,7 @@ class OsmosisSubTable(PGTable):
  
     def insert_objects(self, wherequery):
         # the worker threads
-        workers = othreads.WorkerQueue(self._process_next, self.numthreads)
+        workers = self.create_worker_queue(self._process_next)
 
         cur = self.db.select("SELECT id, tags FROM %ss %s" 
                          % (self.basetable, wherequery))
@@ -97,7 +97,7 @@ class OsmosisSubTable(PGTable):
 
         if tags is not None:
             tags['id'] = obj['id']
-            self.insert_values(tags, self.db.create_cursor())
+            self.insert_values(tags, self.thread.cursor)
 
 
     def transform_tags(self, osmid, tags):

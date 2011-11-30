@@ -34,18 +34,25 @@ class WorkerQueue:
         processed when they are entered in the queue.
 
         'process_func' must be a function that takes exactly one argument: the
-        next item to be processed.
+        next item to be processed. The optional 'initfunc' is called from the
+        worker thread, once it is set up and 'shutdownfunc' when the thread is
+        ended properly (not when an exception occurs). If the queue is run in
+        single-threaded mode, 'initfunc' is called immediately and 'shutdownfunc'
+        within finish().
 
     """
 
-    def __init__(self, process_func, numthreads=None):
+    def __init__(self, process_func, numthreads=None, initfunc=None, shutdownfunc=None):
         self.numthreads = numthreads
         if numthreads is None:
             # If we are in monothreading mode, simply execute
             # the processing function, when a new task is added
             self.add_task = process_func
+            if initfunc is not None:
+                initfunc()
+            self.shutdownfunc = shutdownfunc
         else:
-            self._setup_threads(process_func)
+            self._setup_threads(process_func, initfunc, shutdownfunc)
 
 
     def add_task(self, data):
@@ -60,32 +67,52 @@ class WorkerQueue:
                     # check that all our threads are still alive
                     for w in self.workers:
                         if not w.is_alive():
+                            print "Internal error. Thread died. Killing other threads."
+                            self.finish(True)
                             raise Exception("Internal error. Thread died.")
         except KeyboardInterrupt:
+            print "User requested abort. Cleaning up..."
+            self.finish(True)              
             raise SystemExit("Ctrl-C detected, exiting...")
         
 
 
-    def finish(self):
+    def finish(self, flush=False):
         """Wait for the threads to finish and then let them die.
            Note that you must *always* call this function even if there
            is an error or your Python app will hang.
+
+           If 'flush' is true, then all remaining elements in the queue
+           will be deleted before the threads are killed. You should set
+           this to true in case of a fatal error where your threads may
+           not consume any data anymore.
         """
-        for i in range(self.numthreads):
-            self.queue.put(None)
-        print "Waiting for threads to finish"
-        for w in self.workers:
-            w.join()
+        if self.numthreads is None:
+            if self.shutdownfunc is not None:
+                self.shutdownfunc()
+        else:
+            if flush:
+                while not self.queue.empty():
+                    try:
+                        self.queue.get(False)
+                    except Queue.Empty:
+                        pass # don't care
+
+            for i in range(self.numthreads):
+                self.queue.put(None)
+            print "Waiting for threads to finish"
+            for w in self.workers:
+                w.join()
 
 
 
-    def _setup_threads(self, process_func):
+    def _setup_threads(self, process_func, initfunc, shutdownfunc):
         print "Using", self.numthreads, "parallel threads."
         self.queue = Queue.Queue(10*self.numthreads)
         
         self.workers = []
         for i in range(self.numthreads):
-            worker = _WorkerThread(self.queue, process_func)
+            worker = _WorkerThread(self.queue, process_func, initfunc, shutdownfunc)
             worker_thread = threading.Thread(target=worker.loop)
             worker_thread.start()
             self.workers.append(worker_thread)
@@ -93,11 +120,15 @@ class WorkerQueue:
 
 class _WorkerThread:
 
-    def __init__(self, queue, process_func):
+    def __init__(self, queue, process_func, initfunc, shutdownfunc):
         self.queue = queue
         self.process_func = process_func
+        self.initfunc = initfunc
+        self.shutdownfunc = shutdownfunc
 
     def loop(self):
+        self.initfunc()
+
         while True:
             req = self.queue.get()
             if req is None:
@@ -105,4 +136,6 @@ class _WorkerThread:
 
             self.process_func(req)
             self.queue.task_done()
+
+        self.shutdownfunc()
 

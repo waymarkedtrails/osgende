@@ -15,6 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import threading
 from osgende.common.postgisconn import PGTable
 from osgende.common.geom import FusableWay
 from osgende.subtable import OsmosisSubTable
@@ -111,7 +112,7 @@ class RelationSegments(PGTable):
         self.truncate()
         wayproc = _WayCollector(self, self.country_table, self.country_column,
                                 self.subset, creation_mode=True,
-                                numthreads=self.num_threads)
+                                numthreads=self.numthreads)
 
         sortedrels = list(wayproc.relations)
         sortedrels.sort()
@@ -137,7 +138,7 @@ class RelationSegments(PGTable):
         self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
         wayproc = _WayCollector(self, self.country_table,
                                 self.country_column, self.subset,
-                                precompute_intersections=False, numthreads=self.num_threads)
+                                precompute_intersections=False, numthreads=self.numthreads)
         # print "Valid relations:", wayproc.relations
 
         print dt.now(), "Collecting changed and new ways"
@@ -264,10 +265,22 @@ class _WayCollector:
         self.relgroups = {}
 
         # the worker threads
-        self.workers = othreads.WorkerQueue(self._process_next, numthreads)
+        self.thread = threading.local()
+        self.workers = othreads.WorkerQueue(self._process_next, numthreads,
+                           self._init_worker_thread,
+                           self._shutdown_worker_thread)
+
+    def _init_worker_thread(self):
+        print "Initialising worker..."
+        self.thread.cursor = self.db.create_cursor()
+
+    def _shutdown_worker_thread(self):
+        print "Shutting down worker..."
+        self.thread.cursor.close()
+
 
     def add_way(self, way, nodes=None):
-        """Add another OSM way accroding to its relations.
+        """Add another OSM way according to its relations.
         """
         if way in self.waysdone:
            return
@@ -397,7 +410,7 @@ class _WayCollector:
         prevpoints = (0,0)
 
         # need an extra cursor for thread-safty reasons
-        cur = self.db.create_cursor()
+        cur = self.thread.cursor
         for n in way.nodes:
             cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
             res = cur.fetchone()
@@ -432,7 +445,7 @@ class _WayCollector:
         prevpoints = (0,0)
         
         # need an extra cursor for thread-safty reasons
-        cur = self.db.create_cursor()
+        cur = self.thread.cursor
         for n in way.nodes:
             cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
             res = cur.fetchone()

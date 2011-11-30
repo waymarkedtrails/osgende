@@ -23,10 +23,13 @@ frequently used SQL functions.
 For geometric object support the GeoTypes module is required.
 """
 
+import threading
 import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
 from psycpg2shapely import initialisePsycopgTypes
+
+import osgende.common.threads as othread
 
 # make sure that all strings are in unicode
 psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
@@ -118,10 +121,7 @@ class PGDatabase(object):
         if cur.rowcount == 0:
             return None
 
-        res = []
-        for r in cur:
-            res.append(r[0])
-        return res
+        return [r[0] for r in cur]
 
     def select_one(self, query, data=None, default=None, cur=None):
         """Execute the given query and return the first result."""
@@ -185,6 +185,7 @@ class PGTable(object):
         self._table = name
         self.table = name.fullname
         self.numthreads = None
+        self.dbconn_per_thread = False
 
     def set_num_threads(self, num):
         """Set the number of worker threads to use when processing the
@@ -199,8 +200,45 @@ class PGTable(object):
            you cannot use the default cursor object but need to create
            an extra one in the context of threads. At the moment, that
            means that you cannot use any of the convenience functions.
+
+           See also
         """
         self.numthreads = num
+
+    def set_dbconn_per_thread(self, connperthread):
+        """If set to true, then a seperate database connection is created
+           for each worker thread. It can be accessed via 
+           self.thread.db from within the thread.
+
+           In any case, there is a thread-local 
+           cursor to the table-global table available under 
+           self.thread.cursor 
+
+            See also set_num_threads()
+        """
+        self.dbconn_per_thread = connperthread
+
+    def create_worker_queue(self, processfunc):
+        self.thread = threading.local()
+        return othread.WorkerQueue(processfunc, self.numthreads,
+                             self._init_worker_thread,
+                             self._shutdown_worker_thread)
+
+
+
+    def _init_worker_thread(self):
+        print "Initialising worker..."
+        if self.dbconn_per_thread:
+            self.thread.db = PGDatabase(self.db.conn.dsn)
+        self.thread.cursor = self.db.create_cursor()
+
+    def _shutdown_worker_thread(self):
+        print "Shutting down worker..."
+        if self.dbconn_per_thread:
+            self.thread.db.commit()
+            self.thread.db.close()
+        self.thread.cursor.close()
+
 
     def copy_create(self, query):
         """Create a new table using an SQL query.
