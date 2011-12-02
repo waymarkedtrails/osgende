@@ -108,6 +108,9 @@ class PGDatabase(object):
     def commit(self):
         self.conn.commit()
 
+    def close(self):
+        self.conn.close()
+
     def select_column(self, query, data=None, cur=None):
         """Execute the given query and return the first column as a list.
 
@@ -128,11 +131,12 @@ class PGDatabase(object):
         if cur is None:
             cur = self.cursor()
         cur.execute(query, data)
-        res = cur.fetchone()
-        if res is not None:
-            return res[0]
-        else:
-            return default
+        if cur.rowcount > 0:
+            res = cur.fetchone()
+            if res is not None:
+                return res[0]
+        
+        return default
 
     def select_row(self, query, data=None, cur=None):
         """Execute the query and return the first row of results as a tuple."""
