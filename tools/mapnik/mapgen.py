@@ -25,7 +25,7 @@ filesystem: stores the tiles directly in the file system. Output location
 
 sqlite3:    stores the tiles into a SQlite3 database. Output location must be
             the file holding the database. The writer expects the table to
-            have the following columns: zoom, tilex, tily and pixbuf. It will
+            have the following columns: zoom, tilex, tiley and pixbuf. It will
             create a suitable table if none exists under the given name.
 
 postgresql: store the tile into a PostgreSQL database. Output location should
