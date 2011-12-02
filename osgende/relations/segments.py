@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 import threading
-from osgende.common.postgisconn import PGTable
+from osgende.common.postgisconn import PGTable, PGDatabase
 from osgende.common.geom import FusableWay
 from osgende.subtable import OsmosisSubTable
 import osgende.common.threads as othreads
@@ -74,9 +74,7 @@ class RelationSegments(PGTable):
                               ORDER BY relation_id""")
         if self.country_table is None:
             # table without a country column
-            self.db.prepare("osg_get_point_geom(bigint)",
-                    """SELECT ST_Transform(geom,900913) as geom
-                         FROM nodes WHERE id=$1""")
+            # get geometry done below in thread
             self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
                     """INSERT INTO %s (nodes, rels, ways, geom)
                                    VALUES($1, $2, $3, $4)"""% (self.table))
@@ -101,7 +99,8 @@ class RelationSegments(PGTable):
         self.db.deallocate("osg_get_ways")
         self.db.deallocate("osg_get_way_nodes")
         self.db.deallocate("osg_get_way_rels")
-        self.db.deallocate("osg_get_point_geom")
+        if self.country_table is not None:
+            self.db.deallocate("osg_get_point_geom")
         self.db.deallocate("osg_insert_segment")
 
     def construct(self):
@@ -128,6 +127,15 @@ class RelationSegments(PGTable):
 
         wayproc.finish()
         self._cleanup_db()
+
+        # finally prepare indices to speed up update
+        self.db.query("DROP INDEX IF EXISTS %s_rels_idx" % (self.table))
+        self.db.query("DROP INDEX IF EXISTS %s_ways_idx" % (self.table))
+        self.db.query("CREATE INDEX %s_rels_idx on %s USING gin (rels)" 
+                    % (self._table.table, self.table))
+        self.db.query("CREATE INDEX %s_ways_idx on %s USING gin (ways)" 
+                    % (self._table.table, self.table))
+
 
 
 
@@ -273,10 +281,28 @@ class _WayCollector:
     def _init_worker_thread(self):
         print "Initialising worker..."
         self.thread.cursor = self.db.create_cursor()
+        if hasattr(self, 'country_table'):
+            self.thread.db_cursor = self.db.create_cursor()
+        else:
+            # create an addition DB connection for reading geometries
+            # Put in autocommit mode because we just read tables
+            # that are not supposed to change.
+            # Note that this can only be done if there is no country
+            # table because the country table may not have been
+            # committed yet.
+            self.thread.db = PGDatabase(self.db.conn.dsn)
+            self.thread.db.conn.set_isolation_level(0)
+            self.thread.db_cursor = self.thread.db.create_cursor()
+            self.thread.db.prepare("osg_get_point_geom(bigint)",
+                    """SELECT ST_Transform(geom,900913) as geom
+                         FROM nodes WHERE id=$1""")
 
     def _shutdown_worker_thread(self):
         print "Shutting down worker..."
         self.thread.cursor.close()
+        self.thread.db_cursor.close()
+        if not hasattr(self, 'country_table'):
+            self.thread.db.close()
 
 
     def add_way(self, way, nodes=None):
@@ -445,7 +471,7 @@ class _WayCollector:
         prevpoints = (0,0)
         
         # need an extra cursor for thread-safty reasons
-        cur = self.thread.cursor
+        cur = self.thread.db_cursor
         for n in way.nodes:
             cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
             res = cur.fetchone()
@@ -462,7 +488,8 @@ class _WayCollector:
             line = sgeom.LineString(points)
             line._crs = 900913
 
-            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s)",
+            self.thread.cursor.execute(
+                    "EXECUTE osg_insert_segment(%s, %s, %s, %s)",
                          (way.nodes, relations, way.ways, line))
             #self.db.commit()
         else:
