@@ -137,10 +137,12 @@ class OSMImporter:
             if name == 'osmChange':
                 for tab in OSMImporter.osm_types:
                     tablename = '%s_changeset' % tab
-                    if tab == 'node': 
-                        self.dumpers[tablename] = DbDumper(self.db, tablename, ('id', 'action', 'tags'))
+                    if tab == 'node':
+                        self.dumpers[tablename] = DbDumper(self.db, tablename,
+                                                   ('id', 'action', 'tags', 'geom'))
                     else:
-                        self.dumpers[tablename] = DbDumper(self.db, tablename, ('id', 'action'))
+                        self.dumpers[tablename] = DbDumper(self.db, tablename,
+                                                   ('id', 'action'))
         else:
             raise Exception("Not an OSM file.")
 
@@ -261,15 +263,15 @@ class OSMImporter:
 
     def write_object(self):
         # fix the tags string
+        oldtags = self.current['tags']
         taglist = ['"%s"=>"%s"' % (k.translate(OSMImporter.sqltrans),
                                    v.translate(OSMImporter.sqltrans))
                    for  (k,v) in self.current['tags'].iteritems()]
         taglist = u','.join(taglist)
+        self.current['tags'] = taglist
         if self.action is not None:
-            self.dumpers[self.current['type'] + '_changeset'].write(
-                             { 'id' : self.current['id'],
-                               'action' : self.action[0].upper(),
-                               'tags' : taglist })
+            self.current['action'] = self.action[0].upper()
+            self.dumpers[self.current['type'] + '_changeset'].write(self.current)
         if self.action == 'delete':
             self.cursor.execute("DELETE FROM %ss WHERE id = %%s" % self.current['type'],
                                   (self.current['id'],))
@@ -278,12 +280,13 @@ class OSMImporter:
                 strnodes = self.current['nodes']
             if self.action is not None:
                 # try to simply update
+                self.current['tags'] = oldtags
                 if 'nodes' in self.current:
                     self.current['nodes'] = [long(x) for x in self.current['nodes']]
                 if self.dumpers[self.current['type']+'s'].update(self.current):
                     return
+                self.current['tags'] = taglist
 
-            self.current['tags'] = taglist
             if 'nodes' in self.current:
                 self.current['nodes'] = u'{%s}' % (
                                        ','.join(strnodes))

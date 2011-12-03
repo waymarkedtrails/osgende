@@ -49,6 +49,7 @@ CREATE TABLE node_changeset (
     action character(1) NOT NULL,
     tags hstore
 );
+SELECT AddGeometryColumn('node_changeset', 'geom', 4326, 'POINT', 2);
 CREATE TABLE way_changeset (
     id bigint NOT NULL,
     action character(1) NOT NULL,
