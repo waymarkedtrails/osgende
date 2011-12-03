@@ -39,13 +39,12 @@ class NodeSubTable(PGTable):
 
     def __init__(self, db, name, subset, transform='%s'):
         PGTable.__init__(self, db, name)
-        updateset = "id IN (SELECT id FROM node_changeset WHERE action <> 'D')"
         if subset is None:
-            self.wherequery = ""
-            self.updatequery = "WHERE %s"% updateset
+            self.wherequery = "SELECT id, tags, geom FROM nodes"
+            self.updatequery = "SELECT id, tags, geom FROM node_changeset WHERE action <> 'D'"
         else:
-            self.wherequery = "WHERE %s" % subset
-            self.updatequery = "WHERE %s AND %s" % (subset, updateset)
+            self.wherequery = "SELECT id, tags, geom FROM nodes WHERE %s" % subset
+            self.updatequery = "SELECT id, tags, geom FROM node_changeset WHERE action <> 'D' AND %s" % (subset)
         if self.srid != '4326':
             transform = 'ST_Transform(%s, %s)' % (transform, self.srid)
         self.transform = transform
@@ -81,8 +80,7 @@ class NodeSubTable(PGTable):
  
     def insert_objects(self, wherequery):
         workers = self.create_worker_queue(self._process_next)
-        cur = self.db.select("SELECT id, tags, geom FROM nodes %s" 
-                         % (wherequery))
+        cur = self.db.select(wherequery)
         # XXX this really should make use of the COPY function
         for obj in cur:
             workers.add_task(obj)
