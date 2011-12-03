@@ -46,15 +46,16 @@ CREATE TABLE relation_members (
 -- Create tables for changesets.
 CREATE TABLE node_changeset (
     id bigint NOT NULL,
-    action character(1) NOT NULL
+    action character(1) NOT NULL,
+    tags hstore
 );
 CREATE TABLE way_changeset (
     id bigint NOT NULL,
-    action character(1) NOT NULL
+    action character(1) NOT NULL,
 );
 CREATE TABLE relation_changeset (
     id bigint NOT NULL,
-    action character(1) NOT NULL
+    action character(1) NOT NULL,
 );
 
 

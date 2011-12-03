@@ -37,35 +37,43 @@ import osgende.common.postgisconn as postgisconn
 
 class DbDumper:
     tempdir = '.'
-    def __init__(self,table,columns):
+    def __init__(self, db, table, columns):
+        self.db = db
         self.table = table
         self.dumpfile = codecs.getwriter('utf-8')(
                 tempfile.NamedTemporaryFile(prefix=table,dir=DbDumper.tempdir))
         self.counter = 0
         self.columns = columns
-        self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n' 
-        self.updatequery = "UPDATE %s SET (%s) = (%s) WHERE id = %%s" % (
-                            table, ','.join(columns), ','.join(['%s' for x in columns]))
+        self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n'
+        if columns[0] == 'id':
+            self.updatequery = "EXECUTE dump_%s_update(%s)" % (
+                            table, ','.join(['%s' for x in columns]))
+            db.prepare("dump_%s_update" % table,
+                       "UPDATE %s SET (%s) = (%s) WHERE id = $1" % (
+                            table, ','.join(columns[1:]),
+                            ','.join(['$%d' % x for x in range(2,len(columns)+1)])))
         #print "Linepattern:",self.linepattern
 
-    def write(self, db, attrs):
+    def write(self, attrs):
         self.dumpfile.write(self.linepattern % attrs)
         self.counter += 1
         if self.counter > DbDumper.maxentries:
-            self.flush(db)
+            self.flush()
             self.counter = 0
 
-    def flush(self, db):
-        cur = db.cursor()
+    def flush(self):
+        cur = self.db.cursor()
         self.dumpfile.flush()
         self.dumpfile.seek(0)
         cur.copy_from(self.dumpfile, self.table, null='NULL', columns=self.columns)
         self.dumpfile.seek(0)
         self.dumpfile.truncate()
 
-    def update(self, cursor, attrs):
+    def update(self, attrs):
         #print cursor.mogrify(self.updatequery, [attrs[x] for x in self.columns] + [attrs['id']])
-        cursor.execute(self.updatequery, [attrs[x] for x in self.columns] + [attrs['id']])
+        cur = self.db.cursor()
+        cur.execute(self.updatequery, [attrs[x] for x in self.columns])
+        return (cur.rowcount == 1)
 
 
 class OSMImporter:
@@ -73,7 +81,7 @@ class OSMImporter:
         'nodes': ('id', 'tags', 'geom' ),
         'ways': ('id', 'tags', 'nodes'),
         'relations' : ('id', 'tags'),
-        'relation_members' : ( 'relation_id', 'member_id', 'member_type', 
+        'relation_members' : ( 'relation_id', 'member_id', 'member_type',
                                'member_role', 'sequence_id' )
     }
 
@@ -81,19 +89,18 @@ class OSMImporter:
 
 
     def __init__(self, options):
-        self.options = options
+        dba = ('dbname=%s user=%s password=%s' %
+               (options.database, options.username, options.password))
+        self.db = postgisconn.PGDatabase(dba)
+        self.cursor = self.db.cursor()
+
         DbDumper.maxentries = options.maxentries
         DbDumper.tempdir = options.tempdir
         self.dumpers = {}
         for (tab, cols) in OSMImporter.columns.iteritems():
-            self.dumpers[tab] = DbDumper(tab, cols)
+            self.dumpers[tab] = DbDumper(self.db, tab, cols)
 
     def readfile(self, filename):
-        dba = ('dbname=%s user=%s password=%s' % 
-               (self.options.database, self.options.username, self.options.password))
-        self.db = postgisconn.PGDatabase(dba)
-        self.cursor = self.db.cursor()
-
         parser = xml.parsers.expat.ParserCreate()
         parser.StartElementHandler = self.parse_start_element
         parser.EndElementHandler = self.parse_end_element
@@ -106,7 +113,7 @@ class OSMImporter:
         parser.ParseFile(fid)
         fid.close()
         for tab in self.dumpers.itervalues():
-            tab.flush(self.db)
+            tab.flush()
         self.db.commit()
 
     def parse_start_element(self, name, attrs):
@@ -120,8 +127,8 @@ class OSMImporter:
             if 'version' not in attrs:
                 raise Exception('Not a valid OSM file. Version information missing.')
             if attrs['version'] != '0.6':
-                raise Exception("OSM file is of version %s. Can only handle version 0.6 files." 
-                                  % attrs['version']) 
+                raise Exception("OSM file is of version %s. Can only handle version 0.6 files."
+                                  % attrs['version'])
 
             self.handler = self.handle_top_level
             self.intag = None
@@ -130,7 +137,10 @@ class OSMImporter:
             if name == 'osmChange':
                 for tab in OSMImporter.osm_types:
                     tablename = '%s_changeset' % tab
-                    self.dumpers[tablename] = DbDumper(tablename, ('id', 'action'))
+                    if tab == 'node': 
+                        self.dumpers[tablename] = DbDumper(self.db, tablename, ('id', 'action', 'tags'))
+                    else:
+                        self.dumpers[tablename] = DbDumper(self.db, tablename, ('id', 'action'))
         else:
             raise Exception("Not an OSM file.")
 
@@ -155,7 +165,7 @@ class OSMImporter:
                     raise Exception('Node %s is missing coordinates.' % attrs['id'])
                 # WKB representation
                 # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
-                self.current['geom'] = struct.pack("=biidd", 1, 0x20000001, 4326, 
+                self.current['geom'] = struct.pack("=biidd", 1, 0x20000001, 4326,
                                         float(attrs['lon']), float(attrs['lat'])).encode('hex')
             self.handler = self.handle_object
         elif start and name == 'bound':
@@ -173,7 +183,7 @@ class OSMImporter:
                     self.action = None
                 else:
                     raise Exception('Unexpected change action.')
-                    
+
         elif not start and name == self.filetype:
             self.handler = self.handle_eof
         else:
@@ -196,10 +206,10 @@ class OSMImporter:
                 raise Exception("Closing element %s missing."% (self.intag))
             if name == 'tag':
                 if 'k' not in attrs or 'v' not in attrs:
-                    raise Exception("tag element of invalid format") 
+                    raise Exception("tag element of invalid format")
                 self.current['tags'][attrs['k']] = attrs['v']
             elif name == 'nd' and 'nodes'in self.current:
-                if not 'ref' in attrs or not attrs['ref'].isdigit(): 
+                if not 'ref' in attrs or not attrs['ref'].isdigit():
                     print self.current
                     raise Exception("Unexcpected nd element")
                 self.current['nodes'].append(attrs['ref'])
@@ -207,7 +217,7 @@ class OSMImporter:
                  self.write_relation_member(attrs)
             else:
                 raise Exception("Unexexpected element %s."% name)
-                
+
             self.intag = name
         else:
             if self.intag:
@@ -225,7 +235,7 @@ class OSMImporter:
         raise Exception("Data after end of file.")
 
     sqltrans = { ord(u'"'): u'\\\\"',
-                     ord(u'\r') : u' ', ord(u'\b'): None, ord(u'\f') : None, 
+                     ord(u'\r') : u' ', ord(u'\b'): None, ord(u'\f') : None,
                      ord(u'\n') : u' ',
                      ord(u'\t') : u' ',
                      ord(u'\\') : u'\\\\\\\\'
@@ -238,48 +248,50 @@ class OSMImporter:
         if not attrs.get('type', None) in OSMImporter.osm_types:
             raise Exception("Missing or unknown type attribute in member element.")
         if not 'ref' in attrs or not attrs['ref'].isdigit():
-            raise Exception("Missing attribute ref in member element.") 
+            raise Exception("Missing attribute ref in member element.")
         if not 'role' in attrs:
-            raise Exception("Missing attribute role in member element.") 
-        self.dumpers['relation_members'].write(self.db,
+            raise Exception("Missing attribute role in member element.")
+        self.dumpers['relation_members'].write(
                 {'relation_id' : self.current['id'],
                  'member_id': attrs['ref'],
                  'member_type' : attrs['type'][0].upper(),
                  'member_role' : '%s' % attrs['role'].translate(OSMImporter.sqltrans),
                  'sequence_id' : self.memberseq})
-        self.memberseq += 1 
+        self.memberseq += 1
 
     def write_object(self):
+        # fix the tags string
+        taglist = ['"%s"=>"%s"' % (k.translate(OSMImporter.sqltrans),
+                                   v.translate(OSMImporter.sqltrans))
+                   for  (k,v) in self.current['tags'].iteritems()]
+        taglist = u','.join(taglist)
         if self.action is not None:
             self.dumpers[self.current['type'] + '_changeset'].write(
-                    self.db, { 'id' : self.current['id'], 'action' : self.action[0].upper() })
+                             { 'id' : self.current['id'],
+                               'action' : self.action[0].upper(),
+                               'tags' : taglist })
         if self.action == 'delete':
             self.cursor.execute("DELETE FROM %ss WHERE id = %%s" % self.current['type'],
                                   (self.current['id'],))
         else:
+            if 'nodes' in self.current:
+                strnodes = self.current['nodes']
             if self.action is not None:
-                # check if we should modify
-                self.cursor.execute("SELECT id FROM %ss WHERE id=%%s" 
-                                            % self.current['type'], (self.current['id'],))
-                if self.cursor.fetchone() is not None:
-                    if 'nodes' in self.current:
-                        self.current['nodes'] = [long(x) for x in self.current['nodes']]
-                    self.dumpers[self.current['type']+'s'].update(self.cursor, self.current)
+                # try to simply update
+                if 'nodes' in self.current:
+                    self.current['nodes'] = [long(x) for x in self.current['nodes']]
+                if self.dumpers[self.current['type']+'s'].update(self.current):
                     return
 
-            # fix the tags string
-            taglist = ['"%s"=>"%s"' % (k.translate(OSMImporter.sqltrans), 
-                                       v.translate(OSMImporter.sqltrans)) 
-                       for  (k,v) in self.current['tags'].iteritems()]
-            self.current['tags'] = u','.join(taglist)
+            self.current['tags'] = taglist
             if 'nodes' in self.current:
-                self.current['nodes'] = u'{%s}' % ( 
-                                       ','.join([x for x in self.current['nodes']]))
-            self.dumpers[self.current['type']+'s'].write(self.db, self.current)
+                self.current['nodes'] = u'{%s}' % (
+                                       ','.join(strnodes))
+            self.dumpers[self.current['type']+'s'].write(self.current)
 
     def prepare_object(self):
         if self.current['type'] == 'relation':
-            self.cursor.execute("""DELETE FROM relation_members 
+            self.cursor.execute("""DELETE FROM relation_members
                                   WHERE relation_id = %s""", (self.current['id'],))
 
 
