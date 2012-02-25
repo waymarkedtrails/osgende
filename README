@@ -54,12 +54,3 @@ in contrib/ which sets up Osmosis action function:
 
   psql -U gis -d osm -f contrib/osmosis_update_proc.sql
 
-
-
-Using osgende
--------------
-
-Further information on using osgende can be found at
-
-http://dev.lonvia.de/trac/wiki/OsgendeDocs
-
