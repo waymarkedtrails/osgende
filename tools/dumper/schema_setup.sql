@@ -1,6 +1,8 @@
 -- Database creation script for the simple PostgreSQL schema.
 -- Borrowed from osmosis.
 
+CREATE EXTENSION hstore;
+
 -- Drop all tables if they exist.
 DROP TABLE IF EXISTS node_changeset;
 DROP TABLE IF EXISTS way_changeset;
@@ -52,11 +54,11 @@ CREATE TABLE node_changeset (
 SELECT AddGeometryColumn('node_changeset', 'geom', 4326, 'POINT', 2);
 CREATE TABLE way_changeset (
     id bigint NOT NULL,
-    action character(1) NOT NULL,
+    action character(1) NOT NULL
 );
 CREATE TABLE relation_changeset (
     id bigint NOT NULL,
-    action character(1) NOT NULL,
+    action character(1) NOT NULL
 );
 
 
