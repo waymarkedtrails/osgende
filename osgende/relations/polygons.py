@@ -165,17 +165,18 @@ class RelationPolygons(osgende.OsmosisSubTable):
 
         # print "Final waylist", waylist
         # now save away all polygons that are done
-        poly = None
-        for way in waylist:
-            pout = self.make_polygon(way)
-            if pout is not None:
-                if poly is None:
-                    poly = pout
-                else:
-                    try:
-                        poly = poly.symmetric_difference(pout)
-                    except geos.TopologicalError:
-                        return None
+        # poly = None
+        # for way in waylist:
+        #    pout = self.make_polygon(way)
+        #    if pout is not None:
+        #        if poly is None:
+        #            poly = pout
+        #        else:
+        #            try:
+        #                poly = poly.symmetric_difference(pout)
+        #            except geos.TopologicalError:
+        #                return None
+        poly = self.make_multipolygon(waylist):
 
         if poly is not None:
             poly._crs = 4326      
@@ -219,6 +220,65 @@ class RelationPolygons(osgende.OsmosisSubTable):
                             else:
                                 nodelist[pt] = [w]
 
+    class SweepNode:
+
+        def __init__(self, coord, way, idx):
+            self.coord = coord
+            self.way = way
+            self.index = idx
+
+
+    def make_multipolygon(self, waylist):
+        """Create a valid (multi)-polygon from a list of ways.
+        """
+        # First: get all the geometries of the nodes
+        points = []
+        for way in waylist:
+            i = 0
+            for n in way.nodes:
+                p = self.db.select_one("SELECT geom FROM nodes WHERE id = %s", (n,))
+                points.append(SweepNode(p.coords[0], way, i))
+                i += 1
+
+            # if the list is not a closed way, close it
+            if not way.is_closed():
+                points.append(SweepNode(points[0], way, i))
+
+        # sort the nodes
+        points.sort(lambda x,y: cmp(x.coord[0], y.coord[0]))
+
+        # the current list of sweept polygons
+        # sorted by y-coordinates
+        sweeplist = [points.pop()]
+        # now walk through
+        for p in points:
+            # find previous, next point and insertion position
+            # XXX very naive
+            prv = None
+            nxt = None
+            idx = None
+            for i in range(sweeplist.length):
+                o = sweeplist[i]
+                if o.coord[1] < p.coord[1]:
+                    idx = i
+                if p.way == o.way:
+                    if o.index == p.index - 1:
+                        prv = i
+                    elif o.index == p.index + 1:
+                        nxt = i
+            # now insert into our list
+            if prv is not None and nxt is not None:
+                # way is closed now, finish up
+                pass
+            elif prv is not None or nxt is not None:
+                # way is continued
+                pass
+            else:
+                # start a new polygon
+                pass
+
+
+       
     def make_polygon(self, way):
         """Create a valid (multi)-polygon from a list of points.
 

@@ -80,8 +80,8 @@ class FusableWay:
         return self.nodes[0] == self.nodes[-1]
 
     def fuse(self, other, node):
-        """Fuse this way with the way 'other'on the end of node 'node'.
-           It returns the now open end of the 'other'way.
+        """Fuse this way with the way 'other' on the end of node 'node'.
+           It returns the now open end of the 'other' way.
         
            Note that the direction of the fused way is arbitrary.
         """
