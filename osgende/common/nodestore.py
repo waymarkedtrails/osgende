@@ -22,7 +22,7 @@ from collections import deque
 import numpy as np
 from shapely.geometry import Point
 
-class OSMNodeStore(object):
+class NodeStore(object):
     """Provides a map like persistent storage for node geometries.
 
        Node geometries are saved in a huge continous array which is
@@ -83,6 +83,22 @@ class OSMNodeStore(object):
             raise KeyError()
 
         bucket[nodeid - (bucketid << self.bucketsize)] = (value.x, value.y)
+
+    def __delitem__(self, nodeid):
+        bucketid = nodeid >> self.bucketsize
+        bucket = self._get_bucket(bucketid)
+
+        if bucket is not None:
+            bucket[nodeid - (bucketid << self.bucketsize)] = (0,0)
+
+    def setByCoords(self, nodeid, x, y):
+        bucketid = nodeid >> self.bucketsize
+        bucket = self._get_bucket(bucketid)
+
+        if bucket is None:
+            raise KeyError()
+
+        bucket[nodeid - (bucketid << self.bucketsize)] = (x, y)
 
 if __name__ == '__main__':
     print "Creating store..."

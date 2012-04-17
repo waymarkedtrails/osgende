@@ -34,6 +34,7 @@ import xml.parsers.expat
 from optparse import OptionParser
 
 import osgende.common.postgisconn as postgisconn
+from osgende.common.nodestore import NodeStore
 
 class DbDumper:
     tempdir = '.'
@@ -93,6 +94,10 @@ class OSMImporter:
                (options.database, options.username, options.password))
         self.db = postgisconn.PGDatabase(dba)
         self.cursor = self.db.cursor()
+        if options.nodestore is None:
+            self.nodestore = None
+        else:
+            self.nodestore = NodeStore(options.nodestore)
 
         DbDumper.maxentries = options.maxentries
         DbDumper.tempdir = options.tempdir
@@ -169,6 +174,8 @@ class OSMImporter:
                 # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
                 self.current['geom'] = struct.pack("=biidd", 1, 0x20000001, 4326,
                                         float(attrs['lon']), float(attrs['lat'])).encode('hex')
+                self.current['lat'] = attrs['lat']
+                self.current['lon'] = attrs['lon']
             self.handler = self.handle_object
         elif start and name == 'bound':
             self.handler = self.handle_bound
@@ -275,7 +282,14 @@ class OSMImporter:
         if self.action == 'delete':
             self.cursor.execute("DELETE FROM %ss WHERE id = %%s" % self.current['type'],
                                   (self.current['id'],))
+            if self.nodestore is not None and self.current['type'] == 'node':
+                del self.nodestore[int(self.current['id'])]
         else:
+            if self.nodestore is not None and self.current['type'] == 'node':
+                self.nodestore.setByCoords(int(self.current['id']), self.current['lat'], self.current['lon'])
+                # if the node does not have tags, then we are done
+                if not self.current['tags']:
+                    return
             if 'nodes' in self.current:
                 strnodes = self.current['nodes']
             if self.action is not None:
@@ -290,6 +304,7 @@ class OSMImporter:
             if 'nodes' in self.current:
                 self.current['nodes'] = u'{%s}' % (
                                        ','.join(strnodes))
+
             self.dumpers[self.current['type']+'s'].write(self.current)
 
     def prepare_object(self):
@@ -313,6 +328,8 @@ if __name__ == '__main__':
                        help="directory to use for temporary files")
     parser.add_option('-m', action='store', dest='maxentries', default=100000000,
                        help='Maximum number of objects to cache before writing to the database.')
+    parser.add_option('-n', action='store', dest='nodestore', default=None,
+                       help='File containing the node store')
 
     (options, args) = parser.parse_args()
 
