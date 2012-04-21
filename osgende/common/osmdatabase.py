@@ -24,8 +24,8 @@ class OSMDatabase(PGDatabase):
         and hides schema differences.
     """
 
-    def __init__(self, name, schema=None, nodestore=None):
-        PGDatabase.__init__(self, name, schema)
+    def __init__(self, dba, nodestore=None):
+        PGDatabase.__init__(self, dba)
 
         if nodestore is None:
             self.get_nodegeom = self._get_nodegeom_db
@@ -39,4 +39,4 @@ class OSMDatabase(PGDatabase):
 
 
     def _get_nodegeom_ns(self, nodeid, cur=None):
-        return self.nodestore[nodeid]
+        return self._nodestore[nodeid]

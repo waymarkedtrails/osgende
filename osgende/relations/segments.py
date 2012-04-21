@@ -420,7 +420,7 @@ class _WayCollector:
         # need an extra cursor for thread-safty reasons
         cur = self.thread.cursor
         for n in way.nodes:
-            res = db.get_nodegeom(n, cur)
+            res = self.db.get_nodegeom(n, cur)
             if res is not None:
                 pnts = (res.x, res.y)
                 if pnts == prevpoints:
@@ -451,7 +451,7 @@ class _WayCollector:
         # need an extra cursor for thread-safty reasons
         cur = self.thread.db_cursor
         for n in way.nodes:
-            res = db.get_nodegeom(n, cur)
+            res = self.db.get_nodegeom(n, cur)
             if res is not None:
                 pnts = (res.x, res.y)
                 if pnts == prevpoints:

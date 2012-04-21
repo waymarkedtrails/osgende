@@ -17,7 +17,7 @@
 
 from datetime import datetime
 
-import osgende.common.postgisconn as postgisconn
+import osgende.common.osmdatabase as osmdb
 
 class MapDB:
     """Basic class for creation and modification of a
@@ -27,8 +27,10 @@ class MapDB:
        create_table_objects() function.
     """
 
-    def __init__(self, dba):
-        self.db = postgisconn.PGDatabase(dba)
+    def __init__(self, dba, options=None):
+        nodestore = options.nodestore if hasattr(options, 'nodestore') else None
+        self.db = osmdb.OSMDatabase(dba, nodestore)
+        self.options = options
         self.create_table_objects()
 
     def create_table_objects(self):
