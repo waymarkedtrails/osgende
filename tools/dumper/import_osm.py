@@ -97,7 +97,7 @@ class OSMImporter:
         if options.nodestore is None:
             self.nodestore = None
         else:
-            self.nodestore = NodeStore(options.nodestore)
+            self.nodestore = NodeStore(options.nodestore,numbuckets=2, bucketsize=22)
 
         DbDumper.maxentries = options.maxentries
         DbDumper.tempdir = options.tempdir
@@ -216,7 +216,8 @@ class OSMImporter:
             if name == 'tag':
                 if 'k' not in attrs or 'v' not in attrs:
                     raise Exception("tag element of invalid format")
-                self.current['tags'][attrs['k']] = attrs['v']
+                if attrs['k'] not in ('created_by'):
+                    self.current['tags'][attrs['k']] = attrs['v']
             elif name == 'nd' and 'nodes'in self.current:
                 if not 'ref' in attrs or not attrs['ref'].isdigit():
                     print self.current

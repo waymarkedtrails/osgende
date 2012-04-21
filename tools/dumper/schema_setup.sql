@@ -61,22 +61,3 @@ CREATE TABLE relation_changeset (
     action character(1) NOT NULL
 );
 
-
--- Add primary keys to tables.
-ALTER TABLE ONLY nodes ADD CONSTRAINT pk_nodes PRIMARY KEY (id);
-
-ALTER TABLE ONLY ways ADD CONSTRAINT pk_ways PRIMARY KEY (id);
-
-ALTER TABLE ONLY relations ADD CONSTRAINT pk_relations PRIMARY KEY (id);
-
-ALTER TABLE ONLY relation_members ADD CONSTRAINT pk_relation_members PRIMARY KEY (relation_id, sequence_id);
-
-
--- Add indexes to tables.
---CREATE INDEX idx_nodes_geom ON nodes USING gist (geom);
-
-
--- Cluster tables by geographical location.
---CLUSTER nodes USING idx_nodes_geom;
-
-
