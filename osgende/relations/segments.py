@@ -74,33 +74,19 @@ class RelationSegments(PGTable):
                               ORDER BY relation_id""")
         if self.country_table is None:
             # table without a country column
-            # get geometry done below in thread
             self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
                     """INSERT INTO %s (nodes, rels, ways, geom)
-                                   VALUES($1, $2, $3, $4)"""% (self.table))
+                                   VALUES($1, $2, $3, ST_Transform($4, 900913))"""% (self.table))
         else:
-            # table with country column
-            coltype = self.country_table.get_column_type(self.country_column)
-            if coltype is None:
-                raise Exception("column in country table not found")
-            self.db.prepare("osg_get_point_geom(bigint)",
-                    """SELECT n.geom, c.%s
-                         FROM (SELECT ST_Transform(geom,900913) as geom
-                                 FROM nodes WHERE id=$1) as n
-                              LEFT JOIN %s c
-                                ON ST_Within(n.geom,c.geom)
-                        LIMIT 1""" % (self.country_column, self.country_table.table))
-            self.db.prepare("osg_insert_segment(bigint[], %s, bigint[], bigint[], geometry)" % (coltype),
+            self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
                     """INSERT INTO %s (nodes, country, rels, ways, geom)
-                       VALUES($1, $2, $3, $4, $5)""" % (self.table))
+                       VALUES($1, (SELECT %s FROM %s WHERE ST_Within(ST_Transform($4, 900912), geom) LIMIT 1), $2, $3, ST_Transform($4, 900913))""" % (self.country_column, self.country_table, self.table))
 
 
     def _cleanup_db(self):
         self.db.deallocate("osg_get_ways")
         self.db.deallocate("osg_get_way_nodes")
         self.db.deallocate("osg_get_way_rels")
-        if self.country_table is not None:
-            self.db.deallocate("osg_get_point_geom")
         self.db.deallocate("osg_insert_segment")
 
     def construct(self):
@@ -293,9 +279,6 @@ class _WayCollector:
             self.thread.db = PGDatabase(self.db.conn.dsn)
             self.thread.db.conn.set_isolation_level(0)
             self.thread.db_cursor = self.thread.db.create_cursor()
-            self.thread.db.prepare("osg_get_point_geom(bigint)",
-                    """SELECT ST_Transform(geom,900913) as geom
-                         FROM nodes WHERE id=$1""")
 
     def _shutdown_worker_thread(self):
         print "Shutting down worker..."
@@ -432,32 +415,27 @@ class _WayCollector:
     def _write_segment_with_country(self, way, relations):
         points = []
         # get the node geometries and the countries
-        countries = {}
         prevpoints = (0,0)
 
         # need an extra cursor for thread-safty reasons
         cur = self.thread.cursor
         for n in way.nodes:
-            cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
-            res = cur.fetchone()
+            res = db.get_nodegeom(n, cur)
             if res is not None:
-                pnts = (res[0].x, res[0].y)
+                pnts = (res.x, res.y)
                 if pnts == prevpoints:
-                    points.append((res[0].x+0.00000001, res[0].y))
+                    points.append((res.x+0.00000001, res.y))
                 else:
                     points.append(pnts)
                 prevpoints = pnts
-                countries[res[1]] = countries.get(res[1], 0) + 1
 
         # ignore ways where the node geometries are missing
         if len(points) > 1:
-            bestcountry = max(countries.iteritems(), key=lambda x: x[1])[0]
             line = sgeom.LineString(points)
-            line._crs = 900913
+            line._crs = 4326
 
-            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s, %s)",
-                                 (way.nodes, bestcountry,
-                                  relations, way.ways, line))
+            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s)",
+                                 (way.nodes, relations, way.ways, line))
             #self.db.commit()
         else:
             print "Warning: empty way", way
@@ -473,12 +451,11 @@ class _WayCollector:
         # need an extra cursor for thread-safty reasons
         cur = self.thread.db_cursor
         for n in way.nodes:
-            cur.execute("EXECUTE osg_get_point_geom(%s)", (n,))
-            res = cur.fetchone()
+            res = db.get_nodegeom(n, cur)
             if res is not None:
-                pnts = (res[0].x, res[0].y)
+                pnts = (res.x, res.y)
                 if pnts == prevpoints:
-                    points.append((res[0].x+0.00000001, res[0].y))
+                    points.append((res.x+0.00000001, res.y))
                 else:
                     points.append(pnts)
                 prevpoints = pnts
@@ -486,7 +463,7 @@ class _WayCollector:
         # ignore ways where the node geometries are missing
         if len(points) > 1:
             line = sgeom.LineString(points)
-            line._crs = 900913
+            line._crs = 4326
 
             self.thread.cursor.execute(
                     "EXECUTE osg_insert_segment(%s, %s, %s, %s)",

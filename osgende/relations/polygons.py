@@ -141,7 +141,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
         badcoords = []
         distances = []
         for node in badnodes.iterkeys():
-            pt = self.db.select_one("SELECT geom FROM nodes WHERE id=%s", (node,))
+            pt = self.db.get_nodegeom(node)
             for (n2,pt2) in badcoords:
                 distances.append((node, n2, pt.distance(pt2)))
             badcoords.append((node, pt))
@@ -241,7 +241,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
         # First: get all the geometries of the nodes
         points = []
         for n in way.nodes:
-            p = self.db.select_one("SELECT geom FROM nodes WHERE id = %s", (n,))
+            p = self.db.get_nodegeom(n)
             points.append(p.coords[0])
 
         # if the list is not a closed way, close it
