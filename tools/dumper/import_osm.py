@@ -287,7 +287,7 @@ class OSMImporter:
                 del self.nodestore[int(self.current['id'])]
         else:
             if self.nodestore is not None and self.current['type'] == 'node':
-                self.nodestore.setByCoords(int(self.current['id']), self.current['lat'], self.current['lon'])
+                self.nodestore.setByCoords(int(self.current['id']), self.current['lon'], self.current['lat'])
                 # if the node does not have tags, then we are done
                 if not self.current['tags']:
                     return
