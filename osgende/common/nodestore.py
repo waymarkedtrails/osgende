@@ -21,6 +21,7 @@ File-backed storage for node geometries.
 from collections import deque
 import numpy as np
 from shapely.geometry import Point
+import threading
 
 class NodeStore(object):
     """Provides a map like persistent storage for node geometries.
@@ -38,6 +39,7 @@ class NodeStore(object):
         self.bucketsize = bucketsize
         self.bucketlist = deque()
         self.buckethash = {}
+        self.lock = threading.Lock()
 
 
     def _get_bucket(self, bucketno):
@@ -64,12 +66,15 @@ class NodeStore(object):
 
     def __getitem__(self, nodeid):
         bucketid = nodeid >> self.bucketsize
-        bucket = self._get_bucket(bucketid)
 
-        if bucket is None:
-            raise KeyError()
+        with self.lock:
+            bucket = self._get_bucket(bucketid)
 
-        x,y = bucket[nodeid - (bucketid << self.bucketsize)]
+            if bucket is None:
+                raise KeyError()
+
+            x,y = bucket[nodeid - (bucketid << self.bucketsize)]
+
         if x == 0 and y == 0:
             raise KeyError()
 
@@ -77,28 +82,34 @@ class NodeStore(object):
 
     def __setitem__(self, nodeid, value): 
         bucketid = nodeid >> self.bucketsize
-        bucket = self._get_bucket(bucketid)
 
-        if bucket is None:
-            raise KeyError()
+        with self.lock:
+            bucket = self._get_bucket(bucketid)
 
-        bucket[nodeid - (bucketid << self.bucketsize)] = (value.x, value.y)
+            if bucket is None:
+                raise KeyError()
+
+            bucket[nodeid - (bucketid << self.bucketsize)] = (value.x, value.y)
 
     def __delitem__(self, nodeid):
         bucketid = nodeid >> self.bucketsize
-        bucket = self._get_bucket(bucketid)
 
-        if bucket is not None:
-            bucket[nodeid - (bucketid << self.bucketsize)] = (0,0)
+        with self.lock:
+            bucket = self._get_bucket(bucketid)
+
+            if bucket is not None:
+                bucket[nodeid - (bucketid << self.bucketsize)] = (0,0)
 
     def setByCoords(self, nodeid, x, y):
         bucketid = nodeid >> self.bucketsize
-        bucket = self._get_bucket(bucketid)
 
-        if bucket is None:
-            raise KeyError()
+        with self.lock:
+            bucket = self._get_bucket(bucketid)
 
-        bucket[nodeid - (bucketid << self.bucketsize)] = (x, y)
+            if bucket is None:
+                raise KeyError()
+
+            bucket[nodeid - (bucketid << self.bucketsize)] = (x, y)
 
 if __name__ == '__main__':
     print "Creating store..."
