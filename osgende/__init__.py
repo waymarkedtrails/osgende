@@ -25,3 +25,4 @@ from relations import RelationHierarchy, RelationPolygons, RelationSegments, Rel
 import nodes
 from update import UpdatedGeometriesTable
 import common
+import tags
