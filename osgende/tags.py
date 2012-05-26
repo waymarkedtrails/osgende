@@ -57,6 +57,25 @@ class TagStore(dict):
                     tagweights[k] = -1000.0
         return TagStore(ret)
 
+    def get_firstof(self, tags, default=None):
+        """ Return the first tag value for which an entry
+            exists in the tags store.
+        """
+
+        if isinstance(tags, str):
+            return self.get(tags, default)
+
+        for t in tags:
+            val = self.get(t)
+            if val is not None:
+                break
+        else:
+             val = default
+
+        return val
+
+
+
     def get_wikipedia_url(self, locales=None):
         """Return a link to the wikipedia page for the object.
            Supports tags of the following formats:
@@ -125,18 +144,11 @@ class TagStore(dict):
         if unit not in length_matrix:
             raise Error('Unknown distance unit')
 
-        if isinstance(tags, str):
-            val = self.get(tags)
-        else:
-            for t in tags:
-                val = self.get(t)
-                if val is not None:
-                    break
-            else:
-                 val = None
+        tag = self.get_firstof(tags)
+        val = None
 
-        if val is not None:
-            m = unit_re.match(val)
+        if tag is not None:
+            m = unit_re.match(tag)
             if m is not None:
                 if m.group(3) is None:
                     mag = float(m.group(1))
@@ -145,7 +157,7 @@ class TagStore(dict):
                 tagunit = m.group(4).lower()
                 if tagunit == '':
                     tagunit = default
-                elif tagunit == unit:
+                if tagunit == unit:
                     val = mag
                 elif tagunit in length_matrix[unit]:
                     val = mag * length_matrix[unit][tagunit]
