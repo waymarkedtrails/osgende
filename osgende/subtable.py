@@ -20,6 +20,7 @@ Definitions shared between the different table type.
 """
 
 from osgende.common.postgisconn import PGTable
+from osgende.tags import TagStore
 
 
 class OsmosisSubTable(PGTable):
@@ -93,7 +94,7 @@ class OsmosisSubTable(PGTable):
         workers.finish()
 
     def _process_next(self, obj):
-        tags = self.transform_tags(obj['id'], obj['tags'])
+        tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
             tags['id'] = obj['id']

@@ -74,6 +74,21 @@ class TagStore(dict):
 
         return val
 
+    def get_booleans(self):
+        """Return subset of tags that represent booleans and return
+           them as a normalized dict. The subset contains
+           all tags that are set to positive boolean (yes, true)
+           and all that are set to negative boolean (no, false).
+        """
+        ret = {}
+        for k,v in self.iteritems():
+            lowv = v.lower()
+            if lowv in ("yes", "true"):
+                ret[k] = True
+            elif lowv in ("no", "false"):
+                ret[k] = False
+
+        return ret
 
 
     def get_wikipedia_url(self, locales=None):
