@@ -111,7 +111,7 @@ class TagStore(dict):
             newurl = None # tuple of languge, link
             if k == 'wikipedia':
                 if len(v) > 3 and v[2] == ':':
-                    newurl = (v[0:1], v[3:])
+                    newurl = (v[:2], v[3:])
                 else:
                     newurl = ('en', v)
             elif k.startswith('wikipedia:'):
