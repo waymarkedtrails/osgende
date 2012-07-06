@@ -115,7 +115,7 @@ class TagStore(dict):
                 else:
                     newurl = ('en', v)
             elif k.startswith('wikipedia:'):
-                newurl = (k[-2:], v)
+                newurl = (k[10:], v)
             if newurl is not None:
                 w = locales.get(newurl[0], 0)
                 if ret is None or w > ret[0]:
@@ -131,6 +131,32 @@ class TagStore(dict):
                 return ret[2]
             else:
                 return 'http://%s.wikipedia.org/wiki/%s' % (ret[1], ret[2])
+
+    def get_wikipedia_tags(self):
+        """Return a dictionary of available wikipedia links.
+           Supports tags of the following formats:
+           * wikipedia=<page>  (assumes English wikipedia)
+           * wikipedia=<lang>:<page>
+           * wikipedia:<lang>=<page>
+
+           where <page> may either be just the page name or the
+           complete url. Page names are not extended to url format.
+
+           Returns an empty dictionary if the object has no wikipedia tags.
+        """
+        ret = {}
+        for k,v in self.iteritems():
+            if k == 'wikipedia':
+                if len(v) > 3 and v[2] == ':':
+                    ret[v[:2]] = v[3:]
+                elif len(v) > 4 and v[3] == ':' :
+                    ret[v[:3]] = v[4:]
+                else:
+                    ret['en'] = v
+            elif k.startswith('wikipedia:'):
+                ret[k[10:]] = v
+
+        return ret
 
 
     def get_url(self):
