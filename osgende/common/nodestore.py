@@ -40,11 +40,17 @@ class NodeStore(object):
         self.bucketlist = deque()
         self.buckethash = {}
         self.lock = threading.Lock()
+        self.stat_buckethits = 0
+        self.stat_bucketmisses = 0
+
+    def __del__(self):
+        print "Hits:",self.stat_buckethits,"Misses:",self.stat_bucketmisses
 
 
     def _get_bucket(self, bucketno):
         bucket = self.buckethash.get(bucketno)
         if bucket is None:
+            self.stat_bucketmisses += 1
             if len(self.bucketlist) >= self.bucketsize:
                 lastno = self.bucketlist.pop()
                 last = self.buckethash[lastno]
@@ -59,6 +65,7 @@ class NodeStore(object):
             self.buckethash[bucketno] = bucket
         else:
             self.bucketlist.remove(bucketno)
+            self.stat_buckethits += 1
 
         self.bucketlist.append(bucketno)
 
@@ -76,7 +83,7 @@ class NodeStore(object):
             x,y = bucket[nodeid - (bucketid << self.bucketsize)]
 
         if x == 0 and y == 0:
-            raise KeyError()
+            return None
 
         return Point(x,y) 
 
@@ -113,16 +120,16 @@ class NodeStore(object):
 
 if __name__ == '__main__':
     print "Creating store..."
-    #store = OSMNodeStore('test.store', bucketsize=5)
+    store = NodeStore('test.store', bucketsize=5)
 
     print "Filling store..."
-    #for i in range(25500,26000):
-    #    store[i] = Point(1,i)
+    for i in range(25500,26000):
+        store[i] = Point(1,i)
 
-    #del store
+    del store
 
     print "Reloading store..."
-    store = OSMNodeStore('test.store', bucketsize=10, numbuckets=2)
+    store = NodeStore('test.store', bucketsize=10, numbuckets=2)
 
     print "Checking store..."
     for i in range(25500,26000):
@@ -132,3 +139,20 @@ if __name__ == '__main__':
         x = store[1000]
     except KeyError:
         print "Yeah!"
+
+    print "Filling store..."
+    for i in range(100055500,100056000):
+        store[i] = Point(i,1)
+
+    del store
+
+    print "Reloading store..."
+    store = NodeStore('test.store', bucketsize=10, numbuckets=2)
+
+    print "Checking store..."
+    for i in range(100055500,100056000):
+        assert store[i].x == i
+
+    print "Checking store..."
+    for i in range(25500,26000):
+        assert store[i].y == i
