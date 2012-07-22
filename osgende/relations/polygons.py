@@ -20,6 +20,7 @@ import osgende
 import shapely.geometry as sgeom
 import shapely.ops as sops
 import shapely.geos as geos
+from osgende.common.postgisconn import PGTable
 
 
 class RelationPolygons(osgende.OsmosisSubTable):
@@ -57,12 +58,24 @@ class RelationPolygons(osgende.OsmosisSubTable):
        the geometry or simplify it. TODO describe syntax.
     """
 
+    column_geom = 'geom'
+    srid = '900913'
+
     def __init__(self, db, name, subset = None, child_tags=[], 
-                      geom='geom', transform='%s'):
+                      transform='%s'):
         osgende.OsmosisSubTable.__init__(self, db, 'relation', name, subset)
         self._child_tags = child_tags
-        self._geomcol = geom
         self._transform = transform
+
+    def layout(self, columns):
+        """ Layout the table as specified in PGTable.layout() but
+            it will add a column for the OSM id. The name of the column
+            is specified in 'column_id'.
+        """
+        fullcol = [(self.column_id, 'bigint PRIMARY KEY')]
+        fullcol.extend(columns)
+        PGTable.layout(self, fullcol)
+        self.add_geometry_column(self.column_geom, self.srid, 'GEOMETRY', with_index=True)
 
 
     def insert_objects(self, wherequery):
@@ -78,7 +91,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
 
                     self.db.query("INSERT INTO %s (id, %s, %s) VALUES (%%s, %s, %s)" % 
                                 (self.table, 
-                                 self._geomcol,
+                                 self.column_geom,
                                  ','.join(tags.keys()),
                                  self._transform,
                                  ','.join(['%s' for i in range(0,len(tags))])),
