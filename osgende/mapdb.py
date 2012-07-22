@@ -31,20 +31,19 @@ class MapDB:
         nodestore = options.nodestore if hasattr(options, 'nodestore') else None
         self.db = osmdb.OSMDatabase(dba, nodestore)
         self.options = options
-        self.create_table_objects()
-
-    def create_table_objects(self):
         self.data_tables = []
         self.style_tables = []
         self.segment_table = None
         self.update_table = None
+        self.create_table_objects()
 
     def create_tables(self):
         for tab in self.data_tables:
             tab.create()
         for tab in self.style_tables:
             tab.create()
-        self.update_table.create()
+        if self.update_table is not None:
+            self.update_table.create()
 
 
     def import_data(self):
@@ -58,7 +57,8 @@ class MapDB:
             self.db.commit()
 
     def update_data(self):
-        self.update_table.truncate()
+        if self.update_table is not None:
+            self.update_table.truncate()
         # Commit here so that in case someyhing goes wrong
         # later, the map tiles are simply not touched
         self.db.commit()
@@ -66,9 +66,10 @@ class MapDB:
         for tab in self.data_tables:
             print datetime.now(), "Updating", tab.table, "..."
             tab.update()
-        for tab in self.style_tables:
-            print datetime.now(), "Updating", tab.table, "..."
-            tab.synchronize(self.segment_table.first_new_id, self.update_table)
+        if self.update_table is not None:
+            for tab in self.style_tables:
+                print datetime.now(), "Updating", tab.table, "..."
+                tab.synchronize(self.segment_table.first_new_id, self.update_table)
 
     def finalize(self, dovacuum):
         self.db.commit()
