@@ -168,14 +168,19 @@ class OSMImporter:
             if name == 'way':
                 self.current['nodes'] = []
             elif name == 'node':
-                if 'lat' not in attrs or 'lon' not in attrs:
-                    raise Exception('Node %s is missing coordinates.' % attrs['id'])
-                # WKB representation
-                # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
-                self.current['geom'] = struct.pack("=biidd", 1, 0x20000001, 4326,
+                if 'lat' not in attrs and 'lon' not in attrs:
+                    self.current['lat'] = None
+                    self.current['lon'] = None
+                    self.current['geom'] = None
+                else:
+                    if 'lat' not in attrs or 'lon' not in attrs:
+                        raise Exception('Node %s is missing coordinates.' % attrs['id'])
+                    self.current['lat'] = attrs['lat']
+                    self.current['lon'] = attrs['lon']
+                    # WKB representation
+                    # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
+                    self.current['geom'] = struct.pack("=biidd", 1, 0x20000001, 4326,
                                         float(attrs['lon']), float(attrs['lat'])).encode('hex')
-                self.current['lat'] = attrs['lat']
-                self.current['lon'] = attrs['lon']
             self.handler = self.handle_object
         elif start and name == 'bound':
             self.handler = self.handle_bound
