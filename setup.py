@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # This file is part of Osgende
 # Copyright (C) 2012 Sarah Hoffmann
 #
@@ -15,14 +16,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-""" A collection of classes that provide general implementation of tables
-    derived from the Osmosis pgsnapshot schema.
-"""
-
-import mapdb
-from subtable import OsmosisSubTable
-from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
-import nodes
-from update import UpdatedGeometriesTable
-import common
-import tags
+from distutils.core import setup
+setup(name='osgende',
+      version='0.1',
+      author='Sarah Hoffmann',
+      author_email='lonvia@denofr.de',
+      url='https://github.com/lonvia/osgende',
+      packages=['osgende', 'osgende.common', 'osgende.nodes', 'osgende.relations'],
+      )

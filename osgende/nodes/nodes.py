@@ -19,6 +19,7 @@ Tables for nodes
 """
 
 from osgende.common.postgisconn import PGTable
+from osgende.tags import TagStore
 
 class NodeSubTable(PGTable):
     """Most basic table type to construct a simple derived table from
@@ -89,7 +90,7 @@ class NodeSubTable(PGTable):
 
 
     def _process_next(self, obj):
-        tags = self.transform_tags(obj['id'], obj['tags'])
+        tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
             query = ("INSERT INTO %s (%s, %s, %s) VALUES (%s, %s, %s)" % 
