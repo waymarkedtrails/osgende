@@ -80,7 +80,7 @@ class RelationSegments(PGTable):
         else:
             self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
                     """INSERT INTO %s (nodes, country, rels, ways, geom)
-                       VALUES($1, (SELECT %s FROM %s WHERE ST_Within(ST_Transform($4, 900912), geom) LIMIT 1), $2, $3, ST_Transform($4, 900913))""" % (self.country_column, self.country_table, self.table))
+                       VALUES($1, (SELECT %s FROM %s WHERE ST_Within(ST_Transform($4, 900913), geom) LIMIT 1), $2, $3, ST_Transform($4, 900913))""" % (self.table, self.country_column, self.country_table.table))
 
 
     def _cleanup_db(self):
