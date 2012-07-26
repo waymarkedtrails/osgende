@@ -144,10 +144,10 @@ class RelationSegments(PGTable):
                             WHERE r.id = rm.relation_id
                               AND rm.member_type = 'W'
                               AND %s
-                              AND (relation_id = ANY(ARRAY(SELECT id FROM relation_changeset
-                                                WHERE action != 'D'))
-                               OR member_id = ANY(ARRAY(SELECT id FROM way_changeset
-                                              WHERE action = 'M')))
+                              AND (relation_id IN (SELECT id FROM relation_changeset
+                                                WHERE action != 'D')
+                               OR member_id IN (SELECT id FROM way_changeset
+                                              WHERE action = 'M'))
                           ))
                       )""" % (self.subset))
         print dt.now(), "Adding those ways to changeset"
