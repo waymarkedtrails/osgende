@@ -97,7 +97,7 @@ class OSMImporter:
         if options.nodestore is None:
             self.nodestore = None
         else:
-            self.nodestore = NodeStore(options.nodestore,numbuckets=2, bucketsize=22)
+            self.nodestore = NodeStore(options.nodestore,numbuckets=2, bucketsize=16)
 
         DbDumper.maxentries = options.maxentries
         DbDumper.tempdir = options.tempdir
