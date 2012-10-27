@@ -272,11 +272,11 @@ class MapnikOverlayGenerator:
         if dataquery is None:
             self.dataquery = None
         else:
-            self.dataquery = dataquery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
+            self.dataquery = dataquery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)"
         if changequery is None:
             self.changequery = None
         else:
-            self.changequery = changequery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
+            self.changequery = changequery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)"
 
 
     def check_mapnik_version(self, minversion):
