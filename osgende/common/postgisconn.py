@@ -282,8 +282,7 @@ class PGTable(object):
 
     def create_geometry_index(self, col='geom'):
         """Create an index over a geomtry column using a gist index."""
-        self.db.query("""CREATE INDEX %s_%s on %s 
-                        using gist (%s GIST_GEOMETRY_OPS)"""
+        self.db.query("""CREATE INDEX %s_%s on %s using gist (%s)"""
                       % (self._table.table, col, self.table, col))
 
     def insert_values(self, values, cur=None):
