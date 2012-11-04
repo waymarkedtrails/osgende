@@ -182,7 +182,7 @@ class OSMImporter:
                     self.current['geom'] = struct.pack("=biidd", 1, 0x20000001, 4326,
                                         float(attrs['lon']), float(attrs['lat'])).encode('hex')
             self.handler = self.handle_object
-        elif start and name == 'bound':
+        elif start and name in ('bound', 'bounds'):
             self.handler = self.handle_bound
         elif start and name == 'changeset':
             self.handler = self.handle_changeset
@@ -204,7 +204,7 @@ class OSMImporter:
             raise Exception('Unexpected element: %s' % name)
 
     def handle_bound(self, start, name, attrs):
-        if not start and name == 'bound':
+        if not start and name in ('bound', 'bounds'):
             self.handler = self.handle_top_level
         else:
             raise Exception("Unexpected data in bound description.")
