@@ -32,6 +32,9 @@ import tempfile
 import struct
 import xml.parsers.expat
 from optparse import OptionParser
+import psycopg2
+import os.path as ospath
+import os
 
 import osgende.common.postgisconn as postgisconn
 from osgende.common.nodestore import NodeStore
@@ -90,6 +93,9 @@ class OSMImporter:
 
 
     def __init__(self, options):
+        if options.createdb:
+            self.makedb(options.database, options.username,
+                        options.password, options.postgisdir)
         dba = ('dbname=%s user=%s password=%s' %
                (options.database, options.username, options.password))
         self.db = postgisconn.PGDatabase(dba)
@@ -104,6 +110,69 @@ class OSMImporter:
         self.dumpers = {}
         for (tab, cols) in OSMImporter.columns.iteritems():
             self.dumpers[tab] = DbDumper(self.db, tab, cols)
+
+        if options.createindices:
+            self.cursor.execute("""
+                ALTER TABLE ONLY nodes ADD CONSTRAINT pk_nodes PRIMARY KEY (id);
+                ALTER TABLE ONLY ways ADD CONSTRAINT pk_ways PRIMARY KEY (id);
+                ALTER TABLE ONLY relations ADD CONSTRAINT pk_relations PRIMARY KEY (id);
+                ALTER TABLE ONLY relation_members ADD CONSTRAINT pk_relation_members
+                           PRIMARY KEY (relation_id, sequence_id); """)
+
+    def makedb(self, dbname, user, passwd, postgisdir=None):
+        dba = ('dbname=postgres user=%s password=%s' % (user, passwd))
+        tmpdb = psycopg2.connect(dba)
+        tmpdb.set_isolation_level(0)
+        tmpcur = tmpdb.cursor()
+        tmpcur.execute('CREATE DATABASE %s' % dbname)
+        print tmpcur.statusmessage
+        tmpdb.close()
+
+        dba = ('dbname=%s user=%s password=%s' % (dbname, user, passwd))
+        tmpdb = psycopg2.connect(dba)
+        tmpcur = tmpdb.cursor()
+        if postgisdir is None:
+            # guess the directory from the postgres version
+            postgisdir = ('/usr/share/postgresql/%d.%d/contrib' %
+                    (tmpdb.server_version / 10000, (tmpdb.server_version / 100) % 100))
+            for fl in os.listdir(postgisdir):
+                if fl.startswith('postgis'):
+                    newdir = ospath.join(postgisdir, fl)
+                    if ospath.isdir(newdir):
+                        postgisdir = newdir
+                        break
+            else:
+                print 'Cannot find postgis directory. Please explicitly specify with -P parameter.'
+                sys.exit(-1)
+        pgscript = open(ospath.join(postgisdir, 'postgis.sql'),'r').read()
+        tmpcur.execute(pgscript)
+        pgscript = open(ospath.join(postgisdir, 'spatial_ref_sys.sql'), 'r').read()
+        tmpcur.execute(pgscript)
+        tmpcur.execute("""
+                CREATE EXTENSION hstore;
+                CREATE TABLE nodes(id bigint NOT NULL, tags hstore);
+                SELECT AddGeometryColumn('nodes', 'geom', 4326, 'POINT', 2);
+                CREATE TABLE ways (id bigint NOT NULL, tags hstore, nodes bigint[]);
+                CREATE TABLE relations (id bigint NOT NULL, tags hstore);
+                CREATE TABLE relation_members (
+                    relation_id bigint NOT NULL,
+                    member_id bigint NOT NULL,
+                    member_type character(1) NOT NULL,
+                    member_role text NOT NULL,
+                    sequence_id int NOT NULL);
+                CREATE TABLE node_changeset (id bigint NOT NULL,
+                                            action character(1) NOT NULL,
+                                            tags hstore);
+                SELECT AddGeometryColumn('node_changeset', 'geom', 4326, 'POINT', 2);
+                CREATE TABLE way_changeset (id bigint NOT NULL,
+                                            action character(1) NOT NULL);
+                CREATE TABLE relation_changeset (id bigint NOT NULL,
+                                                 action character(1) NOT NULL);
+
+        """)
+        tmpdb.close()
+
+
 
     def readfile(self, filename):
         parser = xml.parsers.expat.ParserCreate()
@@ -336,6 +405,12 @@ if __name__ == '__main__':
                        help='Maximum number of objects to cache before writing to the database.')
     parser.add_option('-n', action='store', dest='nodestore', default=None,
                        help='File containing the node store')
+    parser.add_option('-c', action='store_true', dest='createdb', default=False,
+                       help='Create a new database and set up the tables')
+    parser.add_option('-i', action='store_true', dest='createindices', default=False,
+                       help='Create primary keys and their indices')
+    parser.add_option('-P', action='store', dest='postgisdir', default=None,
+                       help='Directory where postgis sql scripts are located')
 
     (options, args) = parser.parse_args()
 
