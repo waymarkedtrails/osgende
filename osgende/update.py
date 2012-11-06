@@ -28,13 +28,14 @@ class UpdatedGeometriesTable(PGTable):
        deleted ones. The state of the geometry is identified by the action
        column. ('A' - added, 'M' - modified, 'D' - deleted)
     """
+    srid = '900913'
 
     def __init__(self, db, name):
         PGTable.__init__(self, db, name)
 
     def create(self):
         self.layout((("action", "char(1)"),))
-        self.add_geometry_column("geom", "900913", 'GEOMETRY', with_index=True)
+        self.add_geometry_column("geom", self.srid, 'GEOMETRY', with_index=True)
 
     def add(self, geom, action='M'):
         self.db.query("INSERT INTO %s (action, geom) VALUES (%%s, %%s)"

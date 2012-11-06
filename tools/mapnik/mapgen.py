@@ -240,7 +240,7 @@ class MapnikOverlayGenerator:
 
        It will start at the lowest zoomlevel, render a tile, then its
        subtiles and so on until the highest zoomlevel. Then it proceeds
-       to the next tile. The rendering process can be influences with
+       to the next tile. The rendering process can be influenced with
        two query strings. 'changequery' should capture all data that has
        been changed, 'dataquery' should return all renderable data.
 
@@ -269,14 +269,34 @@ class MapnikOverlayGenerator:
         # read-only connection and the DB won't change in between
         # no transactions required
         self.conn.set_isolation_level(0)
-        if dataquery is None:
-            self.dataquery = None
-        else:
-            self.dataquery = dataquery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
-        if changequery is None:
-            self.changequery = None
-        else:
-            self.changequery = changequery % "SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
+        try:
+            self.dataquery = self._make_box_query(dataquery)
+        except Exception:
+            raise RuntimeError("Data query cannot be executed. Wrong projection?")
+        try:
+            self.changequery = self._make_box_query(changequery)
+        except Exception:
+            raise RuntimeError("Change query cannot be executed. Wrong projection?")
+
+    def _make_box_query(self, basequery):
+        if basequery is None:
+            return None
+
+        boxquery = basequery % "ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
+
+        cur = self.conn.cursor()
+        try:
+            cur.execute(boxquery % (0,0,1,1))
+        except Exception:
+            # did not work, try the other projection
+            cur.rollback()
+            boxquery = basequery % "ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)"
+            try:
+                cur.execute(boxquery % (0,0,1,1))
+            finally:
+                cur.close()
+
+        return boxquery
 
 
     def check_mapnik_version(self, minversion):

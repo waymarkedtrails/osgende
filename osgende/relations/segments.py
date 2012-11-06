@@ -36,6 +36,9 @@ class RelationSegments(PGTable):
         country of the Segment is only calculated when it is updated. If a segment
         changes a country due to movement of a boundary, this will go undetected.
     """
+
+    srid = '900913'
+
     def __init__(self, db, name, subset, country_table=None, country_column='code', uptable=None):
         PGTable.__init__(self, db, name)
         self.subset = subset
@@ -58,7 +61,7 @@ class RelationSegments(PGTable):
             columns.append(("country", coltype))
 
         self.layout(columns)
-        self.add_geometry_column("geom", "900913", 'LINESTRING', with_index=with_geom_index)
+        self.add_geometry_column("geom", self.srid, 'LINESTRING', with_index=with_geom_index)
 
     def _prepare_db(self):
         self.db.prepare("osg_get_ways(bigint)",
@@ -76,11 +79,13 @@ class RelationSegments(PGTable):
             # table without a country column
             self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
                     """INSERT INTO %s (nodes, rels, ways, geom)
-                                   VALUES($1, $2, $3, ST_Transform($4, 900913))"""% (self.table))
+                                   VALUES($1, $2, $3, ST_Transform($4, %s))"""%
+                                   (self.table, self.srid))
         else:
             self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
                     """INSERT INTO %s (nodes, country, rels, ways, geom)
-                       VALUES($1, (SELECT %s FROM %s WHERE ST_Within(ST_Transform($4, 900913), geom) LIMIT 1), $2, $3, ST_Transform($4, 900913))""" % (self.table, self.country_column, self.country_table.table))
+                       VALUES($1, (SELECT %s FROM %s WHERE ST_Within(ST_Transform($4, %s), geom) LIMIT 1), $2, $3, ST_Transform($4, %s))""" %
+                       (self.table, self.country_column, self.country_table.table, self.srid, self.srid))
 
 
     def _cleanup_db(self):
@@ -117,9 +122,9 @@ class RelationSegments(PGTable):
         # finally prepare indices to speed up update
         self.db.query("DROP INDEX IF EXISTS %s_rels_idx" % (self.table))
         self.db.query("DROP INDEX IF EXISTS %s_ways_idx" % (self.table))
-        self.db.query("CREATE INDEX %s_rels_idx on %s USING gin (rels)" 
+        self.db.query("CREATE INDEX %s_rels_idx on %s USING gin (rels)"
                     % (self._table.table, self.table))
-        self.db.query("CREATE INDEX %s_ways_idx on %s USING gin (ways)" 
+        self.db.query("CREATE INDEX %s_ways_idx on %s USING gin (ways)"
                     % (self._table.table, self.table))
 
 
@@ -447,7 +452,7 @@ class _WayCollector:
         # get the node geometries and the countries
         countries = {}
         prevpoints = (0,0)
-        
+
         # need an extra cursor for thread-safty reasons
         cur = self.thread.db_cursor
         for n in way.nodes:
