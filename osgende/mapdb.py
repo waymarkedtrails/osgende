@@ -20,30 +20,55 @@ from datetime import datetime
 import osgende.common.osmdatabase as osmdb
 
 class MapDB:
-    """Basic class for creation and modification of a
-       complete database.
+    """Basic class for creation and modification of a complete database.
 
-       Subclass this for each route map and supply the
-       create_table_objects() function.
+       Subclass this for each route map and supply the create_table_objects()
+       function.
+
+       `options` may be extended with arbitrary attributes by subclasses. MapDB
+       currently makes use of the following:
+
+           * '''nodestore''' - filename of the location for the the node store.
+           * '''schema''' - schema associated with this DB. The only effect this
+             currently has is that the create action will attempt to craete the
+             schema.
+           * '''ro_user''' - read-only user to grant rights to for all tables. Only
+             used for create acion.
     """
 
     def __init__(self, dba, options=None):
-        nodestore = options.nodestore if hasattr(options, 'nodestore') else None
-        self.db = osmdb.OSMDatabase(dba, nodestore)
         self.options = options
+        self.db = osmdb.OSMDatabase(dba, self.get_option('nodestore'))
         self.data_tables = []
         self.style_tables = []
         self.segment_table = None
         self.update_table = None
         self.create_table_objects()
 
+    def get_option(self, option):
+        """Return the value of the given option or None if not set.
+        """
+        return getattr(self.options, option) if hasattr(self.options, option) else None
+
     def create_tables(self):
+        schema = self.get_option('schema')
+        rouser = self.get_option('ro_user')
+        if schema is not None:
+            self.db.create_schema(schema)
+            if rouser is not None:
+                self.db.query('GRANT USAGE ON SCHEMA %s TO "%s"' % (schema, rouser))
         for tab in self.data_tables:
             tab.create()
+            if rouser is not None:
+                tab.grant('SELECT', rouser)
         for tab in self.style_tables:
             tab.create()
+            if rouser is not None:
+                tab.grant('SELECT', rouser)
         if self.update_table is not None:
             self.update_table.create()
+            if rouser is not None:
+                self.update_table.grant('SELECT', rouser)
 
 
     def import_data(self):
@@ -102,7 +127,7 @@ def mapdb_main(dbclass):
                           usage='%prog [options] <action>')
     parser.add_option('-d', action='store', dest='database', default='planet',
                        help='name of database')
-    parser.add_option('-u', action='store', dest='username', default='osm',
+    parser.add_option('-u', action='store', dest='username', default='',
                        help='database user')
     parser.add_option('-p', action='store', dest='password', default='',
                        help='password for database')

@@ -89,6 +89,14 @@ class PGDatabase(object):
             cur = psycopg2.extensions.connection.cursor(self.conn, name)
         return cur
 
+    def create_schema(self, schema):
+        """Create a schema if it does not yet exist.
+        """
+        cur = self.create_cursor()
+        cur.execute('SELECT * FROM pg_namespace WHERE nspname = %s', (schema,))
+        if cur.rowcount <= 0:
+            cur.execute('CREATE SCHEMA "%s"' % (schema,))
+        cur.close()
 
     def query(self, query, data=None, cur=None):
         """Execute a simple query without caring for the result."""
@@ -258,6 +266,12 @@ class PGTable(object):
         self.db.query("CREATE TABLE %s (%s)" %
                        (self.table, 
                         ', '.join(['%s %s' % x for x in columns]))) 
+
+    def grant(self, right, user):
+        """Grant a single right (INSERT, UPDATE or SELECT) on the table
+           to the given user.
+        """
+        self.db.query('GRANT %s ON TABLE %s TO "%s"' % (right, self.table, user))
 
     def drop(self):
         """Drop the table or do nothing if it doesn't exist yet."""
