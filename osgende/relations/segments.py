@@ -37,7 +37,7 @@ class RelationSegments(PGTable):
         changes a country due to movement of a boundary, this will go undetected.
     """
 
-    srid = '900913'
+    srid = '8357'
 
     def __init__(self, db, name, subset, country_table=None, country_column='code', uptable=None):
         PGTable.__init__(self, db, name)

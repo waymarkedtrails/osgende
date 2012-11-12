@@ -59,7 +59,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
     """
 
     column_geom = 'geom'
-    srid = '900913'
+    srid = '8357'
 
     def __init__(self, db, name, subset = None, child_tags=[], 
                       transform='%s'):

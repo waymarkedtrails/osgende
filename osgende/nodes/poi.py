@@ -50,7 +50,7 @@ class PoiSubTable(PGTable):
     column_geom = 'geom'
     column_id = 'id'
     column_kind = 'osmtype'
-    srid = '900913'
+    srid = '8357'
 
 
     def __init__(self, db, name, subset):

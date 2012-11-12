@@ -28,7 +28,7 @@ class UpdatedGeometriesTable(PGTable):
        deleted ones. The state of the geometry is identified by the action
        column. ('A' - added, 'M' - modified, 'D' - deleted)
     """
-    srid = '900913'
+    srid = '8357'
 
     def __init__(self, db, name):
         PGTable.__init__(self, db, name)

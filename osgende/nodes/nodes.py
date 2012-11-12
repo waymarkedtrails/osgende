@@ -36,7 +36,7 @@ class NodeSubTable(PGTable):
     # Name of predefined columns
     column_id = 'id'
     column_geom = 'geom'
-    srid = '900913'
+    srid = '8357'
 
     def __init__(self, db, name, subset, transform='%s'):
         PGTable.__init__(self, db, name)
