@@ -250,12 +250,14 @@ class _WayCollector:
         self._get_intersections()
 
         # Next get the set of relevant relations
-        self.relations = set(self.db.select_column(
-            "SELECT id FROM relations WHERE %s" % (subset)))
+        self.relations = self.db.select_column(
+            "SELECT id FROM relations WHERE %s" % (subset))
 
-        if not self.relations:
+        if self.relations is None:
             print "WARNING: no relevant relations found"
-            self.relations = {}
+            self.relations = set()
+        else:
+            self.relations = set(self.relations)
 
         # ways already processed
         self.waysdone = set()
