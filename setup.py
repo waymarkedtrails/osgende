@@ -18,9 +18,10 @@
 
 from distutils.core import setup
 setup(name='osgende',
-      version='0.1',
+      version='0.2',
       author='Sarah Hoffmann',
       author_email='lonvia@denofr.de',
       url='https://github.com/lonvia/osgende',
       packages=['osgende', 'osgende.common', 'osgende.nodes', 'osgende.relations'],
+      scripts=['tools/osgende-import', 'tools/osgende-mapgen'],
       )
