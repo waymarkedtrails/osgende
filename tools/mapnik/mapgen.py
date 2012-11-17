@@ -47,7 +47,13 @@ from Queue import Queue, Full
 import threading
 
 import psycopg2
-import mapnik2 as mapnik
+try:
+    import mapnik2 as mapnik
+except ImportError, e:
+    if e.message.startswith('No module named'):
+        import mapnik
+    else:
+        raise e
 
 class TileWriterFilesystem:
     """
