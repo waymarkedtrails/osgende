@@ -96,8 +96,11 @@ class OSMImporter:
         if options.createdb:
             self.makedb(options.database, options.username,
                         options.password, options.postgisdir)
-        dba = ('dbname=%s user=%s password=%s' %
-               (options.database, options.username, options.password))
+        dba = 'dbname=%s' % options.database
+        if options.username is not None:
+            dba = '%s user=%s' % (dba, options.username)
+        if options.password is not None:
+            dba = '%s password=%s' % (dba, options.password)
         self.db = postgisconn.PGDatabase(dba)
         self.cursor = self.db.cursor()
         if options.nodestore is None:
@@ -395,9 +398,9 @@ if __name__ == '__main__':
                           usage='%prog [options] <osm file>')
     parser.add_option('-d', action='store', dest='database', default='osmosis',
                        help='name of database')
-    parser.add_option('-u', action='store', dest='username', default='osm',
+    parser.add_option('-u', action='store', dest='username', default=None,
                        help='database user')
-    parser.add_option('-p', action='store', dest='password', default='',
+    parser.add_option('-p', action='store', dest='password', default=None,
                        help='password for database')
     parser.add_option('-t', action="store", dest='tempdir', default=None,
                        help="directory to use for temporary files")
