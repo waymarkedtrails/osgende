@@ -49,10 +49,10 @@ import threading
 
 import psycopg2
 try:
-    import mapnik2 as mapnik
+    import mapnik
 except ImportError, e:
     if e.message.startswith('No module named'):
-        import mapnik
+        import mapnik2 as mapnik
     else:
         raise e
 
@@ -127,6 +127,10 @@ class TileWriterFilesystem:
     def save_tile(self, image, zoom, x, y):
         image.save(self._get_tile_uri(zoom, x, y), 'png256')
 
+    def reserve_tile(self, zoom, x, y):
+        fd = open(self._get_tile_uri(zoom, x, y), 'w')
+        fd.close()
+
 
 class TileWriterSqlite3:
 
@@ -137,6 +141,7 @@ class TileWriterSqlite3:
 
         # try to create the table
         db = sqlite3.connect(sqlitedb)
+        db.isolation_level = None
         try:
             db.execute("CREATE TABLE %s (zoom int, tilex int, tiley int, pixbuf blob, CONSTRAINT pk PRIMARY KEY (zoom, tilex, tiley))" % tablename)
         except sqlite3.OperationalError:
@@ -145,6 +150,7 @@ class TileWriterSqlite3:
 
     def setup(self):
         self.db = sqlite3.connect(self.sqlitedb)
+        self.db.isolation_level = None
 
     def finish(self):
         self.db.commit()
@@ -154,6 +160,9 @@ class TileWriterSqlite3:
 
     def save_tile(self, image, zoom, x, y):
         self.db.execute(self.insertquery, (zoom, x, y, sqlite3.Binary(image.tostring('png256'))))
+
+    def reserve_tile(self, zoom, x, y):
+        self.db.execute(self.insertquery, (zoom, x, y, None))
 
 
 class TileWriterPSQL:
@@ -195,11 +204,17 @@ class TileWriterPSQL:
 
     def save_tile(self, image, zoom, x, y):
         binary = psycopg2.Binary(image.tostring('png256'))
+        self._replace_tile(binary, zoom, x, y)
+
+    def _replace_tile(self, binary, zoom, x, y):
         self.cursor.execute("EXECUTE update_tile(%s, %s, %s, %s)", 
                 (zoom, x, y, binary))
         if self.cursor.rowcount < 1:
             self.cursor.execute("EXECUTE insert_tile(%s, %s, %s, %s)", 
                 (zoom, x, y, binary))
+
+    def reserve_tile(self, zoom, x, y):
+        self._replace_tile(None, zoom, x, y)
 
 
 
@@ -241,6 +256,34 @@ class GoogleProjection:
          h = RAD_TO_DEG * ( 2 * atan(exp(g)) - 0.5 * pi)
          return (f,h)
 
+    def fromTileToLL(self, zoom, x, y):
+         e = self.zc[zoom]
+         f = (x*256.0 - e[0])/self.Bc[zoom]
+         g = (y*256.0 - e[1])/-self.Cc[zoom]
+         h = RAD_TO_DEG * ( 2 * atan(exp(g)) - 0.5 * pi)
+         return (f,h)
+
+gprojection = None
+
+class Tile:
+    
+    def __init__(self, zoom, x, y):
+        self.zoom = zoom
+        self.x = x
+        self.y = y
+        self.to_delete = False
+        self.image = None
+
+    def compute_bounds(self, projection):
+        p0 = gprojection.fromTileToLL(self.zoom, self.x, self.y+1)
+        p1 = gprojection.fromTileToLL(self.zoom, self.x+1, self.y)
+
+        self.c0 = projection.forward(mapnik.Coord(p0[0],p0[1]))
+        self.c1 = projection.forward(mapnik.Coord(p1[0],p1[1]))
+
+    def get_bounds(self):
+        return (self.c0.x, self.c0.y, self.c1.x, self.c1.y)
+
 
 class MapnikOverlayGenerator:
     """Generates tiles in Google format in a top-down way.
@@ -267,12 +310,16 @@ class MapnikOverlayGenerator:
 
        'numprocesses' changes the number of parallel processes to use.
 
+       'prerender' contains the highest zoom level for which tiles are
+       prerendered. Zoom levels higher than that will just save a place holder.
+
    """
 
     def __init__(self, dba, dataquery=None, changequery=None,
-                  numprocesses=1):
+                  numprocesses=1, prerender=100):
         self.num_threads = numprocesses
         self.conn = psycopg2.connect(dba)
+        self.prerender_zoom = prerender
         # read-only connection and the DB won't change in between
         # no transactions required
         self.conn.set_isolation_level(0)
@@ -321,15 +368,9 @@ class MapnikOverlayGenerator:
         if zoom < 7:
             print "Rendering Zoom",zoom,"tile",x,"/",y,"(",datetime.isoformat(datetime.now()),")"
 
-
-        # reproject...
-        p0 = self.gprojection.fromPixelToLL((x * 256.0, (y+1) * 256.0), zoom)
-        p1 = self.gprojection.fromPixelToLL(((x+1) * 256.0, y * 256.0), zoom)
-
-        c0 = self.projection.forward(mapnik.Coord(p0[0],p0[1]))
-        c1 = self.projection.forward(mapnik.Coord(p1[0],p1[1]))
-
-        params = (c0.x, c0.y, c1.x, c1.y)
+        current = Tile(zoom, x, y)
+        current.compute_bounds(self.projection)
+        params = current.get_bounds()
 
         # is there an update pending?
         if self.changequery is not None:
@@ -345,20 +386,13 @@ class MapnikOverlayGenerator:
                 hasdata = False
 
         if hasdata:
-            try:
-                while True:
-                    try:
-                        self.queue.put(((zoom, x, y), c0, c1), True, 2)
-                        break
-                    except Full:
-                        # check that all our threads are still alive
-                        if self.num_threads+2 > threading.active_count():
-                           raise Exception("Internal error. %d threads died." 
-                                   % (self.num_threads-threading.active_count()))
-            except KeyboardInterrupt:
-                raise SystemExit("Ctrl-c detected, exiting...")
+            if zoom <= self.prerender_zoom:
+                self._prerender_tile(current)
+            else:
+                self.outqueue.put(current)
         else:
-            self.outqueue.put(((zoom, x, y), None))
+            current.to_delete = True
+            self.outqueue.put(current)
 
         if zoom < maxzoom:
             self._render_tile(2*x, 2*y, zoom+1, maxzoom)
@@ -366,6 +400,19 @@ class MapnikOverlayGenerator:
             self._render_tile(2*x+1, 2*y, zoom+1, maxzoom)
             self._render_tile(2*x+1, 2*y+1, zoom+1, maxzoom)
 
+    def _prerender_tile(self, tile):
+        try:
+            while True:
+                try:
+                    self.queue.put(tile, True, 2)
+                    break
+                except Full:
+                    # check that all our threads are still alive
+                    if self.num_threads+2 > threading.active_count():
+                       raise Exception("Internal error. %d threads died." 
+                               % (self.num_threads-threading.active_count()))
+        except KeyboardInterrupt:
+            raise SystemExit("Ctrl-c detected, exiting...")
 
 
 
@@ -378,9 +425,10 @@ class MapnikOverlayGenerator:
             x and y are tile numbers for the highest zoomlevel to be rendered.
             All tuples are Python ranges, i.e. the to value is non-inclusive.
         """
+        global gprojection
         zrange, xrange, yrange = box
 
-        self.gprojection = GoogleProjection(zrange[1])
+        gprojection = GoogleProjection(zrange[1])
 
         # set up the rendering threads
         print "Using", self.num_threads, "parallel threads."
@@ -431,10 +479,13 @@ class WriterThread:
 
                 #print "Writing", req
 
-                if req[1] is None:
-                    self.writer.remove_tile(*req[0])
+                if req.to_delete:
+                    self.writer.remove_tile(req.zoom, req.x, req.y)
                 else:
-                    self.writer.save_tile(req[1], *req[0])
+                    if req.image is None:
+                        self.writer.reserve_tile(req.zoom, req.x, req.y)
+                    else:
+                        self.writer.save_tile(req.image, req.zoom, req.x, req.y)
 
                 self.outqueue.task_done()
         finally:
@@ -450,14 +501,14 @@ class RenderThread:
         self.map = mapnik.Map(256, 256)
         mapnik.load_map(self.map, stylefile)
 
-    def render_tile(self, request):
-        bbox = mapnik.Box2d(request[1].x, request[1].y,
-                            request[2].x, request[2].y)
+    def render_tile(self, tile):
+        bbox = mapnik.Box2d(tile.c0.x, tile.c0.y, tile.c1.x, tile.c1.y)
         self.map.zoom_to_box(bbox)
 
         im = mapnik.Image(256, 256)
         mapnik.render(self.map, im)
-        self.outqueue.put((request[0], im))
+        tile.image = im
+        self.outqueue.put(tile)
 
 
     def loop(self):
@@ -509,6 +560,8 @@ def make_table_query(table):
     else:
         return """SELECT 'a' FROM %s WHERE ST_Intersects(geom, %%s) LIMIT 1""" % table
 
+
+
 if __name__ == '__main__':
     # if Python 2.6+, get us the number of CPUs, otherwise just invent a number
     try:
@@ -530,6 +583,8 @@ if __name__ == '__main__':
                        help='password for database')
     parser.add_option('-z', action='store', type='intrange', dest='zoom', default='0-16',
                        help='zoom levels to create tiles for')
+    parser.add_option('-Z', action='store', type='int', dest='prerender', default=None,
+                       help='maximum zoom level for prerendering default: all)')
     parser.add_option('-t', action='store', type='inttuple', dest='tiles', default=None,
                        help='tile to render on lowest zoomlevel(x,y)')
     parser.add_option('-q', action='store', dest='datatable', default=None,
@@ -566,6 +621,8 @@ if __name__ == '__main__':
     else:
         box = (options.zoom, (0,maxtilenr), (0,maxtilenr))
 
+    if options.prerender is None:
+        options.prerender = options.zoom[1]
 
     if options.output == 'filesystem':
         writer = TileWriterFilesystem(args[1], options.rewrite_tileschema)
@@ -585,6 +642,7 @@ if __name__ == '__main__':
                                         (options.username, options.database),
                          dataquery=dataquery,
                          changequery=changequery,
-                         numprocesses=options.numprocesses)
+                         numprocesses=options.numprocesses,
+                         prerender=options.prerender)
     renderer.check_mapnik_version(701)
     renderer.render(writer, args[0], box)
