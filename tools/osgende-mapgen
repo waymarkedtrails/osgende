@@ -31,7 +31,7 @@ sqlite3:    stores the tiles into a SQlite3 database. Output location must be
 
 postgresql: store the tile into a PostgreSQL database. Output location should
             be the name of the database to use. The writer expects the table to
-            have the following columns: zoom, tilex, tily and pixbuf. It will
+            have the following columns: id and pixbuf. It will
             create a suitable table if none exists under the given name.
 """
 # Code was inspired by the tile generation scrips of openstreetmap.org.
@@ -55,6 +55,12 @@ except ImportError, e:
         import mapnik2 as mapnik
     else:
         raise e
+
+def mk_tileid(zoom, x, y):
+    """Create a unique 64 bit tile ID.
+       Works up to zoom level 24."
+    """
+    return zoom + (x << 5) + (y << (5 + zoom))
 
 class TileWriterFilesystem:
     """
@@ -177,19 +183,18 @@ class TileWriterPSQL:
         cur = self.db.cursor()
         # try to create the table
         try:
-            cur.execute("CREATE TABLE %s (zoom int, tilex int, tiley int, pixbuf bytea, CONSTRAINT %s_pk PRIMARY KEY (zoom, tilex, tiley))" % (tablename, tablename))
+            cur.execute("CREATE TABLE %s (id bigint PRIMARY KEY, pixbuf bytea)" % tablename)
         except psycopg2.ProgrammingError:
             # assume that the table already exists
             pass
-        cur.execute("""PREPARE delete_tile(int, int, int) AS 
-                DELETE FROM %s WHERE zoom=$1 AND tilex=$2 AND tiley=$3"""
+        cur.execute("""PREPARE delete_tile(bigint) AS 
+                DELETE FROM %s WHERE id=$1"""
                 % tablename)
-        cur.execute("""PREPARE update_tile(int, int, int, bytea) AS
-                UPDATE %s SET pixbuf=$4 WHERE zoom=$1 AND tilex=$2 AND tiley=$3"""
+        cur.execute("""PREPARE update_tile(bigint, bytea) AS
+                UPDATE %s SET pixbuf=$2 WHERE id=$1"""
                 % tablename)
-        cur.execute("""PREPARE insert_tile(int, int, int, bytea) AS
-                INSERT INTO %s (zoom, tilex, tiley, pixbuf)
-                VALUES($1,$2,$3,$4)"""
+        cur.execute("""PREPARE insert_tile(bigint, bytea) AS
+                INSERT INTO %s (id, pixbuf) VALUES($1,$2)"""
                 % tablename)
 
 
@@ -200,18 +205,18 @@ class TileWriterPSQL:
         pass
 
     def remove_tile(self, zoom, x, y):
-        self.cursor.execute("EXECUTE delete_tile(%s, %s, %s)", (zoom, x, y))
+        self.cursor.execute("EXECUTE delete_tile(%s)", (mk_tileid(zoom, x, y), ))
 
     def save_tile(self, image, zoom, x, y):
         binary = psycopg2.Binary(image.tostring('png256'))
         self._replace_tile(binary, zoom, x, y)
 
     def _replace_tile(self, binary, zoom, x, y):
-        self.cursor.execute("EXECUTE update_tile(%s, %s, %s, %s)", 
-                (zoom, x, y, binary))
+        self.cursor.execute("EXECUTE update_tile(%s, %s)", 
+                (mk_tileid(zoom, x, y), binary))
         if self.cursor.rowcount < 1:
-            self.cursor.execute("EXECUTE insert_tile(%s, %s, %s, %s)", 
-                (zoom, x, y, binary))
+            self.cursor.execute("EXECUTE insert_tile(%s, %s)", 
+                (mk_tileid(zoom, x, y), binary))
 
     def reserve_tile(self, zoom, x, y):
         self._replace_tile(None, zoom, x, y)
