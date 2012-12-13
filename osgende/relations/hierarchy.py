@@ -58,7 +58,7 @@ class RelationHierarchy(PGTable):
         # recurse till there are no more children
         depth = 1
         todo = True
-        while todo:
+        while todo and depth < 10:
             # then go through the recursive parts
             print "Recursion",depth
             res = self.db.select_one("""INSERT INTO %s
@@ -67,10 +67,10 @@ class RelationHierarchy(PGTable):
                             WHERE h.depth=%s 
                                   and h.child=m.relation_id 
                                   and m.member_type='R' 
-                                  and h.parent <>m.member_id
                                   and m.member_id IN (%s)
+                                  and not exists (select * from %s u where u.parent = h.parent and u.child = m.member_id)
                             RETURNING parent
-                            """ % (self.table, depth+1, self.table, depth, self._subset))
+                            """ % (self.table, depth+1, self.table, depth, self._subset, self.table))
             todo = (res is not None)
             depth += 1
 
