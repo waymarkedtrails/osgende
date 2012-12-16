@@ -82,13 +82,11 @@ class _GeometryWriter:
 def _getPostgisVersion(conn,curs):
     """returns the postgis version as (major,minor,patch)"""
     curs.execute("select postgis_full_version()")    
-    conn.commit()
     m = re.compile('POSTGIS="([^"]*)"').match(curs.fetchall()[0][0])
     return m.group(1).split('.')
     
 def _getTypeOid(conn,curs,typename):
     curs.execute("select oid from pg_type where typname='%s'" % (typename,))
-    conn.commit()
     return curs.fetchall()[0][0]
 
 def initialisePsycopgTypes(psycopg_module, connect_string, 
