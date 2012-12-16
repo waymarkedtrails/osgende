@@ -135,23 +135,29 @@ class OSMImporter:
         dba = ('dbname=%s user=%s password=%s' % (dbname, user, passwd))
         tmpdb = psycopg2.connect(dba)
         tmpcur = tmpdb.cursor()
-        if postgisdir is None:
-            # guess the directory from the postgres version
-            postgisdir = ('/usr/share/postgresql/%d.%d/contrib' %
-                    (tmpdb.server_version / 10000, (tmpdb.server_version / 100) % 100))
-            for fl in os.listdir(postgisdir):
-                if fl.startswith('postgis'):
-                    newdir = ospath.join(postgisdir, fl)
-                    if ospath.isdir(newdir):
-                        postgisdir = newdir
-                        break
-            else:
-                print 'Cannot find postgis directory. Please explicitly specify with -P parameter.'
-                sys.exit(-1)
-        pgscript = open(ospath.join(postgisdir, 'postgis.sql'),'r').read()
-        tmpcur.execute(pgscript)
-        pgscript = open(ospath.join(postgisdir, 'spatial_ref_sys.sql'), 'r').read()
-        tmpcur.execute(pgscript)
+        try:
+            # try to create extension postgis (for postgis 2.0)
+            tmpcur.execute("CREATE EXTENSION postgis;")
+        except:
+            # otherwise fall back to loading it from the contrib folder
+            tmpdb.rollback()
+            if postgisdir is None:
+                # guess the directory from the postgres version
+                postgisdir = ('/usr/share/postgresql/%d.%d/contrib' %
+                        (tmpdb.server_version / 10000, (tmpdb.server_version / 100) % 100))
+                for fl in os.listdir(postgisdir):
+                    if fl.startswith('postgis'):
+                        newdir = ospath.join(postgisdir, fl)
+                        if ospath.isdir(newdir):
+                            postgisdir = newdir
+                            break
+                else:
+                    print 'Cannot find postgis directory. Please explicitly specify with -P parameter.'
+                    sys.exit(-1)
+            pgscript = open(ospath.join(postgisdir, 'postgis.sql'),'r').read()
+            tmpcur.execute(pgscript)
+            pgscript = open(ospath.join(postgisdir, 'spatial_ref_sys.sql'), 'r').read()
+            tmpcur.execute(pgscript)
         tmpcur.execute("""
                 CREATE EXTENSION hstore;
                 CREATE TABLE nodes(id bigint NOT NULL, tags hstore);
@@ -174,6 +180,7 @@ class OSMImporter:
                                                  action character(1) NOT NULL);
 
         """)
+        tmpdb.commit()
         tmpdb.close()
 
 
