@@ -345,13 +345,13 @@ class MapnikOverlayGenerator:
 
         cur = self.conn.cursor()
         try:
-            cur.execute(boxquery % (0,0,1,1))
+            cur.execute(boxquery % (-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
         except Exception:
             # did not work, try the other projection
-            cur.rollback()
+            self.conn.rollback()
             boxquery = basequery % "ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)"
             try:
-                cur.execute(boxquery % (0,0,1,1))
+                cur.execute(boxquery % (-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
             finally:
                 cur.close()
 
