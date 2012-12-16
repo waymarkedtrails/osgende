@@ -97,11 +97,7 @@ class OSMImporter:
         if options.createdb:
             self.makedb(options.database, options.username,
                         options.password, options.postgisdir)
-        dba = 'dbname=%s' % options.database
-        if options.username is not None:
-            dba = '%s user=%s' % (dba, options.username)
-        if options.password is not None:
-            dba = '%s password=%s' % (dba, options.password)
+        dba = self.makedba(options.database, options.username, options.password)
         self.db = postgisconn.PGDatabase(dba)
         self.cursor = self.db.cursor()
         if options.nodestore is None:
@@ -123,8 +119,16 @@ class OSMImporter:
                 ALTER TABLE ONLY relation_members ADD CONSTRAINT pk_relation_members
                            PRIMARY KEY (relation_id, sequence_id); """)
 
+    def makedba(self, db, user, password):
+        dba = 'dbname=%s' % db
+        if user is not None:
+            dba = '%s user=%s' % (dba, user)
+        if password is not None:
+            dba = '%s password=%s' % (dba, password)
+        return dba
+
     def makedb(self, dbname, user, passwd, postgisdir=None):
-        dba = ('dbname=postgres user=%s password=%s' % (user, passwd))
+        dba = self.makedba('postgres', user, passwd)
         tmpdb = psycopg2.connect(dba)
         tmpdb.set_isolation_level(0)
         tmpcur = tmpdb.cursor()
@@ -132,7 +136,7 @@ class OSMImporter:
         print tmpcur.statusmessage
         tmpdb.close()
 
-        dba = ('dbname=%s user=%s password=%s' % (dbname, user, passwd))
+        dba = self.makedba(dbname, user, passwd)
         tmpdb = psycopg2.connect(dba)
         tmpcur = tmpdb.cursor()
         try:
