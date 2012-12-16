@@ -77,7 +77,7 @@ class _GeometryWriter:
             return self.asis("'%s'" % wkb.encode('hex'))
         else:
             wkbhead = struct.pack(prefix + 'bii', endian, geomtype | 0x20000000, geom._crs)
-            return self.asis("'%s%s'" % (wkbhead.encode('hex'), wkb[5:].encode('hex')))
+            return self.asis("'%s%s'::geometry" % (wkbhead.encode('hex'), wkb[5:].encode('hex')))
 
 def _getPostgisVersion(conn,curs):
     """returns the postgis version as (major,minor,patch)"""
