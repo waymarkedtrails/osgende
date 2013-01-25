@@ -1,5 +1,6 @@
 # This file is part of Osgende
 # Copyright (C) 2010-11 Sarah Hoffmann
+#               2012-13 Michael Spreng
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -55,7 +56,7 @@ class Ways(OsmosisSubTable):
             prevpoints = (0,0)
             cur = self.thread.cursor
 
-            way=self.db.select_one("SELECT nodes FROM ways WHERE id = %d" % (obj['id']))
+            way=self.db.select_one("SELECT nodes FROM ways WHERE id = %s", (obj['id'],), cur=cur)
 
             for n in way:
                 res = self.db.get_nodegeom(n, cur)
