@@ -1,5 +1,5 @@
 # This file is part of Osgende
-# Copyright (C) 2012 Sarah Hoffmann
+# Copyright (C) 2010-11 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -15,15 +15,4 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-""" A collection of classes that provide general implementation of tables
-    derived from the Osmosis pgsnapshot schema.
-"""
-
-import mapdb
-from subtable import OsmosisSubTable
-from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
 from ways import Ways
-import nodes
-from update import UpdatedGeometriesTable
-import common
-import tags
