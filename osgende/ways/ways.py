@@ -20,6 +20,7 @@ Tables for ways
 
 from osgende.subtable import OsmosisSubTable
 from osgende.tags import TagStore
+import shapely.geometry as sgeom
 
 class Ways(OsmosisSubTable):
     """Most basic table type to construct a simple derived table from
@@ -50,15 +51,29 @@ class Ways(OsmosisSubTable):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            # FIXME: does not work for nodestore
-            geom = """ST_Transform(ST_MakeLine(ARRAY(
-                      SELECT geom FROM (SELECT generate_subscripts(nodes, 1) AS i,
-                          nodes FROM public.ways WHERE id = %d) w,
-                      public.nodes n WHERE n.id = w.nodes[i] ORDER BY i)), %s)""" % (
-                                  obj['id'], self.srid)
-            query = ("INSERT INTO %s (%s, %s, %s) VALUES (%s, %s, %s)" % 
-                        (self.table, self.column_id, self.column_geom,
-                         ','.join(tags.keys()), obj['id'], geom,
-                         ','.join(['%s' for i in range(len(tags))])))
-            params = tags.values()
-            self.thread.cursor.execute(query, params)
+            points = []
+            prevpoints = (0,0)
+            cur = self.thread.cursor
+
+            way=self.db.select_one("SELECT nodes FROM ways WHERE id = %d" % (obj['id']))
+
+            for n in way:
+                res = self.db.get_nodegeom(n, cur)
+                if res is not None:
+                    pnt = (res.x, res.y)
+                    if pnt == prevpoints:
+                        points.append((res.x+0.00000001, res.y))
+                    else:
+                        points.append(pnt)
+                    prevpoints = pnt
+
+            # ignore ways where the node geometries are missing
+            if len(points) > 1:
+                geom = sgeom.LineString(points)
+                geom._crs = 4326
+                query = ("INSERT INTO %s (%s, %s, %s) VALUES (%s, %s, %s)" % 
+                            (self.table, self.column_id, self.column_geom,
+                             ','.join(tags.keys()), obj['id'], "ST_Transform(%%s, %s)" % (self.srid),
+                             ','.join(['%s' for i in range(len(tags))])))
+                params = [geom] + tags.values()
+                self.thread.cursor.execute(query, params)
