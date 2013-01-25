@@ -208,12 +208,11 @@ class PGTable(object):
 
            This option is not used by PGTable itself but by many of the
            specialised subtables. Refer to the documentation there on notes
-           how to make the tables thread-safe. In particular, note, that
+           how to make the tables thread-safe. In particular note that
            you cannot use the default cursor object but need to create
-           an extra one in the context of threads. At the moment, that
-           means that you cannot use any of the convenience functions.
-
-           See also
+           an extra one in the context of threads. That also means that
+           you must supply explicitly the right cursor to any convenience
+           function. 
         """
         self.numthreads = num
 
