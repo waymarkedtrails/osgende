@@ -22,6 +22,6 @@ setup(name='osgende',
       author='Sarah Hoffmann',
       author_email='lonvia@denofr.de',
       url='https://github.com/lonvia/osgende',
-      packages=['osgende', 'osgende.common', 'osgende.nodes', 'osgende.relations'],
+      packages=['osgende', 'osgende.common', 'osgende.nodes', 'osgende.relations', 'osgende.ways'],
       scripts=['tools/osgende-import', 'tools/osgende-mapgen'],
       )
