@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # This file is part of Osgende
 # Copyright (C) 2011 Sarah Hoffmann
+#               2013 Michael Spreng
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -341,17 +342,22 @@ class MapnikOverlayGenerator:
         if basequery is None:
             return None
 
-        boxquery = basequery % "ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)"
+        def boxquery900913 (xmin, ymin, xmax, ymax):
+            return basequery("ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,900913)" % (xmin, ymin, xmax, ymax))
 
+        def boxquery3857 (xmin, ymin, xmax, ymax):
+            return basequery("ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)" % (xmin, ymin, xmax, ymax))
+
+        boxquery = boxquery900913
         cur = self.conn.cursor()
         try:
-            cur.execute(boxquery % (-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
+            cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
         except Exception:
             # did not work, try the other projection
             self.conn.rollback()
-            boxquery = basequery % "ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)"
+            boxquery = boxquery3857
             try:
-                cur.execute(boxquery % (-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
+                cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
             finally:
                 cur.close()
 
@@ -379,14 +385,14 @@ class MapnikOverlayGenerator:
 
         # is there an update pending?
         if self.changequery is not None:
-            self.cursor.execute(self.changequery % params)
+            self.cursor.execute(self.changequery(*params))
             if self.cursor.fetchone() is None:
                 return
 
         # is there something on the tile?
         hasdata = True
         if self.dataquery is not None:
-            self.cursor.execute(self.dataquery % params)
+            self.cursor.execute(self.dataquery(*params))
             if self.cursor.fetchone() is None:
                 hasdata = False
 
@@ -559,11 +565,15 @@ class MapGenOptions(Option):
     TYPE_CHECKER["inttuple"] = check_inttuple
 
 
-def make_table_query(table):
-    if table is None:
+def make_table_query(tables):
+    if tables is None:
         return None
     else:
-        return """SELECT 'a' FROM %s WHERE ST_Intersects(geom, %%s) LIMIT 1""" % table
+        table_list = [table.strip() for table in tables.split(',')]
+        def queryfu(bbox):
+            s = " UNION ".join([ "(SELECT 'a' FROM " + table + " WHERE ST_Intersects(" + table + ".geom, " + bbox + ") LIMIT 1)" for table in table_list ])
+            return s
+        return queryfu
 
 
 
