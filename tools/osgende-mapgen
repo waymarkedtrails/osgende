@@ -651,7 +651,7 @@ if __name__ == '__main__':
         exit(-1)
 
     if options.changetable is None:
-        print 'Warning: no change table supplied. This wil lead to every tile'
+        print 'Warning: no change table supplied. This will lead to every tile'
         print '         being considered changed and therefore processed, which'
         print '         probably is not what you intended.'
         if options.datatable is not None:
