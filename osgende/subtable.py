@@ -38,8 +38,9 @@ class OsmosisSubTable(PGTable):
     # Name of predefined columns
     column_id = 'id'
 
-    def __init__(self, db, basetable, name, subset):
+    def __init__(self, db, basetable, name, subset, uptable=None):
         PGTable.__init__(self, db, name)
+        self.update_table = uptable
         updateset = "%s IN (SELECT id FROM %s_changeset WHERE action <> 'D')" % \
                       (self.column_id, basetable)
         if subset is None:
@@ -49,6 +50,7 @@ class OsmosisSubTable(PGTable):
             self.wherequery = "WHERE %s" % subset
             self.updatequery = "WHERE %s AND %s" % (subset, updateset)
         self.basetable = basetable
+        self.geometry_column = None
 
     def layout(self, columns):
         """ Layout the table as specified in PGTable.layout() but
@@ -74,10 +76,25 @@ class OsmosisSubTable(PGTable):
 
         self.init_update()
         # delete any objects that might have been changed
-        self.delete("""id IN (SELECT id FROM %s_changeset WHERE ACTION <> 'A')
+        if self.update_table is not None and self.geometry_column is not None:
+            self.db.select("""WITH deleted AS
+                    (DELETE FROM %s WHERE id IN
+                        (SELECT c.id FROM %s_changeset c WHERE action <> 'A')
+                        RETURNING 'D', %s)
+                    INSERT INTO %s (action,geom) SELECT * FROM deleted""" % (self.table,
+                        self.basetable, self.geometry_column, self.update_table.table))
+        else:
+            self.delete("""id IN (SELECT id FROM %s_changeset WHERE ACTION <> 'A')
                    """ % (self.basetable))
+
         # reinsert those that are not deleted
         self.insert_objects(self.updatequery)
+        if self.update_table is not None and self.geometry_column is not None:
+            cur = self.db.select("""INSERT INTO %s (action,geom)
+                    (SELECT 'A', %s FROM %s WHERE id IN
+                            (SELECT id FROM %s_changeset WHERE ACTION <> 'D'))""" % (
+                                self.update_table.table, self.geometry_column,
+                                self.table, self.basetable))
         # finish up
         self.finish_update()
 
@@ -99,7 +116,6 @@ class OsmosisSubTable(PGTable):
         if tags is not None:
             tags['id'] = obj['id']
             self.insert_values(tags, self.thread.cursor)
-
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.

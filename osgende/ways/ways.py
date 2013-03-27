@@ -36,8 +36,8 @@ class Ways(OsmosisSubTable):
     srid = '3857'
 
 
-    def __init__(self, db, name, subset):
-        OsmosisSubTable.__init__(self, db, 'way', name, subset)
+    def __init__(self, db, name, subset, uptable = None):
+        OsmosisSubTable.__init__(self, db, 'way', name, subset, uptable = uptable)
 
     def layout(self, columns):
         """ Layout the table as specified in PGTable.layout() but
