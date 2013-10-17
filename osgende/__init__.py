@@ -22,7 +22,7 @@
 import mapdb
 from subtable import OsmosisSubTable
 from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
-from ways import Ways
+from ways import Ways, JoinedWays
 import nodes
 from update import UpdatedGeometriesTable
 import common
