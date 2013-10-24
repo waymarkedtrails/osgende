@@ -144,7 +144,7 @@ class JoinedWays(PGTable):
 
             merge_list = self._get_all_adjacent_way_ids(wid, properties)
 
-            # only insert ways thet has neighbours
+            # only insert ways that have neighbours
             if len(merge_list) > 1:
                 vid = self.db.select_one("""SELECT nextval('%s_vid')"""
                         % (self.table,), cur = cur)
