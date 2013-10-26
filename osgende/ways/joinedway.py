@@ -70,7 +70,6 @@ class JoinedWays(PGTable):
         unchecked_ways += self._get_adjacent_way_ids(wid, properties, all_adjacent_ways, ways_not_adjacent)
 
         while unchecked_ways:
-            #print unchecked_ways
             unchecked_ways += self._get_adjacent_way_ids(unchecked_ways.pop(), properties,
                     all_adjacent_ways, ways_not_adjacent)
 
@@ -148,9 +147,6 @@ class JoinedWays(PGTable):
             if len(merge_list) > 1:
                 vid = self.db.select_one("""SELECT nextval('%s_vid')"""
                         % (self.table,), cur = cur)
-
-                print "wid=", wid, "vid=", vid
-                print merge_list
 
                 for i in merge_list:
                     line = {'virtual_id' : vid,
