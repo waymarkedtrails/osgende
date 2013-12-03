@@ -56,6 +56,9 @@ class JoinedWays(PGTable):
 
         workers.finish()
 
+    def update(self):
+        self.construct();
+
     def _get_all_adjacent_way_ids(self, wid, properties):
         """
             finds all ways adjacent to the one given in wid iteratively
