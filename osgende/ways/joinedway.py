@@ -57,7 +57,25 @@ class JoinedWays(PGTable):
         workers.finish()
 
     def update(self):
-        self.construct();
+        self.db.query("""WITH c AS (SELECT id FROM way_changeset WHERE action='M' OR action='D')
+        SELECT * FROM %s WHERE child IN (SELECT id FROM c)""" % (self.table,))
+        self.db.query("""WITH lonely AS (SELECT virtual_id FROM %s
+                              GROUP BY virtual_id HAVING COUNT(1) < 2)
+                         DELETE FROM %s
+                              WHERE virtual_id IN (SELECT virtual_id FROM lonely);"""
+                              % (self.table, self.table))
+
+        # the worker threads
+        workers = self.create_worker_queue(self._process_next)
+
+        cur = self.db.select("""SELECT w.id FROM way_changeset c, %s w
+                                     WHERE (action='C' OR action='M') AND w.id = c.id"""
+                % (self.master_table.fullname,))
+
+        for obj in cur:
+            workers.add_task(obj)
+
+        workers.finish()
 
     def _get_all_adjacent_way_ids(self, wid, properties):
         """
