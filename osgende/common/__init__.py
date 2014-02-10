@@ -1,4 +1,4 @@
-# This file is part of Lonvia's Hiking Map
+# This file is part of Osgende
 # Copyright (C) 2010 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
