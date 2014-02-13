@@ -20,10 +20,13 @@ route. Holes in the graph are closed with artifical way sections.
 The graph has the notion of a main route and forks and secondary routes.
 """
 
+import logging
+
 from collections import defaultdict
 from shapely.geometry import Point, LineString
 from Queue import PriorityQueue
 
+logger = logging.getLogger(__name__)
 
 class RouteGraphSegment(object):
     """ An edge within a route graph.
@@ -38,8 +41,6 @@ class RouteGraphSegment(object):
         self.geom = geom
         self.firstpnt = firstpnt
         self.lastpnt = lastpnt
-        # graph
-        self.connection = []
         # main paths
         self.forward = None
         self.backward = None # TODO unimplemented
@@ -54,6 +55,10 @@ class RouteGraphSegment(object):
         self.firstpnt = self.lastpnt
         self.lastpnt = self.firstpnt
 
+    def __repr__(self):
+        return "RouteGraphSegment(id=%d,firstpnt=%d,lastpnt=%d)" % (
+                self.segid, self.firstpnt, self.lastpnt)
+
 
 class RouteGraphPoint(object):
     """ A node within the route graph.
@@ -63,17 +68,16 @@ class RouteGraphPoint(object):
         self.subnet = -1
         self.nodeid = nodeid
         self.coords = Point(coords)
+        # outgoing edges as tuples of (edge, next point)
         self.edges = []
-        # next nodes as ids
-        self.neighbours = []
 
     def distance_to(self, point):
         return self.coords.distance(point)
 
 
     def __repr__(self):
-        return "RouteGraphPoint(nodeid=%r,subnet=%r,edges=%r,neightbours=%r)" % (
-                   self.nodeid, self.subnet, len(self.edges), self.neighbours)
+        return "RouteGraphPoint(nodeid=%r,subnet=%r,edges=%r)" % (
+                   self.nodeid, self.subnet, self.edges)
 
 
 
@@ -85,8 +89,8 @@ class RouteGraph(object):
     """
 
     def __init__(self):
-        # the starting point
-        self.first_segment = None
+        # the starting point (tuple of start point id and start segment)
+        self.start = None
         # nodes and their edges 
         self.nodes = {}
         self.segments = []
@@ -109,8 +113,7 @@ class RouteGraph(object):
             node = RouteGraphPoint(nid, geom)
             self.nodes[nid] = node
 
-        node.edges.append(segment)
-        node.neighbours.append(targetid)
+        node.edges.append((segment, targetid))
 
 
     def build_directed_graph(self):
@@ -133,17 +136,6 @@ class RouteGraph(object):
             # TODO special case: circular way with dangling string
             assert(not "circular dangling way")
             pass
-        elif len(danglings) == 2:
-            # special case: good route
-            # XXX proper graph building needed
-            self.first_segment = danglings[0].edges[0]
-            current = self.first_segment
-            while current:
-                if current.connection:
-                    current.forward = current.connection[0]
-                    current = current.forward
-                else:
-                    current = None
         else:
             self._compute_main_route(danglings)
 
@@ -152,16 +144,22 @@ class RouteGraph(object):
     def get_main_geometry(self):
         """Return an unbroken line string for the complete geometry.
         """
-        coords = []
-        current = self.first_segment
-        lastpoint = current.firstpnt
+        lastpoint, current = self.start
+        coords = [self.nodes[lastpoint].coords.coords[0]]
         while current:
+            logger.debug("get_main_geometry current: %r" % current)
+            logger.debug("get_main_geometry coords: %s" % (current.geom.coords[:],))
             if lastpoint == current.firstpnt:
-                coords.extend(current.geom.coords)
+                coords.extend(current.geom.coords[1:])
+                lastpoint = current.lastpnt
             else:
-                coords.extend(current.geom.coords[::-1])
+                coords.extend(current.geom.coords[-2::-1])
+                lastpoint = current.firstpnt
             current = current.forward
+
+        logger.debug("get_main_geometry final coords: %s", (coords,))
         return LineString(coords)
+
 
     def _compute_main_route(self, startpoints):
         """ Makes the undirected graph directed and
@@ -173,27 +171,35 @@ class RouteGraph(object):
             take the two longest of the paths and use that as the
             main path.
         """
-        # todolist. Entries are (dist, startnode, nextpoint)
-        todo = PriorityQueue()
-        # initial fill
-        for s in startpoints:
-            todo.put((0, s, self.nodes[s]))
+        #
+        # forward: find the point where all starting points meet
+        # using a Dikstra-like shortest path algorithm
+        #
 
-        # initialise the point store on the nodes
+        # initialise the point store on the nodes:
+        # for each start point it contains a tuple (distance, predecessor)
         for n in self.nodes.itervalues():
             n.dikstra = [None for x in range(len(startpoints))]
 
-        centerpoint = None
-        while not todo.empty():
-            dist, startnode, currentpt = todo.get()
+        # todolist. Entries are (distance, idx in startpoints, nextpoint)
+        todo = PriorityQueue()
+        # initial fill
+        for s in range(len(startpoints)):
+            todo.put((0.0, s, startpoints[s]))
+            # startpoints are shortest to themselves
+            startpoints[s].dikstra[s] = (0, (None, startpoints[s]))
 
-            for nxt in currentpt.neighbours:
-                nxtpt = self.nodes[nxt]
-                newdst = nxtpt.distnace_to(currentpt)
-                if nxtpt.dikstra[startnode] is None or nxtpt.dikstra[startnode][1] > newdst:
+        centerpoint = None
+        while not todo.empty() and centerpoint is None:
+            dist, startidx, currentpt = todo.get()
+
+            for nxtedge, nxtptid in currentpt.edges:
+                nxtpt = self.nodes[nxtptid]
+                newdst = dist + nxtedge.geom.length
+                if nxtpt.dikstra[startidx] is None or nxtpt.dikstra[startidx][0] > newdst:
                     # found a better solution, queue
-                    nxtpt.dikstra[startnode] = (newdst, currentpt)
-                    todo.put((newdst, startnode, nxtpt))
+                    nxtpt.dikstra[startidx] = (newdst, (nxtedge, currentpt))
+                    todo.put((newdst, startidx, nxtpt))
                 if not None in nxtpt.dikstra:
                     # we have finally met in a point, stop here
                     centerpoint = nxtpt
@@ -201,8 +207,45 @@ class RouteGraph(object):
             if centerpoint is not None:
                 break
 
-        if centerpoint is None:
-            pass  
+        assert centerpoint is not None
+
+        #
+        # backward: find the two farthest endpoints and span a route
+        # btween those two
+        #
+        ids = sorted(range(len(startpoints)), key=lambda x: centerpoint.dikstra[x][0], reverse=True)
+        # Longest is first point, so enter backwards
+        firstpt = ids[0]
+        # Second longest is final point, so enter forwards
+        lastpt = ids[1]
+
+        logger.debug('%d -- %d %d %r' % (centerpoint.nodeid, firstpt, lastpt, startpoints))
+
+        prevedge = centerpoint.dikstra[lastpt][1][0]
+        current = centerpoint.dikstra[firstpt][1]
+        logger.debug('Forward prevedge: %r' % (prevedge))
+        while True:
+            logger.debug('Forward: %r' % (current,))
+            current[0].forward = prevedge
+            prevedge = current[0]
+            if current[1] == startpoints[firstpt]:
+                break
+            else: 
+                current = current[1].dikstra[firstpt][1]
+        self.start = (startpoints[firstpt].nodeid, current[0])
+
+        prevedge = centerpoint.dikstra[firstpt][1][0]
+        current = centerpoint.dikstra[lastpt][1]
+        logger.debug('Backward prevedge: %r' % (prevedge))
+        while True:
+            logger.debug('Backward: %r' % (current,))
+            prevedge.forward = current[0]
+            prevedge = current[0]
+            if current[1] == startpoints[lastpt]:
+                break
+            else:
+                current = current[1].dikstra[lastpt][1]
+        current[1].forward = None
 
         
 
@@ -244,10 +287,8 @@ class RouteGraph(object):
                 # add the virtual connection
                 geom = LineString(frmpt.coords, topt.coords)
                 segment = RouteGraphSegment(-1, [], geom, frmpt.nodeid, topt.nodeid)
-                frmpt.edges.append(segment)
-                frmpt.neighbours.append(topt.nodeid)
-                topt.edges.append(segment)
-                topt.neighbours.append(frmpt.nodeid)
+                frmpt.edges.append((segment, topt.nodeid))
+                topt.edges.append((segment, frmpt.nodeid))
                 # remove final points
                 finalendpoints.remove(topt)
                 finalendpoints.remove(frmpt)
@@ -287,7 +328,7 @@ class RouteGraph(object):
                     nxt = self.nodes[nxtid]
                     if nxt.subnet < 0:
                         nxt.subnet = subnet
-                        todo.update(nxt.neighbours)
+                        todo.update([x[1] for x in nxt.edges])
                         if len(nxt.edges) == 1:
                             subnetendpoints.append(nxt)
                 subnet += 1
