@@ -72,7 +72,7 @@ class RouteGraphPoint(object):
         self.edges = []
 
     def distance_to(self, point):
-        return self.coords.distance(point)
+        return self.coords.distance(point.coords)
 
 
     def __repr__(self):
@@ -279,19 +279,21 @@ class RouteGraph(object):
                                 conn[4] = pdist
                     connections.append(conn)
         # sort by distance
-        connections.sort(cmp=lambda x,y: cmp(x[4], y[4]),reverse=True)
+        connections.sort(key=lambda x: x[4])
 
         # now keep connecting until we have a single graph
         for (frmnet, frmpt, tonet, topt, dist) in connections:
             if netids[frmnet] != netids[tonet]:
                 # add the virtual connection
-                geom = LineString(frmpt.coords, topt.coords)
-                segment = RouteGraphSegment(-1, [], geom, frmpt.nodeid, topt.nodeid)
+                geom = LineString((frmpt.coords.coords[0], topt.coords.coords[0]))
+                segment = RouteGraphSegment(-1, geom, frmpt.nodeid, topt.nodeid)
                 frmpt.edges.append((segment, topt.nodeid))
                 topt.edges.append((segment, frmpt.nodeid))
                 # remove final points
-                finalendpoints.remove(topt)
-                finalendpoints.remove(frmpt)
+                if topt in finalendpoints:
+                    finalendpoints.remove(topt)
+                if frmpt in finalendpoints:
+                    finalendpoints.remove(frmpt)
                 # and join the nets
                 oldsubid = netids[tonet]
                 newsubid = netids[frmnet]
@@ -304,7 +306,7 @@ class RouteGraph(object):
                 else:
                     break
                             
-        return [x.nodeid for x in finalendpoints]
+        return list(finalendpoints)
 
 
     def _mark_subgraphs(self):
