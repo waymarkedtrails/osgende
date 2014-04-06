@@ -52,8 +52,8 @@ class RouteGraphSegment(object):
         self.direction = -self.direction
         self.geom.reverse()
         tmp = self.lastpnt
-        self.firstpnt = self.lastpnt
         self.lastpnt = self.firstpnt
+        self.firstpnt = tmp
 
     def __repr__(self):
         return "RouteGraphSegment(id=%d,firstpnt=%d,lastpnt=%d)" % (
