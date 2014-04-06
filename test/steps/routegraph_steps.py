@@ -3,6 +3,8 @@ Steps for testing route graphs.
 """
 
 import os
+import logging
+from time import time
 
 from lettuce import *
 from nose.tools import *
@@ -35,11 +37,22 @@ def route_graph_segments(step):
                     int(line['id']), geom, first, last))
     world.graph.build_directed_graph()
 
-@step(u"the main route is (.*)")
+@step(u"the main route is ([0-9,. -]+)")
 def route_graph_main_route(step, route):
     geom = world.as_linegeom(route)
     maingeom = list(world.graph.get_main_geometry().coords)
-    assert geom.coords[:] == maingeom or geom.coords[::-1] == maingeom
+    assert geom.coords[:] == maingeom or geom.coords[::-1] == maingeom, "Different geometries, got %s" % (str(maingeom))
+
+@step(u"the main route is in \(\((.*)\)\)")
+def route_graph_main_routes(step, route):
+    maingeom = list(world.graph.get_main_geometry().coords)
+    for subroute in route.split('), ('):
+        logging.debug("route_graph_main_route: subroute = %r" % str(subroute))
+        geom = world.as_linegeom(subroute.strip())
+        if geom.coords[:] == maingeom or geom.coords[::-1] == maingeom:
+            return
+
+    assert False, "Different geometries, got %s" % (str(maingeom))
 
 
 @step (u"the segments in scenario (.*)")
@@ -60,11 +73,17 @@ def route_graph_set_database(step, scenefile):
 
 @step ("all routes have a main route")
 def route_graph_check_routes_from_segment(step):
-    for segs in world.segs_by_rel.itervalues():
+    for relid, segs in world.segs_by_rel.iteritems():
         graph = RouteGraph()
         segid = 0
         for seg in segs:
             graph.add_segment(RouteGraphSegment(
                    segid, seg['geom'], seg['first'], seg['last']))
             segid += 1
+        print "Processing", relid
+        print "\n"
+        print "\n"
+        t1 = time()
         graph.build_directed_graph()
+        t2 = time()
+        print 'Relation %d took %0.3f ms' % (relid, (t2-t1)*1000.0) 
