@@ -14,6 +14,8 @@ from collections import defaultdict
 
 from osgende.common.routegraph import RouteGraph, RouteGraphSegment
 
+logger = logging.getLogger(__name__)
+
 @step(u"the following route segments")
 def route_graph_segments(step):
     world.graph = RouteGraph()
@@ -67,7 +69,7 @@ def route_graph_set_database(step, scenefile):
                             'last' : int(lst.strip()),
                             'geom' : wkt_loads(geom.strip())
                           }
-                for rel in rels.strip()[1:-2].split(','):
+                for rel in rels.strip()[1:-1].split(','):
                     world.segs_by_rel[int(rel)].append(segment)
             
 
@@ -76,14 +78,13 @@ def route_graph_check_routes_from_segment(step):
     for relid, segs in world.segs_by_rel.iteritems():
         graph = RouteGraph()
         segid = 0
+        logger.debug("Processing %d" % relid)
         for seg in segs:
-            graph.add_segment(RouteGraphSegment(
-                   segid, seg['geom'], seg['first'], seg['last']))
+            s = RouteGraphSegment(segid, seg['geom'], seg['first'], seg['last'])
+            logger.debug("Segment %r" % (s,))
+            graph.add_segment(s)
             segid += 1
-        print "Processing", relid
-        print "\n"
-        print "\n"
         t1 = time()
         graph.build_directed_graph()
         t2 = time()
-        print 'Relation %d took %0.3f ms' % (relid, (t2-t1)*1000.0) 
+        logger.debug('Relation %d took %0.3f ms' % (relid, (t2-t1)*1000.0))

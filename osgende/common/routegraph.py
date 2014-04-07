@@ -373,41 +373,49 @@ class RouteGraph(object):
             # find. XXX not the most efficient way to do that.
             for n in self.nodes.itervalues():
                 if n.subnet == index:
-                    newid = self._split_node(n.nodeid)
-                    return [n, newid]
-        elif len(endpoints) == 1:
+                    newid = self._split_node(n.nodeid, newid=-100)
+                    if len(n.edges) == 1:
+                        return [n, newid]
+                    else:
+                        # point with multiple connections,
+                        # that is dangling only.
+                        endpoints = [newid]
+                        break
+            else:
+                raise Exception("Could not find suitable point to split circle")
+        
+        if len(endpoints) == 1:
             # follow the dangling endpoint to the first fork and split
             # there
             logger.debug("_decycle_subgraph starting point = %r" % endpoints[0])
-            prevpt = endpoints[0]
-            curvec = prevpt.edges[0]
+            curvec = endpoints[0].edges[0]
             while True:
                 nextpt = self.nodes[curvec.point]
+                logger.debug("_decycle_subgraph before split: %r (not: %r)" % (nextpt, curvec.segment))
                 if len(nextpt.edges) > 2:
                     # found the fork
-                    logger.debug("_decycle_subgraph before split: %r (not: %r)" % (nextpt, curvec.segment))
-                    newid = self._split_node(nextpt.nodeid, curvec.segment.segid)
+                    newid = self._split_node(nextpt.nodeid, curvec.segment.segid, -101)
                     logger.debug("_decycle_subgraph split at %r/%r" % (nextpt, newid))
-                    return [endpoints[0], nextpt, newid]
+                    return [endpoints[0], newid]
                 else:
                     for e in nextpt.edges:
-                        if e.point != prevpt:
+                        if e.segment.segid != curvec.segment.segid:
                             curvec = e
-                            prevpt = nextpt.nodeid
                             break
         else:
             # nothing cyclic
             return endpoints
 
 
-    def _split_node(self, nodeid, origedgeid = None):
+    def _split_node(self, nodeid, origedgeid = None, newid=None):
         """ Duplicates the node and assign the duplicate to one
             of the edtes
         """
+        newnodeid = -oldnode.nodeid if newid is None else newid
         oldnode = self.nodes[nodeid]
-        newnode = RouteGraphPoint(-oldnode.nodeid, oldnode.coords)
+        newnode = RouteGraphPoint(newnodeid, oldnode.coords)
         newnode.subnet = oldnode.subnet
-        self.nodes[-nodeid] = newnode # XXX are node ids always postive?
+        self.nodes[newnodeid] = newnode # XXX are node ids always postive?
 
         assert(len(oldnode.edges) > 1)
 
@@ -416,9 +424,9 @@ class RouteGraph(object):
                 newnode.edges.append(edge)
         
                 if edge.segment.firstpnt == nodeid:
-                    edge.segment.firstpnt = -nodeid
+                    edge.segment.firstpnt = newnodeid
                 elif edge.segment.lastpnt == nodeid:
-                    edge.segment.lastpnt = -nodeid
+                    edge.segment.lastpnt = newnodeid
                 else:
                     raise Exception("Edge with unexpected endpoints are found.")
                 
