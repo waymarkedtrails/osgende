@@ -144,8 +144,11 @@ class RouteGraph(object):
         endpoints = self._mark_subgraphs()
         # step 1(b): split circular ways
         for i in range(len(endpoints)):
-            if len(endpoints) <= 1:
+            logger.debug("Endpoints subnet %d: %r" % (i, endpoints[i]))
+            if len(endpoints[i]) <= 1:
                 endpoints[i] = self._decycle_subgraph(i, endpoints[i])
+                logger.debug("Endpoints subnet %d after decycling: %r" % (i, endpoints[i]))
+
 
         # step 2: make one large network
         if len(endpoints) > 1:
@@ -198,7 +201,7 @@ class RouteGraph(object):
         # forward: find the point where all starting points meet
         # using a Dikstra-like shortest path algorithm
         #
-        # XXX the forwad should accutally only stop when all segments
+        # XXX the forward should accutally only stop when all segments
         #     have been worked, then the longest path should be found
         #     using all centerpoints that have been encountered.
 

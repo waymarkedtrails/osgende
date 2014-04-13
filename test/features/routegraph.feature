@@ -114,6 +114,14 @@ Feature: Route graph
           | 2  | 1,0 1,1 0,0 1,0
         Then the main route is in ((2,0 1,0 1,1 0,0 1,0), (2,0 1,0 0,0 1,1 1,0))
 
+    Scenario: Circular route with dangling split way
+        Given the following route segments
+          | id | geom
+          | 1  | 1,0 1,1 0,0 1,0
+          | 2  | 2,0 1,0
+          | 3  | 3,0 4,0
+        Then the main route is in ((4,0 3,0 2,0 1,0 1,1 0,0 1,0), (4,0 3,0 2,0 1,0 0,0 1,1 1,0))
+
     Scenario: Split circular route with split dangling way
         Given the following route segments
           | id | geom
