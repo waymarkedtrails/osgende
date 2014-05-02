@@ -1,6 +1,11 @@
 Feature: Route graph
     Testing route graph creating
 
+    @Fail
+    Scenario: Test real routes
+        Given the segments in scenario routes.sql
+        Then all routes have a main route
+
     Scenario: Simple route with one way
         Given the following route segments
           | id | geom
@@ -46,7 +51,7 @@ Feature: Route graph
         Given the following route segments
           | id | geom
           | 1  | 1,1 1,2 2,2 4,5
-          | 2  | 4,5 5,5 6,4 
+          | 2  | 4,5 5,5 6,4
           | 3  | 4,5 5,4
         Then the main route is 1,1 1,2 2,2 4,5 5,5 6,4
 
@@ -54,7 +59,7 @@ Feature: Route graph
         Given the following route segments
           | id | geom
           | 1  | 1,1 1,5
-          | 2  | 1,5 3,6 
+          | 2  | 1,5 3,6
           | 3  | 3,6 4,6
           | 4  | 3,6 1,7
           | 5  | 1,5 0,6
@@ -67,7 +72,7 @@ Feature: Route graph
         Given the following route segments
           | id | geom
           | 1  | 1,1 1,5
-          | 2  | 1,6 1,10 
+          | 2  | 1,6 1,10
         Then the main route is 1,1 1,5 1,6 1,10
 
     Scenario: Simple route with two holes
@@ -99,6 +104,14 @@ Feature: Route graph
           | 2  | 1,0 0,0
         Then the main route is 0,0 0,1 1,0 0,0
 
+    Scenario: Ordered circular route with three ways
+        Given the following route segments
+          | id | geom
+          | 1  | 0,0 0,1
+          | 2  | 0,1 3,0
+          | 3  | 3,0 0,0
+        Then the main route is 0,0 0,1 3,0 0,0
+
     Scenario: Circular route with three ways
         Given the following route segments
           | id | geom
@@ -106,7 +119,7 @@ Feature: Route graph
           | 2  | 1,0 0,0
           | 3  | 0,1 1,0
         Then the main route is 0,0 0,1 1,0 0,0
-        
+
     Scenario: Circular route with dangling way
         Given the following route segments
           | id | geom
@@ -137,10 +150,5 @@ Feature: Route graph
           | 1  | 1,3 2,2 0,2 1,3
           | 3  | 1,3 2,4 0,4 1,3
         Then the main route is 1,3 2,2 0,2 1,3 0,4 2,4 1,3
-
-    @Fail
-    Scenario: Test real routes
-        Given the segments in scenario routes.sql
-        Then all routes have a main route
 
 

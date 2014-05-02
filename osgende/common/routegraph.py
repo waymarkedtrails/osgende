@@ -206,23 +206,31 @@ class RouteGraph(object):
         #     using all centerpoints that have been encountered.
 
         # initialise the point store on the nodes:
-        # for each start point it contains a DikstraEdge ttuple)
+        # for each start point it contains a DikstraEdge tuple)
         for n in self.nodes.itervalues():
             n.dikstra = [None for x in range(len(startpoints))]
 
-        # todolist. Entries are (distance, idx in startpoints, nextpoint)
+        # todolist. Entries are TodoItems
         todo = PriorityQueue()
         # initial fill
         for s in range(len(startpoints)):
             todo.put(TodoItem(0.0, s, startpoints[s]))
             # startpoints are shortest to themselves
             startpoints[s].dikstra[s] = DikstraEdge(0, GraphVector(None, startpoints[s]))
+        logger.debug("Node list: %r" % (self.nodes, ))
+        logger.debug("Start nodes: %r" % (startpoints, ))
 
         centerpoint = None
         while not todo.empty() and centerpoint is None:
             dist, startidx, currentpt = todo.get()
+            logger.debug("//dikstra// next %f, %d, %r" % (dist, startidx, currentpt))
+
+            # found a shorter route in the meantime
+            if currentpt.dikstra[startidx].dist < dist:
+                continue
 
             for nxtedge, nxtptid in currentpt.edges:
+                logger.debug("//dikstra// checking %d ==> %r" % (nxtptid, nxtedge))
                 nxtpt = self.nodes[nxtptid]
                 newdst = dist + nxtedge.geom.length
                 if nxtpt.dikstra[startidx] is None or nxtpt.dikstra[startidx].dist > newdst:
@@ -233,8 +241,6 @@ class RouteGraph(object):
                     # we have finally met in a point, stop here
                     centerpoint = nxtpt
                     break
-            if centerpoint is not None:
-                break
 
         assert centerpoint is not None
 
@@ -260,21 +266,23 @@ class RouteGraph(object):
             if current.point == startpoints[firstpt]:
                 break
             else: 
+                logger.debug('Forward dikstra: %r' % (current.point.dikstra,))
                 current = current.point.dikstra[firstpt].vec
         self.start = GraphVector(current.segment, startpoints[firstpt].nodeid)
 
         prevedge = centerpoint.dikstra[firstpt].vec.segment
         current = centerpoint.dikstra[lastpt].vec
-        logger.debug('Backward prevedge: %r' % (prevedge))
-        while True:
-            logger.debug('Backward: %r' % (current,))
-            prevedge.forward = current.segment
-            prevedge = current.segment
-            if current.point == startpoints[lastpt]:
-                break
-            else:
-                current = current.point.dikstra[lastpt].vec
-        current.segment.forward = None
+        if current.segment is not None:
+            logger.debug('Backward prevedge: %r' % (prevedge))
+            while True:
+                logger.debug('Backward: %r' % (current,))
+                prevedge.forward = current.segment
+                prevedge = current.segment
+                if current.point == startpoints[lastpt]:
+                    break
+                else:
+                    current = current.point.dikstra[lastpt].vec
+            current.segment.forward = None
         
 
     def _connect_subgraphs(self, endpoints):
@@ -412,9 +420,9 @@ class RouteGraph(object):
 
     def _split_node(self, nodeid, origedgeid = None, newid=None):
         """ Duplicates the node and assign the duplicate to one
-            of the edtes
+            of the edges
         """
-        newnodeid = -oldnode.nodeid if newid is None else newid
+        newnodeid = -nodeid if newid is None else newid
         oldnode = self.nodes[nodeid]
         newnode = RouteGraphPoint(newnodeid, oldnode.coords)
         newnode.subnet = oldnode.subnet
@@ -424,6 +432,7 @@ class RouteGraph(object):
 
         for edge in oldnode.edges:
             if edge.segment.segid != origedgeid:
+                oldnode.edges.remove(edge)
                 newnode.edges.append(edge)
         
                 if edge.segment.firstpnt == nodeid:
@@ -432,8 +441,15 @@ class RouteGraph(object):
                     edge.segment.lastpnt = newnodeid
                 else:
                     raise Exception("Edge with unexpected endpoints are found.")
-                
-                oldnode.edges.remove(edge)
+                # fix the counter edge
+                cpoint = self.nodes[edge.point]
+                for i in range(len(cpoint.edges)):
+                    if cpoint.edges[i].point == nodeid:
+                        segm = cpoint.edges[i].segment
+                        cpoint.edges[i] = GraphVector(segm, newnodeid)
+                        break
+                else:
+                    raise Exception("Cannot find counter edge.")
 
                 return newnode
 
