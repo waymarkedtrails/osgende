@@ -151,4 +151,22 @@ Feature: Route graph
           | 3  | 1,3 2,4 0,4 1,3
         Then the main route is 1,3 2,2 0,2 1,3 0,4 2,4 1,3
 
+    Scenario: Route with circulars at beginning and end
+        Given the following route segments
+          | id | geom
+          | 1  | 1,1 0,0 2,0 1,1
+          | 2  | 1,9 2,10 0,10 1,9
+          | 3  | 1,1 1,9
+        Then the main route is in ((1,1 0,0 2,0 1,1 1,9 2,10 0,10 1,9), (1,1 0,0 2,0 1,1 1,9 0,10 2,10 1,9), (1,1 2,0 0,0 1,1 1,9 2,10 0,10 1,9), (1,1 2,0 0,0 1,1 1,9 0,10 2,10 1,9))
+
+
+    Scenario: Route with circulars at beginning and end
+        Given the following route segments
+          | id | geom
+          | 1  | 1,1 0,0 2,0 1,1
+          | 2  | 1,9 2,10 0,10 1,9
+          | 3  | 1,1 1,5
+          | 4  | 1,5 1,9
+          | 5  | 1,5 4,5
+        Then the main route is 1,3 2,2 0,2 1,3 0,4 2,4 1,3
 

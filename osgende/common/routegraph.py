@@ -209,6 +209,7 @@ class RouteGraph(object):
         # for each start point it contains a DikstraEdge tuple)
         for n in self.nodes.itervalues():
             n.dikstra = [None for x in range(len(startpoints))]
+        logger.debug("Nodelist: %r" % (self.nodes.values(),))
 
         # todolist. Entries are TodoItems
         todo = PriorityQueue()
@@ -216,6 +217,7 @@ class RouteGraph(object):
         for s in range(len(startpoints)):
             todo.put(TodoItem(0.0, s, startpoints[s]))
             # startpoints are shortest to themselves
+            logger.debug("Startnode: %r" % (startpoints[s], ))
             startpoints[s].dikstra[s] = DikstraEdge(0, GraphVector(None, startpoints[s]))
         logger.debug("Node list: %r" % (self.nodes, ))
         logger.debug("Start nodes: %r" % (startpoints, ))
@@ -384,7 +386,7 @@ class RouteGraph(object):
             # find. XXX not the most efficient way to do that.
             for n in self.nodes.itervalues():
                 if n.subnet == index:
-                    newid = self._split_node(n.nodeid, newid=-100)
+                    newid = self._split_node(n.nodeid, newid=-1000 + n.subnet)
                     if len(n.edges) == 1:
                         return [n, newid]
                     else:
@@ -405,7 +407,7 @@ class RouteGraph(object):
                 logger.debug("_decycle_subgraph before split: %r (not: %r)" % (nextpt, curvec.segment))
                 if len(nextpt.edges) > 2:
                     # found the fork
-                    newid = self._split_node(nextpt.nodeid, curvec.segment.segid, -101)
+                    newid = self._split_node(nextpt.nodeid, curvec.segment.segid, -2000 + nextpt.subnet)
                     logger.debug("_decycle_subgraph split at %r/%r" % (nextpt, newid))
                     return [endpoints[0], newid]
                 else:
