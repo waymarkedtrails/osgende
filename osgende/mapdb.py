@@ -73,11 +73,11 @@ class MapDB:
 
     def import_data(self):
         for tab in self.data_tables:
-            print datetime.now(), "Importing", tab.table, "..."
+            print(datetime.now(), "Importing", tab.table, "...")
             tab.construct()
             self.db.commit()
         for tab in self.style_tables:
-            print datetime.now(), "Importing", tab.table, "..."
+            print(datetime.now(), "Importing", tab.table, "...")
             tab.synchronize(0, None)
             self.db.commit()
 
@@ -89,21 +89,21 @@ class MapDB:
         self.db.commit()
 
         for tab in self.data_tables:
-            print datetime.now(), "Updating", tab.table, "..."
+            print(datetime.now(), "Updating", tab.table, "...")
             tab.update()
         if self.update_table is not None:
             for tab in self.style_tables:
-                print datetime.now(), "Updating", tab.table, "..."
+                print(datetime.now(), "Updating", tab.table, "...")
                 tab.synchronize(self.segment_table.first_new_id, self.update_table)
 
     def finalize(self, dovacuum):
         self.db.commit()
         if dovacuum:
-            print datetime.now(), "Vacuuming and analysing tables..."
+            print(datetime.now(), "Vacuuming and analysing tables...")
             cmd = "VACUUM ANALYSE %s"
             self.db.conn.set_isolation_level(0)
         else:
-            print datetime.now(), "Analysing tables..."
+            print(datetime.now(), "Analysing tables...")
             cmd = "ANALYSE %s"
         for tab in self.data_tables:
             self.db.query(cmd % tab.table);

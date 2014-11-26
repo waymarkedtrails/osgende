@@ -27,7 +27,7 @@ import threading
 import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
-from psycpg2shapely import initialisePsycopgTypes
+from .psycpg2shapely import initialisePsycopgTypes
 
 import osgende.common.threads as othread
 
@@ -238,13 +238,13 @@ class PGTable(object):
 
 
     def _init_worker_thread(self):
-        print "Initialising worker..."
+        print("Initialising worker...")
         if self.dbconn_per_thread:
             self.thread.db = PGDatabase(self.db.conn.dsn)
         self.thread.cursor = self.db.create_cursor()
 
     def _shutdown_worker_thread(self):
-        print "Shutting down worker..."
+        print("Shutting down worker...")
         if self.dbconn_per_thread:
             self.thread.db.commit()
             self.thread.db.close()

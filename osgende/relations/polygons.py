@@ -98,7 +98,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                                 tuple(values))
 
     def compute_polygon(self, rid, tags):
-        print "Computing polygon out of relation", rid, "Tags:", tags
+        print("Computing polygon out of relation", rid, "Tags:", tags)
         nodelist = {}
         waylist = set()
         self.collect_ways(rid, tags, waylist, nodelist, set())
@@ -106,19 +106,19 @@ class RelationPolygons(osgende.OsmosisSubTable):
         badways = []
         # find all nodes with two outgoing ways and
         # fuse the ways concerned
-        #print "Initial waylist", waylist
+        #print("Initial waylist", waylist)
         while len(nodelist) > 0:
-            #print "Nodelist", nodelist
+            #print("Nodelist", nodelist)
             (node, ways) = nodelist.popitem()
             if not len(ways) == 2:
                 # bad node, just push back for now
-                # print "Bad node:",ways
+                # print("Bad node:",ways)
                 badnodes[node] = ways
             elif ways[0] != ways[1]:
                 # fuse the two ways concerned
-                #print "Before fusing",ways[0].nodes,"/",ways[1].nodes
+                #print("Before fusing",ways[0].nodes,"/",ways[1].nodes)
                 nextnode = ways[0].fuse(ways[1], node)
-                #print "After fusing",ways[0].nodes
+                #print("After fusing",ways[0].nodes)
                 # if we are full circle, the node will already have
                 # been treated
 
@@ -159,7 +159,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                 distances.append((node, n2, pt.distance(pt2)))
             badcoords.append((node, pt))
             if len(badnodes[node]) != 1:
-                print node,"::",[x.ways for x in badnodes[node]]
+                print(node,"::",[x.ways for x in badnodes[node]])
             assert len(badnodes[node]) == 1
 
         # sort by distance
@@ -176,7 +176,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                     if othernode in badnodes:
                         badnodes[othernode] = [w1]
 
-        # print "Final waylist", waylist
+        # print("Final waylist", waylist)
         # now save away all polygons that are done
         poly = None
         for way in waylist:
@@ -224,7 +224,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                         # drop ways that are made of only one node.
                         # Happens with osmosis cuts.
                         w = FusableWay(obj['id'], nodes)
-                        #print w.nodes
+                        #print(w.nodes)
                         ways.add(w)
                         for pt in (w.first(), w.last()):
                             if pt in nodelist:
@@ -261,7 +261,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
         if not way.is_closed():
             points.append(points[0])
 
-        #print "Initial Geometry:", points
+        #print("Initial Geometry:", points)
 
         # Second: build a valid polygon from the points
 
@@ -290,7 +290,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                     if det == 0:
                         # lines are parallel
                         # XXX check if they overlap
-                        # print "Parallel lines in", way.ways
+                        # print("Parallel lines in", way.ways)
                         assert ((A[1]-C[1])*(D[0]-C[0]) - (A[0]-C[0])*(D[1]-C[1])) != 0
                     else:
                         r = ((A[1]-C[1])*(D[0]-C[0]) - (A[0]-C[0])*(D[1]-C[1]))/det
@@ -307,7 +307,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                             if len(subpoints) > 2:
                                 polygons.append(sgeom.Polygon(subpoints))
                             else:
-                                print "Warning: strangly overlapping polygon:",points
+                                print("Warning: strangly overlapping polygon:",points)
                             # and remove it from the point list
                             frm = chkpoint if r > 0 else chkpoint - 1
                             tow = curpoint if s < 1 else curpoint + 1
@@ -328,7 +328,7 @@ class RelationPolygons(osgende.OsmosisSubTable):
                     chkpoint = 0
             curpoint += 1
 
-        #print points
+        #print(points)
         #assert len(points) == 1
                     
         return sops.cascaded_union(polygons) if len(polygons) > 0 else None

@@ -65,7 +65,7 @@ class NodeSubTable(PGTable):
     def construct(self):
         """Fill the table"""
 
-        print "Constructing objects in table..."
+        print("Constructing objects in table...")
         self.truncate()
         self.insert_objects(self.wherequery)
 

@@ -107,7 +107,7 @@ class RelationSegments(PGTable):
         sortedrels = list(wayproc.relations)
         sortedrels.sort()
         for rel in sortedrels:
-            print dt.now(), "Processing relation",rel
+            print(dt.now(), "Processing relation",rel)
             ways = self.db.select_column("""EXECUTE osg_get_ways(%s)""", (rel,))
             if ways:
                 for w in ways:
@@ -138,9 +138,9 @@ class RelationSegments(PGTable):
         wayproc = _WayCollector(self, self.country_table,
                                 self.country_column, self.subset,
                                 precompute_intersections=False, numthreads=self.numthreads)
-        # print "Valid relations:", wayproc.relations
+        # print("Valid relations:", wayproc.relations)
 
-        print dt.now(), "Collecting changed and new ways"
+        print(dt.now(), "Collecting changed and new ways")
         self.db.query("""CREATE TEMP TABLE temp_updated_ways AS
                       (SELECT id, nodes FROM ways
                          WHERE id = ANY(ARRAY
@@ -155,13 +155,13 @@ class RelationSegments(PGTable):
                                               WHERE action = 'M'))
                           ))
                       )""" % (self.subset))
-        print dt.now(), "Adding those ways to changeset"
+        print(dt.now(), "Adding those ways to changeset")
         cur = self.db.select_cursor("SELECT id, nodes FROM temp_updated_ways")
         for c in cur:
             wayproc.add_way(c[0], c[1])
 
 
-        print dt.now(), "Collecting points effected by update"
+        print(dt.now(), "Collecting points effected by update")
         # collect all nodes that are affected by the update:
         #  1. nodes in segments whose relation or ways have changed
         #  2. nodes in added or changed ways
@@ -178,7 +178,7 @@ class RelationSegments(PGTable):
             )
             """ % (self.table))
 
-        #print "Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes")
+        #print("Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes"))
 
         # create a temporary function that scans our temporary
         # node table. This is hopefully faster than a full cross scan.
@@ -198,13 +198,13 @@ class RelationSegments(PGTable):
                        CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id);
                    """)
         # throw out all segments that have one of these points
-        print dt.now(), "Segments with bad intersections..."
+        print(dt.now(), "Segments with bad intersections...")
         cur = self.db.select_cursor("""DELETE FROM %s
                                     WHERE temp_updated_nodes_find(nodes)
                                     RETURNING ways, geom""" % (self.table))
         for c in cur:
             for w in c[0]:
-                #print w
+                #print(w)
                 wayproc.add_way(w)
             if self.update_table is not None:
                 self.update_table.add(c[1], 'D')
@@ -212,7 +212,7 @@ class RelationSegments(PGTable):
         self.db.query("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
         # done, add the result back to the table
-        print dt.now(), "Processing segments"
+        print(dt.now(), "Processing segments")
         wayproc.process_segments()
         wayproc.finish()
 
@@ -254,7 +254,7 @@ class _WayCollector:
             "SELECT id FROM relations WHERE %s" % (subset))
 
         if self.relations is None:
-            print "WARNING: no relevant relations found"
+            print("WARNING: no relevant relations found")
             self.relations = set()
         else:
             self.relations = set(self.relations)
@@ -272,7 +272,7 @@ class _WayCollector:
                            self._shutdown_worker_thread)
 
     def _init_worker_thread(self):
-        print "Initialising worker..."
+        print("Initialising worker...")
         self.thread.cursor = self.db.create_cursor()
         if hasattr(self, 'country_table'):
             self.thread.db_cursor = self.db.create_cursor()
@@ -288,7 +288,7 @@ class _WayCollector:
             self.thread.db_cursor = self.thread.db.create_cursor()
 
     def _shutdown_worker_thread(self):
-        print "Shutting down worker..."
+        print("Shutting down worker...")
         self.thread.cursor.close()
         self.thread.db_cursor.close()
         if not hasattr(self, 'country_table'):
@@ -306,10 +306,10 @@ class _WayCollector:
         wcur = self.db.select_cursor("EXECUTE osg_get_way_rels(%s)", (way,))
         membership = []
         for c in wcur:
-            # print "Potential member",c
+            # print("Potential member",c)
             if c[0] in self.relations:
                 membership.append((c[0], c[1]))
-                # print "approved"
+                # print("approved")
         if len(membership) == 0:
             return
         # We actually only need to remember ways with more than one
@@ -340,7 +340,7 @@ class _WayCollector:
                     self._add_intersection(nodes[-1], 0.5)
 
         else:
-            print "No nodes. Dropped"
+            print("No nodes. Dropped")
 
     def _add_intersection(self, nid, weight):
         if nid in self.collected_nodes:
@@ -359,7 +359,7 @@ class _WayCollector:
 
         while self.relgroups:
             (rels, collector) = self.relgroups.popitem()
-            # print "Processing collector", collector
+            # print("Processing collector", collector)
             relids = [x for (x,y) in rels]
             self.workers.add_task((relids, collector))
 
@@ -445,7 +445,7 @@ class _WayCollector:
                                  (way.nodes, relations, way.ways, line))
             #self.db.commit()
         else:
-            print "Warning: empty way", way
+            print("Warning: empty way", way)
 
 
 
@@ -477,7 +477,7 @@ class _WayCollector:
                          (way.nodes, relations, way.ways, line))
             #self.db.commit()
         else:
-            print "Warning: empty way", way
+            print("Warning: empty way", way)
 
 
 
@@ -503,7 +503,7 @@ class _SegmentCollector:
         # find all nodes that are forced intersecions
         splitidx = [x for x in range(len(nodes))
                      if nodes[x] in self.intersections]
-        # print "Split points:", splitidx
+        # print("Split points:", splitidx)
         if len(splitidx) == 0 or splitidx[0] != 0:
             splitidx[:0] = [0]
         if splitidx[-1] != len(nodes)-1:
@@ -589,7 +589,7 @@ class RelationSegmentRoutes(OsmosisSubTable):
                        """ % (tmptable,
                               self.hierarchy_table.table,
                               self.segment_table.table)
-            #print query
+            #print(query)
             self.db.query(query, (firstid,))
         self.delete("id = ANY(ARRAY(SELECT * FROM %s))" % (tmptable))
         # reinsert those that are not deleted

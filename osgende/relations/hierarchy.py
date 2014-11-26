@@ -60,7 +60,7 @@ class RelationHierarchy(PGTable):
         todo = True
         while todo and depth < 10:
             # then go through the recursive parts
-            print "Recursion",depth
+            print("Recursion",depth)
             res = self.db.select_one("""INSERT INTO %s
                             SELECT h.parent, m.member_id, %s 
                             FROM relation_members m, %s h 

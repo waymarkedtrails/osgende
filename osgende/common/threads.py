@@ -19,7 +19,10 @@ Helper classes for multi-threaded execution.
 """
 
 import threading
-import Queue
+try:
+    import queue
+except ImportError:
+    import Queue as queue
 
 class WorkerError(Exception):
     """Raised when a worker thread unexpectedly dies."""
@@ -63,18 +66,18 @@ class WorkerQueue:
                 try:
                     self.queue.put(data, True, 2)
                     break
-                except Queue.Full:
+                except queue.Full:
                     # check that all our threads are still alive
                     for w in self.workers:
                         if not w.is_alive():
-                            print "Internal error. Thread died. Killing other threads."
+                            print("Internal error. Thread died. Killing other threads.")
                             self.finish(True)
                             raise Exception("Internal error. Thread died.")
         except KeyboardInterrupt:
-            print "User requested abort. Cleaning up..."
-            self.finish(True)              
-            raise SystemExit("Ctrl-C detected, exiting...")
-        
+            print("User requested abort. Cleaning up...")
+            self.finish(True)
+            raise(SystemExit, "Ctrl-C detected, exiting...")
+
 
 
     def finish(self, flush=False):
@@ -95,21 +98,21 @@ class WorkerQueue:
                 while not self.queue.empty():
                     try:
                         self.queue.get(False)
-                    except Queue.Empty:
+                    except queue.Empty:
                         pass # don't care
 
             for i in range(self.numthreads):
                 self.queue.put(None)
-            print "Waiting for threads to finish"
+            print("Waiting for threads to finish")
             for w in self.workers:
                 w.join()
 
 
 
     def _setup_threads(self, process_func, initfunc, shutdownfunc):
-        print "Using", self.numthreads, "parallel threads."
-        self.queue = Queue.Queue(10*self.numthreads)
-        
+        print("Using", self.numthreads, "parallel threads.")
+        self.queue = queue.Queue(10*self.numthreads)
+
         self.workers = []
         for i in range(self.numthreads):
             worker = _WorkerThread(self.queue, process_func, initfunc, shutdownfunc)

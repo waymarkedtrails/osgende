@@ -67,7 +67,7 @@ class _GeometryWriter:
 
     def __call__(self, geom):
         if geom._crs is None:
-            raise RuntimeError, "SRID required. Please define _crs field of geometry."
+            raise(RuntimeError, "SRID required. Please define _crs field of geometry.")
         # Hack the SRID information extension of postgis in there
         wkb = geom.wkb
         (endian,) = struct.unpack('=b', wkb[0])
@@ -84,7 +84,7 @@ def _getPostgisVersion(conn,curs):
     curs.execute("select postgis_full_version()")    
     m = re.compile('POSTGIS="([^"]*)"').match(curs.fetchall()[0][0])
     return m.group(1).split('.')
-    
+
 def _getTypeOid(conn,curs,typename):
     curs.execute("select oid from pg_type where typname='%s'" % (typename,))
     return curs.fetchall()[0][0]
@@ -96,12 +96,12 @@ def initialisePsycopgTypes(psycopg_module, connect_string,
     """
     if int(psycopg_module.__version__[0]) > 1:
         if psycopg_extensions_module == None:
-            raise RuntimeError, \
+            raise(RuntimeError,
                 """
                 You are using Psycopg2 but you have not provided the psycopg_extensions_module
                 to initialisePsycopgTypes. You need to pass the psycopg2.extensions module
                 as the 'psycopg_extensions_module' parameter to initialisePsycopgTypes.
-                """
+                """)
         connect=psycopg_module.connect
         register_type=psycopg_extensions_module.register_type
         register_adapter=psycopg_extensions_module.register_adapter
@@ -115,8 +115,8 @@ def initialisePsycopgTypes(psycopg_module, connect_string,
         asis=psycopg_module.AsIs
 
     if connect_string is None:
-        raise RuntimeError, """Valid database connection required."""
-                
+        raise(RuntimeError, "Valid database connection required.")
+
     conn = connect(connect_string)
 
     # Start by working out the oids for the standard Postgres geo types
@@ -126,8 +126,8 @@ def initialisePsycopgTypes(psycopg_module, connect_string,
     (major,minor,patch) = _getPostgisVersion(conn,curs)
 
     if int(major) < 1:
-        raise RuntimeError, "You will need a PostGIS version 1.x."
-    
+        raise(RuntimeError, "You will need a PostGIS version 1.x.")
+
     # sentinals
     geometry_type_oid = -1
 
@@ -141,15 +141,15 @@ def initialisePsycopgTypes(psycopg_module, connect_string,
             error = error + bits + '\n'
         del tb
 
-        raise RuntimeError, \
+        raise (RuntimeError,
               "Failed to get the type oid for the 'geometry' type from the database:\n\n"\
               "                   connection_string = '%s' \n\n"\
               "This is probably because you have not initialised the OpenGIS types\n"\
               "for this database. Look at http://postgis.refractions.net/docs/x83.html\n"\
               "for instructions on how to do this.\n\n"\
               "The actual exception raised was:\n\n"\
-              "%s" % (connect_string, error)
-    
+              "%s" % (connect_string, error))
+
 
     # Register the type factory for the OpenGIS types.
     register_type(new_type((geometry_type_oid,), 'Geometry', _GeometryFactory()))

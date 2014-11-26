@@ -19,11 +19,11 @@
     derived from the Osmosis pgsnapshot schema.
 """
 
-import mapdb
-from subtable import OsmosisSubTable
-from relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
-from ways import Ways, JoinedWays
-import nodes
-from update import UpdatedGeometriesTable
-import common
-import tags
+from . import mapdb
+from .subtable import OsmosisSubTable
+from .relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
+from .ways import Ways, JoinedWays
+from . import nodes
+from .update import UpdatedGeometriesTable
+from . import common
+from . import tags

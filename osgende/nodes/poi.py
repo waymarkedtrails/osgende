@@ -84,9 +84,9 @@ class PoiSubTable(PGTable):
         """Fill the table"""
 
         self.truncate()
-        print "Constructing point objects in table..."
+        print("Constructing point objects in table...")
         self._insert_objects('N', self.node_construct)
-        print "Constructing way objects in table..."
+        print("Constructing way objects in table...")
         self._insert_objects('W', self.way_construct)
 
     def update(self):

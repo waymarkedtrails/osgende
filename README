@@ -11,7 +11,7 @@ Requirements
 ------------
 
 - psycopg >= 2.3.0    http://initd.org/psycopg/
-    
+
     Python bindings for PostgreSQL
     Please note that Debian still ships version 2.2.1 which does not yet
     have hstore support.
@@ -20,6 +20,10 @@ Requirements
 
     Python bindings for the geos library.
     (available as Debian package: python-shapely)
+
+- pyosmium           https://github.com/osmcode/pyosmium
+
+    Python bindings for libosmium, needed for the import tool.
 
 - (optional) Osmosis http://wiki.openstreetmap.org/wiki/Osmosis
 

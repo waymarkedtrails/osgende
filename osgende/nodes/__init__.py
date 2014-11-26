@@ -19,5 +19,5 @@
     derived from the Osmosis pgsnapshot schema.
 """
 
-from nodes import NodeSubTable
-from poi import PoiSubTable
+from .nodes import NodeSubTable
+from .poi import PoiSubTable
