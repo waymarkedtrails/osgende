@@ -18,141 +18,81 @@
 File-backed storage for node geometries.
 """
 
-from collections import deque
-import numpy as np
 from shapely.geometry import Point
-import threading
+from osmium import index, osm
 
 class NodeStore(object):
     """Provides a map like persistent storage for node geometries.
 
-       Node geometries are saved in a huge continous array which is
-       partly memmapped as needed.
+       This implementation relies on a osmium location index.
     """
 
-    dt = np.dtype("f8, f8")
-
-
-    def __init__(self, filename, numbuckets=32, bucketsize=12):
-        self.filename = filename
-        self.numbuckets = numbuckets
-        self.bucketsize = bucketsize
-        self.bucketlist = deque()
-        self.buckethash = {}
-        self.lock = threading.Lock()
-        self.stat_buckethits = 0
-        self.stat_bucketmisses = 0
+    def __init__(self, filename):
+        self.idxfile = open(filename, 'a+')
+        self.mapfile = index.DenseLocationMapFile(self.idxfile.fileno())
 
     def __del__(self):
-        print "Hits:",self.stat_buckethits,"Misses:",self.stat_bucketmisses
+        self.close()
 
-
-    def _get_bucket(self, bucketno):
-        bucket = self.buckethash.get(bucketno)
-        if bucket is None:
-            self.stat_bucketmisses += 1
-            if len(self.bucketlist) >= self.bucketsize:
-                lastno = self.bucketlist.pop()
-                last = self.buckethash[lastno]
-                del self.buckethash[lastno]
-                del last
-            try:
-                bucket = np.memmap(self.filename, dtype=self.dt, mode='r+', 
-                                offset=bucketno<<(self.bucketsize+4), shape = (1<<self.bucketsize,))
-            except IOError:
-                bucket = np.memmap(self.filename, dtype=self.dt, mode='w+', 
-                                offset=bucketno<<(self.bucketsize+4), shape = (1<<self.bucketsize,))
-            self.buckethash[bucketno] = bucket
-        else:
-            self.bucketlist.remove(bucketno)
-            self.stat_buckethits += 1
-
-        self.bucketlist.append(bucketno)
-
-        return bucket
 
     def __getitem__(self, nodeid):
-        bucketid = nodeid >> self.bucketsize
+        loc = self.mapfile.get(nodeid)
+        return Point(loc.lon, loc.lat) 
 
-        with self.lock:
-            bucket = self._get_bucket(bucketid)
-
-            if bucket is None:
-                raise KeyError()
-
-            x,y = bucket[nodeid - (bucketid << self.bucketsize)]
-
-        if x == 0 and y == 0:
-            return None
-
-        return Point(x,y) 
-
-    def __setitem__(self, nodeid, value): 
-        bucketid = nodeid >> self.bucketsize
-
-        with self.lock:
-            bucket = self._get_bucket(bucketid)
-
-            if bucket is None:
-                raise KeyError()
-
-            bucket[nodeid - (bucketid << self.bucketsize)] = (value.x, value.y)
+    def __setitem__(self, nodeid, value):
+        self.mapfile.set(nodeid, osm.Location(value.x, value.y))
 
     def __delitem__(self, nodeid):
-        bucketid = nodeid >> self.bucketsize
+        self.mapfile.set(nodeid, osm.Location())
 
-        with self.lock:
-            bucket = self._get_bucket(bucketid)
+    def close(self):
+        if hasattr(self, 'mapfile'):
+            print("Used memory by index: %d" % self.mapfile.used_memory())
+            del self.mapfile
+            self.idxfile.close()
 
-            if bucket is not None:
-                bucket[nodeid - (bucketid << self.bucketsize)] = (0,0)
-
-    def setByCoords(self, nodeid, x, y):
-        bucketid = nodeid >> self.bucketsize
-
-        with self.lock:
-            bucket = self._get_bucket(bucketid)
-
-            if bucket is None:
-                raise KeyError()
-
-            bucket[nodeid - (bucketid << self.bucketsize)] = (x, y)
 
 if __name__ == '__main__':
-    print "Creating store..."
-    store = NodeStore('test.store', bucketsize=5)
+    print("Creating store...")
+    store = NodeStore('test.store')
 
-    print "Filling store..."
+    print("Filling store...")
     for i in range(25500,26000):
-        store[i] = Point(1,i)
+        store[i] = Point(1,i/1000.0)
 
+    store.close()
     del store
 
-    print "Reloading store..."
-    store = NodeStore('test.store', bucketsize=10, numbuckets=2)
+    print("Reloading store...")
+    store = NodeStore('test.store')
 
-    print "Checking store..."
+    print("Checking store...")
     for i in range(25500,26000):
-        assert store[i].y == i
+        assert store[i].y == i/1000.0
 
     try:
         x = store[1000]
     except KeyError:
-        print "Yeah!"
+        print("Yeah!")
 
-    print "Filling store..."
+    print("Filling store...")
     for i in range(100055500,100056000):
-        store[i] = Point(i,1)
+        store[i] = Point(i/10000000.0,1)
 
+    store.close()
     del store
 
-    print "Reloading store..."
-    store = NodeStore('test.store', bucketsize=10, numbuckets=2)
+    print("Reloading store...")
+    store = NodeStore('test.store')
 
-    print "Checking store..."
+    print("Checking store...")
     for i in range(100055500,100056000):
-        assert store[i].x == i
+        assert store[i].x == i/10000000.0
 
-    print "Checking store..."
+    print("Checking store...")
     for i in range(25500,26000):
-        assert store[i].y == i
+        assert store[i].y == i/1000.0
+
+
+    store.close()
+
