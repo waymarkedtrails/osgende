@@ -34,7 +34,6 @@ class NodeStore(object):
     def __del__(self):
         self.close()
 
-
     def __getitem__(self, nodeid):
         loc = self.mapfile.get(nodeid)
         return Point(loc.lon, loc.lat) 
@@ -44,6 +43,9 @@ class NodeStore(object):
 
     def __delitem__(self, nodeid):
         self.mapfile.set(nodeid, osm.Location())
+
+    def set_from_node(self, node):
+        self.mapfile.set(node.id, node.location)
 
     def close(self):
         if hasattr(self, 'mapfile'):

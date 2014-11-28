@@ -15,6 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+from sys import version_info as python_version
 import threading
 from osgende.common.postgisconn import PGTable, PGDatabase
 from osgende.common.geom import FusableWay
@@ -353,7 +354,11 @@ class _WayCollector:
         """Fuse and write out the ways collected so far.
         """
         if self.intersections_from_ways:
-            self.processing_intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
+            if python_version[0] < 3:
+                self.processing_intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
+            else:
+                self.processing_intersections = set([k for (k,v) in self.collected_nodes.items() if v > 1])
+
         else:
             self.processing_intersections = None
 
@@ -524,7 +529,7 @@ class _SegmentCollector:
         if intersections is not None:
             self.intersections=intersections
             self.split_ways()
-        for (node,ways) in self.pointlist.iteritems():
+        for (node,ways) in self.pointlist.items():
             if len(ways) == 2 and not node in self.intersections:
                 (w1,w2) = ways
                 if w1 != w2:

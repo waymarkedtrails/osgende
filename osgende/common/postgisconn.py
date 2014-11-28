@@ -27,6 +27,7 @@ import threading
 import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
+from sys import version_info as python_version
 from .psycpg2shapely import initialisePsycopgTypes
 
 import osgende.common.threads as othread
@@ -60,8 +61,11 @@ class PGDatabase(object):
 
         self.conn = psycopg2.connect(dba)
 
-        psycopg2.extras.register_hstore(self.conn, globally=False, unicode=True)
-        
+        if python_version[0] < 3:
+            psycopg2.extras.register_hstore(self.conn, globally=False, unicode=True)
+        else:
+            psycopg2.extras.register_hstore(self.conn, globally=False)
+
 
     def cursor(self):
         """Return the cursor of the instance.

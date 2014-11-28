@@ -353,7 +353,7 @@ class RouteGraph(object):
         """
         subnet = 0
         endpoints = []
-        for pntid, pnt in self.nodes.iteritems():
+        for pntid, pnt in self.nodes.items():
             if pnt.subnet < 0:
                 # new subnet, follow the net and mark all points
                 # with the subnet id

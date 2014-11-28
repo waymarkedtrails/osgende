@@ -43,7 +43,7 @@ class TagStore(dict):
         """
         ret = {}
         tagweights = {}
-        for k,v in self.iteritems():
+        for k,v in self.items():
             idx = k.find(':')
             if idx > 0 and k[idx+1:] in locales:
                 outkey = k[:idx]
@@ -81,7 +81,7 @@ class TagStore(dict):
            and all that are set to negative boolean (no, false).
         """
         ret = {}
-        for k,v in self.iteritems():
+        for k,v in self.items():
             lowv = v.lower()
             if lowv in ("yes", "true"):
                 ret[k] = True
@@ -107,7 +107,7 @@ class TagStore(dict):
         ret = None # triple of weight, language, link
         if locales is None:
             locales = {'en' : 1.0}
-        for k,v in self.iteritems():
+        for k,v in self.items():
             newurl = None # tuple of languge, link
             if k == 'wikipedia':
                 if len(v) > 3 and v[2] == ':':
@@ -145,7 +145,7 @@ class TagStore(dict):
            Returns an empty dictionary if the object has no wikipedia tags.
         """
         ret = {}
-        for k,v in self.iteritems():
+        for k,v in self.items():
             if k == 'wikipedia':
                 if len(v) > 3 and v[2] == ':':
                     ret[v[:2]] = v[3:]
