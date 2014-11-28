@@ -31,7 +31,9 @@ import sys
 import os.path as ospath
 import os
 import codecs
+import struct
 import tempfile
+from binascii import hexlify
 import argparse
 import psycopg2
 import osmium
@@ -90,7 +92,13 @@ class OSMImporter(osmium.SimpleHandler):
                                'member_role', 'sequence_id' )
     }
 
-    osm_types = ('node', 'way', 'relation')
+    sqltrans = { ord(u'"'): u'\\\\"',
+                     ord(u'\r') : u' ', ord(u'\b'): None, ord(u'\f') : None,
+                     ord(u'\n') : u' ',
+                     ord(u'\t') : u' ',
+                     ord(u'\\') : u'\\\\\\\\'
+               }
+
 
     def __init__(self, options):
         super(OSMImporter, self).__init__()
@@ -111,11 +119,11 @@ class OSMImporter(osmium.SimpleHandler):
         DbDumper.maxentries = options.maxentries
         DbDumper.tempdir = options.tempdir
         self.dumpers = {}
-        for (tab, cols) in OSMImporter.columns.iteritems():
+        for (tab, cols) in OSMImporter.columns.items():
             self.dumpers[tab] = DbDumper(self.db, tab, cols)
 
         if self.is_change_file:
-            for tab in OSMImporter.osm_types:
+            for tab in ('node', 'way', 'relation'):
                 tablename = '%s_changeset' % tab
                 if tab == 'node':
                     self.dumpers[tablename] = DbDumper(self.db, tablename,
@@ -123,14 +131,6 @@ class OSMImporter(osmium.SimpleHandler):
                 else:
                     self.dumpers[tablename] = DbDumper(self.db, tablename,
                                                ('id', 'action'))
-
-        if options.createindices:
-            self.cursor.execute("""
-                ALTER TABLE ONLY nodes ADD CONSTRAINT pk_nodes PRIMARY KEY (id);
-                ALTER TABLE ONLY ways ADD CONSTRAINT pk_ways PRIMARY KEY (id);
-                ALTER TABLE ONLY relations ADD CONSTRAINT pk_relations PRIMARY KEY (id);
-                ALTER TABLE ONLY relation_members ADD CONSTRAINT pk_relation_members
-                           PRIMARY KEY (relation_id, sequence_id); """)
 
     def makedba(self, db, user, password):
         dba = 'dbname=%s' % db
@@ -203,19 +203,135 @@ class OSMImporter(osmium.SimpleHandler):
     def readfile(self):
         osmium.apply(self.reader, self)
 
-        for tab in self.dumpers.itervalues():
+        for tab in self.dumpers.values():
             tab.flush()
         self.db.commit()
 
+
+    def create_indices(self):
+        self.cursor.execute("""
+                ALTER TABLE ONLY nodes ADD CONSTRAINT pk_nodes PRIMARY KEY (id);
+                ALTER TABLE ONLY ways ADD CONSTRAINT pk_ways PRIMARY KEY (id);
+                ALTER TABLE ONLY relations ADD CONSTRAINT pk_relations PRIMARY KEY (id);
+                ALTER TABLE ONLY relation_members ADD CONSTRAINT pk_relation_members
+                           PRIMARY KEY (relation_id, sequence_id); """)
+        self.db.commit()
+
+
+
     def node(self, node):
-        pass
+        tagstr = self.to_tagstr(node.tags)
+        if self.is_change_file:
+            data = { 'id' : node.id,
+                     'action' : self.to_action(node),
+                     'tags' : tagstr
+                   }
+            self.dumpers['node_changeset'].write(data)
+
+        if node.deleted:
+            self.delete_object("nodes", node.id)
+            if self.nodestore is not None:
+                del self.nodestore[node.id]
+        else:
+            if self.nodestore is not None:
+                self.nodestore.set_from_node(node)
+                if len(node.tags) == 0:
+                    self.delete_object("nodes", node.id)
+                    return
+            if self.is_change_file:
+                data = { 'id' : node.id,
+                         'tags' : dict(node.tags),
+                         'geom' : self.to_wkb(node.location)
+                       }
+                if self.dumpers['nodes'].update(data):
+                    return
+
+            data = { 'id' : node.id,
+                     'tags' : tagstr,
+                     'geom' : self.to_wkb(node.location)
+                   }
+            self.dumpers['nodes'].write(data)
 
 
     def way(self, way):
-        pass
+        if self.is_change_file:
+            data = { 'id' : way.id, 'action' : self.to_action(way) }
+            self.dumpers['way_changeset'].write(data)
+
+        if way.deleted:
+            self.delete_object("nodes", way.id)
+        else:
+            if self.is_change_file:
+                data = { 'id' : way.id,
+                         'tags' : dict(way.tags),
+                         'nodes' : [long(x.ref) for x in way.nodes]
+                       }
+                if self.dumpers['ways'].update(data):
+                    return
+
+            data = { 'id' : way.id,
+                     'tags' : self.to_tagstr(way.tags),
+                     'nodes' : u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
+                   }
+            self.dumpers['ways'].write(data)
 
     def relation(self, rel):
-        pass
+        if self.is_change_file:
+            data = { 'id' : rel.id, 'action' : self.to_action(rel) }
+            self.dumpers['relation_changeset'].write(data)
+            self.cursor.execute("DELETE FROM relation_members WHERE relation_id = %s",
+                                rel.id)
+
+        if rel.deleted:
+            self.delete_object("relations", rel.id)
+        else:
+            seq = 1
+            for m in rel.members:
+                data = { 'relation_id' : rel.id,
+                         'member_id': m.ref,
+                         'member_type' : m.type.upper(),
+                         'member_role' : self.sqlstr(m.role),
+                         'sequence_id' : seq
+                       }
+                self.dumpers['relation_members'].write(data)
+                seq += 1
+
+            if self.is_change_file:
+                data = { 'id' : rel.id, 'tags' : dict(rel.tags) }
+                if self.dumpers['relations'].update(data):
+                    return
+
+            data = { 'id' : rel.id, 'tags' : self.to_tagstr(rel.tags) }
+            self.dumpers['relations'].write(data)
+
+
+
+    def to_action(self, obj):
+        if obj.visible:
+            return 'C' if obj.version == 1 else 'M'
+
+        return 'D' # delete
+
+    def delete_object(self, table, osmid):
+        self.cursor.execute("DELETE FROM %s WHERE id = %%s" % table, osmid)
+
+    def to_wkb(self, loc):
+        # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
+        return hexlify(struct.pack("=biidd", 1, 0x20000001, 4326,
+                                   loc.lon, loc.lat)).decode()
+
+    def to_tagstr(self, tags):
+        return u','.join(['"%s"=>"%s"' % (self.sqlstr(t.k), self.sqlstr(t.v))
+                            for  t in tags])
+
+    if sys.version_info[0] < 3:
+        def sqlstr(self, s):
+            return s.decode('utf8').translate(self.sqltrans)
+    else:
+        def sqlstr(self, s):
+            return s.translate(self.sqltrans)
+
+
 
 if __name__ == '__main__':
 
@@ -245,5 +361,8 @@ if __name__ == '__main__':
                         help='OSM input file')
 
     options = parser.parse_args()
-    OSMImporter(options).readfile()
+    importer = OSMImporter(options)
+    importer.readfile()
+    if options.createindices:
+        importer.create_indices()
 
