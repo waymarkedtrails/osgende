@@ -30,68 +30,90 @@ duplicates.
 import sys
 import os.path as ospath
 import os
+import threading
 import codecs
 import struct
 import tempfile
 from binascii import hexlify
 import argparse
-import psycopg2
 import osmium
 
-import osgende.common.postgisconn as postgisconn
+import sqlalchemy as sqla
+import sqlalchemy_utils as sqla_utils
+
 from osgende.common.nodestore import NodeStore
+from osgende.common.osm_tables import OsmSchema
 
-class DbDumper:
-    tempdir = '.'
-    def __init__(self, db, table, columns):
-        self.db = db
+def obj2action(obj):
+    if obj.visible:
+        return 'C' if obj.version == 1 else 'M'
+    else:
+        return 'D' # delete
+
+def loc2wkb(loc):
+    # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
+    return hexlify(struct.pack("=biidd", 1, 0x20000001, 4326,
+                               loc.lon, loc.lat)).decode()
+
+
+
+class CopyThread(threading.Thread):
+    """Thread that starts a copy_from on the incomming file descriptor.
+       The main thread pipes into the other end of this descriptor.
+    """
+    def __init__(self, rcv, engine, table, columns):
+        threading.Thread.__init__(self)
+        self.rcv = rcv
+        self.engine = engine
         self.table = table
-        self.dumpfile = codecs.getwriter('utf-8')(
-                tempfile.NamedTemporaryFile(prefix=table,dir=DbDumper.tempdir))
-        self.counter = 0
         self.columns = columns
+
+    def run(self):
+        conn = self.engine.raw_connection()
+        try:
+            cur = conn.cursor()
+            cur.copy_from(os.fdopen(self.rcv), self.table,
+                          null='NULL', columns=self.columns)
+            cur.close()
+            conn.commit()
+        finally:
+            conn.close()
+
+
+
+class DbWriter:
+    """Can either copy out new input data or update existing data.
+    """
+    def __init__(self, engine, table):
+        self.conn = engine.connect()
+        self.trans = self.conn.begin()
+        self.update = table.update()
+        columns = [ str(c.name) for c in table.columns ]
         self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n'
-        if columns[0] == 'id':
-            self.updatequery = "EXECUTE dump_%s_update(%s)" % (
-                            table, ','.join(['%s' for x in columns]))
-            db.prepare("dump_%s_update" % table,
-                       "UPDATE %s SET (%s) = (%s) WHERE id = $1" % (
-                            table, ','.join(columns[1:]),
-                            ','.join(['$%d' % x for x in range(2,len(columns)+1)])))
-        #print "Linepattern:",self.linepattern
 
-    def write(self, attrs):
-        self.dumpfile.write(self.linepattern % attrs)
-        self.counter += 1
-        if self.counter > DbDumper.maxentries:
-            self.flush()
-            self.counter = 0
+        fd_rcv, fd_snd = os.pipe()
+        self.out_pipe = os.fdopen(fd_snd, 'w')
 
-    def flush(self):
-        cur = self.db.cursor()
-        self.dumpfile.flush()
-        self.dumpfile.seek(0)
-        cur.copy_from(self.dumpfile, self.table, null='NULL', columns=self.columns)
-        self.dumpfile.seek(0)
-        self.dumpfile.truncate()
+        self.thread = CopyThread(fd_rcv, engine, str(table.name), columns)
+        self.thread.daemon = True
+        self.thread.start()
 
-    def update(self, attrs):
-        #print cursor.mogrify(self.updatequery, [attrs[x] for x in self.columns] + [attrs['id']])
-        cur = self.db.cursor()
-        cur.execute(self.updatequery, [attrs[x] for x in self.columns])
-        return (cur.rowcount == 1)
+    def write(self, **attrs):
+        self.out_pipe.write(self.linepattern % attrs)
+
+    def close(self):
+        self.out_pipe.close()
+        self.thread.join()
+        self.trans.commit()
+        self.conn.close()
+
+    def update(self, **attrs):
+        result = self.conn.execute(self.update, attrs)
+        return result.rowcount == 1
 
 
 
 class OSMImporter(osmium.SimpleHandler):
-    columns = {
-        'nodes': ('id', 'tags', 'geom' ),
-        'ways': ('id', 'tags', 'nodes'),
-        'relations' : ('id', 'tags'),
-        'relation_members' : ( 'relation_id', 'member_id', 'member_type',
-                               'member_role', 'sequence_id' )
-    }
-
     sqltrans = { ord(u'"'): u'\\\\"',
                      ord(u'\r') : u' ', ord(u'\b'): None, ord(u'\f') : None,
                      ord(u'\n') : u' ',
@@ -102,12 +124,26 @@ class OSMImporter(osmium.SimpleHandler):
 
     def __init__(self, options):
         super(OSMImporter, self).__init__()
+        dburl = sqla.engine.url.URL('postgresql', username=options.username,
+                                    password=options.password,
+                                    database=options.database)
+        if not sqla_utils.database_exists(dburl):
+            if not options.createdb:
+                raise RuntimeError("Database does not exist.")
+
+            print("Creating new DB")
+            sqla_utils.create_database(dburl)
+
+        self.metadata = sqla.MetaData()
+        self.tables = OsmSchema(self.metadata)
+        self.engine = sqla.create_engine(dburl, echo=options.verbose)
+
         if options.createdb:
-            self.makedb(options.database, options.username,
-                        options.password, options.postgisdir)
-        dba = self.makedba(options.database, options.username, options.password)
-        self.db = postgisconn.PGDatabase(dba)
-        self.cursor = self.db.cursor()
+            with self.engine.begin() as conn:
+                conn.execute("CREATE EXTENSION postgis")
+                conn.execute("CREATE EXTENSION hstore")
+            self.metadata.create_all(self.engine)
+
         if options.nodestore is None:
             self.nodestore = None
         else:
@@ -116,209 +152,112 @@ class OSMImporter(osmium.SimpleHandler):
         self.reader = osmium.io.Reader(options.inputfile)
         self.is_change_file = self.reader.header().has_multiple_object_versions
 
-        DbDumper.maxentries = options.maxentries
-        DbDumper.tempdir = options.tempdir
-        self.dumpers = {}
-        for (tab, cols) in OSMImporter.columns.items():
-            self.dumpers[tab] = DbDumper(self.db, tab, cols)
+        self.dumpdata = {}
+        for name, table in self.tables.item.items():
+            self.dumpdata[name] = DbWriter(self.engine, table)
+        self.dumpchange = {}
+        for name, table in self.tables.change.items():
+            self.dumpchange[name] = DbWriter(self.engine, table)
 
-        if self.is_change_file:
-            for tab in ('node', 'way', 'relation'):
-                tablename = '%s_changeset' % tab
-                if tab == 'node':
-                    self.dumpers[tablename] = DbDumper(self.db, tablename,
-                                               ('id', 'action', 'tags', 'geom'))
-                else:
-                    self.dumpers[tablename] = DbDumper(self.db, tablename,
-                                               ('id', 'action'))
-
-    def makedba(self, db, user, password):
-        dba = 'dbname=%s' % db
-        if user is not None:
-            dba = '%s user=%s' % (dba, user)
-        if password is not None:
-            dba = '%s password=%s' % (dba, password)
-        return dba
-
-    def makedb(self, dbname, user, passwd, postgisdir=None):
-        dba = self.makedba('postgres', user, passwd)
-        tmpdb = psycopg2.connect(dba)
-        tmpdb.set_isolation_level(0)
-        tmpcur = tmpdb.cursor()
-        tmpcur.execute('CREATE DATABASE %s' % dbname)
-        print(tmpcur.statusmessage)
-        tmpdb.close()
-
-        dba = self.makedba(dbname, user, passwd)
-        tmpdb = psycopg2.connect(dba)
-        tmpcur = tmpdb.cursor()
-        try:
-            # try to create extension postgis (for postgis 2.0)
-            tmpcur.execute("CREATE EXTENSION postgis;")
-        except:
-            # otherwise fall back to loading it from the contrib folder
-            tmpdb.rollback()
-            if postgisdir is None:
-                # guess the directory from the postgres version
-                postgisdir = ('/usr/share/postgresql/%d.%d/contrib' %
-                        (tmpdb.server_version / 10000, (tmpdb.server_version / 100) % 100))
-                for fl in os.listdir(postgisdir):
-                    if fl.startswith('postgis'):
-                        newdir = ospath.join(postgisdir, fl)
-                        if ospath.isdir(newdir):
-                            postgisdir = newdir
-                            break
-                else:
-                    print('Cannot find postgis directory. Please explicitly specify with -P parameter.')
-                    sys.exit(-1)
-            pgscript = open(ospath.join(postgisdir, 'postgis.sql'),'r').read()
-            tmpcur.execute(pgscript)
-            pgscript = open(ospath.join(postgisdir, 'spatial_ref_sys.sql'), 'r').read()
-            tmpcur.execute(pgscript)
-        tmpcur.execute("""
-                CREATE EXTENSION hstore;
-                CREATE TABLE nodes(id bigint NOT NULL, tags hstore);
-                SELECT AddGeometryColumn('nodes', 'geom', 4326, 'POINT', 2);
-                CREATE TABLE ways (id bigint NOT NULL, tags hstore, nodes bigint[]);
-                CREATE TABLE relations (id bigint NOT NULL, tags hstore);
-                CREATE TABLE relation_members (
-                    relation_id bigint NOT NULL,
-                    member_id bigint NOT NULL,
-                    member_type character(1) NOT NULL,
-                    member_role text NOT NULL,
-                    sequence_id int NOT NULL);
-                CREATE TABLE node_changeset (id bigint NOT NULL,
-                                            action character(1) NOT NULL,
-                                            tags hstore);
-                SELECT AddGeometryColumn('node_changeset', 'geom', 4326, 'POINT', 2);
-                CREATE TABLE way_changeset (id bigint NOT NULL,
-                                            action character(1) NOT NULL);
-                CREATE TABLE relation_changeset (id bigint NOT NULL,
-                                                 action character(1) NOT NULL);
-
-        """)
-        tmpdb.commit()
-        tmpdb.close()
 
     def readfile(self):
         osmium.apply(self.reader, self)
 
-        for tab in self.dumpers.values():
-            tab.flush()
-        self.db.commit()
+        for tab in self.dumpdata.values():
+            tab.close()
+        for tab in self.dumpchange.values():
+            tab.close()
 
 
     def create_indices(self):
-        self.cursor.execute("""
-                ALTER TABLE ONLY nodes ADD CONSTRAINT pk_nodes PRIMARY KEY (id);
-                ALTER TABLE ONLY ways ADD CONSTRAINT pk_ways PRIMARY KEY (id);
-                ALTER TABLE ONLY relations ADD CONSTRAINT pk_relations PRIMARY KEY (id);
-                ALTER TABLE ONLY relation_members ADD CONSTRAINT pk_relation_members
-                           PRIMARY KEY (relation_id, sequence_id); """)
-        self.db.commit()
+        for n in ('node', 'way', 'relation'):
+            i = sqla.Index('pk_%ss' % n, self.tables.item[n].c.id, unique=True)
+            i.create(self.engine)
 
+        i = sqla.Index('pk_relation_members',
+                  self.tables.item['member'].c.relation_id,
+                  self.tables.item['member'].c.sequence_id,
+                  unique=True)
+        i.create(self.engine)
 
+    def delete_object(self, table, obj_id):
+        with self.engine.begin() as conn:
+            conn.execute(self.tables.item[table].delete().where(id=obj_id))
 
     def node(self, node):
         tagstr = self.to_tagstr(node.tags)
         if self.is_change_file:
-            data = { 'id' : node.id,
-                     'action' : self.to_action(node),
-                     'tags' : tagstr
-                   }
-            self.dumpers['node_changeset'].write(data)
+            self.dumpchange['node'].write(id=node.id, action=obj2action(node),
+                                          tags=tagstr, geom=loc2wkb(node.location))
 
         if node.deleted:
-            self.delete_object("nodes", node.id)
+            self.delete_object('node', node.id)
             if self.nodestore is not None:
                 del self.nodestore[node.id]
         else:
+            geom = 'POINT(%f %f)' % (node.location.lon, node.location.lat)
             if self.nodestore is not None:
                 self.nodestore.set_from_node(node)
                 if len(node.tags) == 0:
-                    self.delete_object("nodes", node.id)
+                    self.delete_object('node', node.id)
                     return
             if self.is_change_file:
-                data = { 'id' : node.id,
-                         'tags' : dict(node.tags),
-                         'geom' : self.to_wkb(node.location)
-                       }
-                if self.dumpers['nodes'].update(data):
+                if self.dumpdata['node'].update(id=node.id, tags=node.tags,
+                                                geom=geom):
                     return
 
-            data = { 'id' : node.id,
-                     'tags' : tagstr,
-                     'geom' : self.to_wkb(node.location)
-                   }
-            self.dumpers['nodes'].write(data)
+            self.dumpdata['node'].write(id=node.id, tags=tagstr, geom=loc2wkb(node.location))
 
 
     def way(self, way):
         if self.is_change_file:
-            data = { 'id' : way.id, 'action' : self.to_action(way) }
-            self.dumpers['way_changeset'].write(data)
+            self.dumpchange['way'].write(id=way.id, action=obj2action(way))
 
         if way.deleted:
-            self.delete_object("nodes", way.id)
+            self.delete_object('way', way.id)
         else:
             if self.is_change_file:
-                data = { 'id' : way.id,
-                         'tags' : dict(way.tags),
-                         'nodes' : [long(x.ref) for x in way.nodes]
-                       }
-                if self.dumpers['ways'].update(data):
+                nodes = [long(x.ref) for x in way.nodes]
+                if self.dumpdata['way'].update(id=way.id, tags=way.tags,
+                                               nodes=nodes):
                     return
 
             data = { 'id' : way.id,
                      'tags' : self.to_tagstr(way.tags),
                      'nodes' : u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
                    }
-            self.dumpers['ways'].write(data)
+            nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
+            self.dumpdata['way'].write(id=way.id, tags=self.to_tagstr(way.tags),
+                                       nodes=nodes)
 
     def relation(self, rel):
         if self.is_change_file:
             data = { 'id' : rel.id, 'action' : self.to_action(rel) }
-            self.dumpers['relation_changeset'].write(data)
-            self.cursor.execute("DELETE FROM relation_members WHERE relation_id = %s",
-                                rel.id)
+            self.dumpchange['relation'].write(id=rel.id, action=obj2action(rel))
+
+            with self.engine.begin() as conn:
+                conn.execute(self.tables.item['member'].delete().where(relation_id=rel.id))
 
         if rel.deleted:
-            self.delete_object("relations", rel.id)
+            self.delete_object('relation', rel.id)
         else:
             seq = 1
             for m in rel.members:
-                data = { 'relation_id' : rel.id,
-                         'member_id': m.ref,
-                         'member_type' : m.type.upper(),
-                         'member_role' : self.sqlstr(m.role),
-                         'sequence_id' : seq
-                       }
-                self.dumpers['relation_members'].write(data)
+                self.dumpdata['member'].write(relation_id=rel.id,
+                                              member_id=m.ref,
+                                              member_type=m.type.upper(),
+                                              member_role=self.sqlstr(m.role),
+                                              sequence_id=seq)
                 seq += 1
 
             if self.is_change_file:
                 data = { 'id' : rel.id, 'tags' : dict(rel.tags) }
-                if self.dumpers['relations'].update(data):
+                if self.dumpdata['relation'].update(id=rel.id, tags=rel.tags):
                     return
 
-            data = { 'id' : rel.id, 'tags' : self.to_tagstr(rel.tags) }
-            self.dumpers['relations'].write(data)
+            self.dumpdata['relation'].write(id=rel.id,
+                                            tags=self.to_tagstr(rel.tags))
 
-
-
-    def to_action(self, obj):
-        if obj.visible:
-            return 'C' if obj.version == 1 else 'M'
-
-        return 'D' # delete
-
-    def delete_object(self, table, osmid):
-        self.cursor.execute("DELETE FROM %s WHERE id = %%s" % table, osmid)
-
-    def to_wkb(self, loc):
-        # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
-        return hexlify(struct.pack("=biidd", 1, 0x20000001, 4326,
-                                   loc.lon, loc.lat)).decode()
 
     def to_tagstr(self, tags):
         return u','.join(['"%s"=>"%s"' % (self.sqlstr(t.k), self.sqlstr(t.v))
@@ -345,18 +284,14 @@ if __name__ == '__main__':
                        help='database user')
     parser.add_argument('-p', action='store', dest='password', default=None,
                        help='password for database')
-    parser.add_argument('-t', action="store", dest='tempdir', default=None,
-                       help="directory to use for temporary files")
-    parser.add_argument('-m', action='store', dest='maxentries', default=100000000,
-                       help='Maximum number of objects to cache before writing to the database.')
     parser.add_argument('-n', action='store', dest='nodestore', default=None,
                        help='File containing the node store')
     parser.add_argument('-c', action='store_true', dest='createdb', default=False,
                        help='Create a new database and set up the tables')
     parser.add_argument('-i', action='store_true', dest='createindices', default=False,
                        help='Create primary keys and their indices')
-    parser.add_argument('-P', action='store', dest='postgisdir', default=None,
-                       help='Directory where postgis sql scripts are located')
+    parser.add_argument('-v', action='store_true', dest='verbose', default=False,
+                       help='Enable verbose output.')
     parser.add_argument('inputfile', nargs='?', default="-",
                         help='OSM input file')
 
