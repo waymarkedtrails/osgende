@@ -44,6 +44,10 @@ import sqlalchemy_utils as sqla_utils
 from osgende.common.nodestore import NodeStore
 from osgende.common.osm_tables import OsmSchema
 
+
+def mkdict(tags):
+    return dict([(t.k, t.v) for t in tags])
+
 def obj2action(obj):
     if obj.visible:
         return 'C' if obj.version == 1 else 'M'
@@ -87,7 +91,12 @@ class DbWriter:
     def __init__(self, engine, table):
         self.conn = engine.connect()
         self.trans = self.conn.begin()
-        self.update = table.update()
+        if hasattr(table.c, 'id'):
+            self.update_func = table.update().where(table.c.id == sqla.bindparam('oid'))
+            self.delete_func = table.delete().where(table.c.id == sqla.bindparam('oid'))
+        else:
+            self.update_func = table.insert()
+            self.delete_func = table.delete().where(table.c.relation_id == sqla.bindparam('oid'))
         columns = [ str(c.name) for c in table.columns ]
         self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n'
 
@@ -102,14 +111,17 @@ class DbWriter:
         self.out_pipe.write(self.linepattern % attrs)
 
     def close(self):
-        self.out_pipe.close()
-        self.thread.join()
         self.trans.commit()
         self.conn.close()
+        self.out_pipe.close()
+        self.thread.join()
 
     def update(self, **attrs):
-        result = self.conn.execute(self.update, attrs)
+        result = self.conn.execute(self.update_func, attrs)
         return result.rowcount == 1
+
+    def delete(self, oid):
+        self.conn.execute(self.delete_func, {'oid' : oid })
 
 
 
@@ -191,10 +203,6 @@ class OSMImporter(osmium.SimpleHandler):
                   unique=True)
         i.create(self.engine)
 
-    def delete_object(self, table, obj_id):
-        with self.engine.begin() as conn:
-            conn.execute(self.tables.item[table].delete().where(id=obj_id))
-
     def node(self, node):
         if not self.nodestore or len(node.tags) > 0:
             tagstr = self.to_tagstr(node.tags)
@@ -204,22 +212,22 @@ class OSMImporter(osmium.SimpleHandler):
 
     def node_change(self, node):
         tagstr = self.to_tagstr(node.tags)
+        geom = loc2wkb(node.location)
         self.dumpchange['node'].write(id=node.id, action=obj2action(node),
-                                      tags=tagstr, geom=loc2wkb(node.location))
+                                      tags=tagstr, geom=geom)
 
         if node.deleted:
-            self.delete_object('node', node.id)
+            self.dumpdata['node'].delete(node.id)
         else:
-            geom = 'POINT(%f %f)' % (node.location.lon, node.location.lat)
             if self.nodestore:
                 self.nodestore.set_from_node(node)
                 if len(node.tags) == 0:
-                    self.delete_object('node', node.id)
+                    self.dumpdata['node'].delete(node.id)
                     return
-            if self.dumpdata['node'].update(id=node.id, tags=node.tags, geom=geom):
+            if self.dumpdata['node'].update(oid=node.id, tags=mkdict(node.tags), geom=geom):
                 return
 
-            self.dumpdata['node'].write(id=node.id, tags=tagstr, geom=loc2wkb(node.location))
+            self.dumpdata['node'].write(id=node.id, tags=tagstr, geom=geom)
 
     def way(self, way):
         nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
@@ -230,10 +238,10 @@ class OSMImporter(osmium.SimpleHandler):
         self.dumpchange['way'].write(id=way.id, action=obj2action(way))
 
         if way.deleted:
-            self.delete_object('way', way.id)
+            self.dumpdata['way'].delete(way.id)
         else:
-            nodes = [long(x.ref) for x in way.nodes]
-            if self.dumpdata['way'].update(id=way.id, tags=way.tags, nodes=nodes):
+            nodes = [int(x.ref) for x in way.nodes]
+            if self.dumpdata['way'].update(oid=way.id, tags=mkdict(way.tags), nodes=nodes):
                 return
 
             nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
@@ -242,26 +250,6 @@ class OSMImporter(osmium.SimpleHandler):
 
     def relation(self, rel):
         self.dumpdata['relation'].write(id=rel.id, tags=self.to_tagstr(rel.tags))
-        self.write_members(rel)
-
-    def relation_change(self, rel):
-        self.dumpchange['relation'].write(id=rel.id, action=obj2action(rel))
-
-        with self.engine.begin() as conn:
-            conn.execute(self.tables.item['member'].delete().where(relation_id=rel.id))
-
-        if rel.deleted:
-            self.delete_object('relation', rel.id)
-        else:
-            self.write_members(rel)
-
-            if self.dumpdata['relation'].update(id=rel.id, tags=rel.tags):
-                return
-
-            self.dumpdata['relation'].write(id=rel.id,
-                                            tags=self.to_tagstr(rel.tags))
-
-    def write_members(self, rel):
         seq = 1
         for m in rel.members:
             self.dumpdata['member'].write(relation_id=rel.id,
@@ -270,6 +258,28 @@ class OSMImporter(osmium.SimpleHandler):
                                           member_role=self.sqlstr(m.role),
                                           sequence_id=seq)
             seq += 1
+
+    def relation_change(self, rel):
+        self.dumpchange['relation'].write(id=rel.id, action=obj2action(rel))
+        self.dumpdata['member'].delete(rel.id)
+
+        if rel.deleted:
+            self.dumpdata['relation'].delete(rel.id)
+        else:
+            seq = 1
+            for m in rel.members:
+                self.dumpdata['member'].update(relation_id=rel.id,
+                                               member_id=m.ref,
+                                               member_type=m.type.upper(),
+                                               member_role=m.role,
+                                               sequence_id=seq)
+                seq += 1
+
+            if self.dumpdata['relation'].update(oid=rel.id, tags=mkdict(rel.tags)):
+                return
+
+            self.dumpdata['relation'].write(id=rel.id,
+                                            tags=self.to_tagstr(rel.tags))
 
     def to_tagstr(self, tags):
         return u','.join(['"%s"=>"%s"' % (self.sqlstr(t.k), self.sqlstr(t.v))
