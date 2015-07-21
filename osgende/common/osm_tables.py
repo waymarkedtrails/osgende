@@ -29,7 +29,7 @@ class OsmSchema(object):
                          Table('nodes', meta,
                                Column('id', BigInteger),
                                Column('tags', HSTORE),
-                               Column('geom', Geometry('POINT', srid=4326))
+                               Column('geom', Geometry('POINT', srid=4326, spatial_index=False))
                               ),
                        'way' :
                          Table('ways', meta,

@@ -28,8 +28,7 @@ class NodeStore(object):
     """
 
     def __init__(self, filename):
-        self.idxfile = open(filename, 'a+')
-        self.mapfile = index.DenseLocationMapFile(self.idxfile.fileno())
+        self.mapfile = index.create_map("dense_file_array," + filename)
 
     def __del__(self):
         self.close()
@@ -51,7 +50,6 @@ class NodeStore(object):
         if hasattr(self, 'mapfile'):
             print("Used memory by index: %d" % self.mapfile.used_memory())
             del self.mapfile
-            self.idxfile.close()
 
 
 if __name__ == '__main__':
