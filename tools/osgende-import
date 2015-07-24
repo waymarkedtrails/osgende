@@ -37,6 +37,7 @@ import tempfile
 from binascii import hexlify
 import argparse
 import osmium
+from collections import namedtuple
 
 import sqlalchemy as sqla
 import sqlalchemy_utils as sqla_utils
@@ -123,7 +124,7 @@ class DbWriter:
     def delete(self, oid):
         self.conn.execute(self.delete_func, {'oid' : oid })
 
-
+DbWriterSet = namedtuple('DbWriterSet', 'node way relation')
 
 class OSMImporter(osmium.SimpleHandler):
     sqltrans = { ord(u'"'): u'\\\\"',
@@ -167,14 +168,17 @@ class OSMImporter(osmium.SimpleHandler):
         self.reader = osmium.io.Reader(options.inputfile)
         self.is_change_file = self.reader.header().has_multiple_object_versions
 
-        self.dumpdata = {}
-        for name, table in self.tables.item.items():
-            self.dumpdata[name] = DbWriter(self.engine, table)
-        self.dumpchange = {}
+        self.data = DbWriterSet(
+                      node=DbWriter(self.engine, self.tables.node.data),
+                      way=DbWriter(self.engine, self.tables.way.data),
+                      relation=DbWriter(self.engine, self.tables.relation.data))
+        self.member = DbWriter(self.engine, self.tables.member.data)
         if self.is_change_file:
-            for name, table in self.tables.change.items():
-                self.dumpchange[name] = DbWriter(self.engine, table)
-
+            self.change = DbWriterSet(
+                           node=DbWriter(self.engine, self.tables.node.change),
+                           way=DbWriter(self.engine, self.tables.way.change),
+                           relation=DbWriter(self.engine, self.tables.relation.change))
+            # use change functions
             self.node = self.node_change
             self.way = self.way_change
             self.relation = self.relation_change
@@ -183,10 +187,12 @@ class OSMImporter(osmium.SimpleHandler):
     def readfile(self):
         osmium.apply(self.reader, self)
 
-        for tab in self.dumpdata.values():
+        for tab in self.data:
             tab.close()
-        for tab in self.dumpchange.values():
-            tab.close()
+        self.member.close()
+        if self.is_change_file:
+            for tab in self.change:
+                tab.close()
 
         if self.nodestore:
             self.nodestore.close()
@@ -194,91 +200,91 @@ class OSMImporter(osmium.SimpleHandler):
 
     def create_indices(self):
         for n in ('node', 'way', 'relation'):
-            i = sqla.Index('pk_%ss' % n, self.tables.item[n].c.id, unique=True)
+            i = sqla.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
             i.create(self.engine)
 
         i = sqla.Index('pk_relation_members',
-                  self.tables.item['member'].c.relation_id,
-                  self.tables.item['member'].c.sequence_id,
+                  self.tables.member.data.c.relation_id,
+                  self.tables.member.data.c.sequence_id,
                   unique=True)
         i.create(self.engine)
 
     def node(self, node):
         if not self.nodestore or len(node.tags) > 0:
             tagstr = self.to_tagstr(node.tags)
-            self.dumpdata['node'].write(id=node.id, tags=tagstr, geom=loc2wkb(node.location))
+            self.data.node.write(id=node.id, tags=tagstr, geom=loc2wkb(node.location))
         if self.nodestore:
             self.nodestore.set_from_node(node)
 
     def node_change(self, node):
         tagstr = self.to_tagstr(node.tags)
         geom = loc2wkb(node.location)
-        self.dumpchange['node'].write(id=node.id, action=obj2action(node),
+        self.change.node.write(id=node.id, action=obj2action(node),
                                       tags=tagstr, geom=geom)
 
         if node.deleted:
-            self.dumpdata['node'].delete(node.id)
+            self.data.node.delete(node.id)
         else:
             if self.nodestore:
                 self.nodestore.set_from_node(node)
                 if len(node.tags) == 0:
-                    self.dumpdata['node'].delete(node.id)
+                    self.data.node.delete(node.id)
                     return
-            if self.dumpdata['node'].update(oid=node.id, tags=mkdict(node.tags), geom=geom):
+            if self.data.node.update(oid=node.id, tags=mkdict(node.tags), geom=geom):
                 return
 
-            self.dumpdata['node'].write(id=node.id, tags=tagstr, geom=geom)
+            self.data.node.write(id=node.id, tags=tagstr, geom=geom)
 
     def way(self, way):
         nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
-        self.dumpdata['way'].write(id=way.id, tags=self.to_tagstr(way.tags),
+        self.data.way.write(id=way.id, tags=self.to_tagstr(way.tags),
                                    nodes=nodes)
 
     def way_change(self, way):
-        self.dumpchange['way'].write(id=way.id, action=obj2action(way))
+        self.change.way.write(id=way.id, action=obj2action(way))
 
         if way.deleted:
-            self.dumpdata['way'].delete(way.id)
+            self.data.way.delete(way.id)
         else:
             nodes = [int(x.ref) for x in way.nodes]
-            if self.dumpdata['way'].update(oid=way.id, tags=mkdict(way.tags), nodes=nodes):
+            if self.data.way.update(oid=way.id, tags=mkdict(way.tags), nodes=nodes):
                 return
 
             nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
-            self.dumpdata['way'].write(id=way.id, tags=self.to_tagstr(way.tags),
+            self.data.way.write(id=way.id, tags=self.to_tagstr(way.tags),
                                        nodes=nodes)
 
     def relation(self, rel):
-        self.dumpdata['relation'].write(id=rel.id, tags=self.to_tagstr(rel.tags))
+        self.data.relation.write(id=rel.id, tags=self.to_tagstr(rel.tags))
         seq = 1
         for m in rel.members:
-            self.dumpdata['member'].write(relation_id=rel.id,
-                                          member_id=m.ref,
-                                          member_type=m.type.upper(),
-                                          member_role=self.sqlstr(m.role),
-                                          sequence_id=seq)
+            self.member.write(relation_id=rel.id,
+                              member_id=m.ref,
+                              member_type=m.type.upper(),
+                              member_role=self.sqlstr(m.role),
+                              sequence_id=seq)
             seq += 1
 
     def relation_change(self, rel):
-        self.dumpchange['relation'].write(id=rel.id, action=obj2action(rel))
-        self.dumpdata['member'].delete(rel.id)
+        self.change.relation.write(id=rel.id, action=obj2action(rel))
+        self.data.member.delete(rel.id)
 
         if rel.deleted:
-            self.dumpdata['relation'].delete(rel.id)
+            self.data.relation.delete(rel.id)
         else:
             seq = 1
             for m in rel.members:
-                self.dumpdata['member'].update(relation_id=rel.id,
+                self.data.member.update(relation_id=rel.id,
                                                member_id=m.ref,
                                                member_type=m.type.upper(),
                                                member_role=m.role,
                                                sequence_id=seq)
                 seq += 1
 
-            if self.dumpdata['relation'].update(oid=rel.id, tags=mkdict(rel.tags)):
+            if self.data.relation.update(oid=rel.id, tags=mkdict(rel.tags)):
                 return
 
-            self.dumpdata['relation'].write(id=rel.id,
+            self.data.relation.write(id=rel.id,
                                             tags=self.to_tagstr(rel.tags))
 
     def to_tagstr(self, tags):

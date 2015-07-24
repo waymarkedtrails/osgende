@@ -18,57 +18,55 @@
 from sqlalchemy import Table, Column, Integer, BigInteger, String, MetaData
 from sqlalchemy.dialects.postgresql import HSTORE, ARRAY, VARCHAR
 from geoalchemy2 import Geometry
+from collections import namedtuple
 
+OsmBackingTable = namedtuple('OsmBackingTable', 'data change')
 
 class OsmSchema(object):
     """ Collection of tables for the OSM backing store.
     """
 
     def __init__(self, meta):
-        self.item = { 'node' :
-                         Table('nodes', meta,
+        self.node = OsmBackingTable(
+                      data = Table('nodes', meta,
                                Column('id', BigInteger),
                                Column('tags', HSTORE),
                                Column('geom', Geometry('POINT', srid=4326, spatial_index=False))
                               ),
-                       'way' :
-                         Table('ways', meta,
+                      change = Table('node_changeset', meta,
+                                Column('id', BigInteger),
+                                Column('action', VARCHAR(1)),
+                                Column('tags', HSTORE),
+                                Column('geom', Geometry('POINT', srid=4326))
+                              ))
+        self.way = OsmBackingTable(
+                      data = Table('ways', meta,
                                Column('id', BigInteger),
                                Column('tags', HSTORE),
                                Column('nodes', ARRAY(BigInteger))
                               ),
-                       'relation' :
-                         Table('relations', meta,
+                      change = Table('way_changeset', meta,
+                                Column('id', BigInteger),
+                                Column('action', VARCHAR(1)),
+                               ))
+        self.relation = OsmBackingTable(
+                      data = Table('relations', meta,
                                Column('id', BigInteger),
                                Column('tags', HSTORE)
                               ),
-                       'member' :
-                         Table('relation_members', meta,
+                      change = Table('relation_changeset', meta,
+                                Column('id', BigInteger),
+                                Column('action', VARCHAR(1)),
+                               ))
+        self.member = OsmBackingTable(
+                      data = Table('relation_members', meta,
                                Column('relation_id', BigInteger),
                                Column('member_id', BigInteger),
                                Column('member_type', VARCHAR(1)),
                                Column('member_role', String),
                                Column('sequence_id', Integer)
-                              )
-                      }
+                              ),
+                      change = None)
 
-        self.change = { 'node' :
-                          Table('node_changeset', meta,
-                                Column('id', BigInteger),
-                                Column('action', VARCHAR(1)),
-                                Column('tags', HSTORE),
-                                Column('geom', Geometry('POINT', srid=4326))
-                             ),
-                        'way' :
-                          Table('way_changeset', meta,
-                                Column('id', BigInteger),
-                                Column('action', VARCHAR(1)),
-                               ),
-                        'relation' :
-                          Table('relation_changeset', meta,
-                                Column('id', BigInteger),
-                                Column('action', VARCHAR(1)),
-                               )
-                      }
-
-
+    def __getitem__(self, key):
+        return getattr(self, key)
