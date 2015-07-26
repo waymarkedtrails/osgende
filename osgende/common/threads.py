@@ -33,8 +33,9 @@ class WorkerQueue:
         queue. Note that this class works for consumer threads only.
 
         'numthreads' states the number of threads to use for execution. If
-        it is None, no threads will be used and the items instead immediately
-        processed when they are entered in the queue.
+        it is 0, no threads will be used and the items instead immediately
+        processed when they are entered in the queue. If it is None the
+        systemwide default will be used.
 
         'process_func' must be a function that takes exactly one argument: the
         next item to be processed. The optional 'initfunc' is called from the
@@ -45,9 +46,12 @@ class WorkerQueue:
 
     """
 
+    numthreads = 0
+
     def __init__(self, process_func, numthreads=None, initfunc=None, shutdownfunc=None):
-        self.numthreads = numthreads
-        if numthreads is None:
+        if numthreads is not None:
+            self.numthreads = numthreads
+        if self.numthreads == 0:
             # If we are in monothreading mode, simply execute
             # the processing function, when a new task is added
             self.add_task = process_func
@@ -90,7 +94,7 @@ class WorkerQueue:
            this to true in case of a fatal error where your threads may
            not consume any data anymore.
         """
-        if self.numthreads is None:
+        if self.numthreads == 0:
             if self.shutdownfunc is not None:
                 self.shutdownfunc()
         else:
@@ -141,4 +145,43 @@ class _WorkerThread:
             self.queue.task_done()
 
         self.shutdownfunc()
+
+
+class ThreadableDBObject(object):
+    """
+    """
+
+    numthreads = None
+
+    def set_num_threads(self, num):
+        """Set the number of worker threads to use when processing the
+           table. Note that this is the number of additional threads
+           created when processing, so the total number of threads in
+           the system is num+1. Setting num to None (the default) disables
+           parallel processing.
+
+        """
+        self.numthreads = num
+
+
+    def create_worker_queue(self, engine, processfunc):
+        self.thread = threading.local()
+        self.worker_engine = engine
+        return othread.WorkerQueue(processfunc, self.numthreads,
+                             self._init_worker_thread,
+                             self._shutdown_worker_thread)
+
+
+
+    def _init_worker_thread(self):
+        print("Initialising worker...")
+        self.thread.conn = self.worker_engine.connect()
+        self.thread.trans = connection.begin()
+
+    def _shutdown_worker_thread(self):
+        print("Shutting down worker...")
+        self.thread.trans.commit()
+        self.thread.conn.close()
+
+
 
