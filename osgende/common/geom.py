@@ -31,16 +31,16 @@ class Bbox:
             self.xmax = pt1.xmax
             self.ymin = pt1.ymin
             self.ymax = pt1.ymax
+        elif pt2 is not None:
+            self.xmin = min(pt1[0], pt2[0])
+            self.xmax = max(pt1[0], pt2[0])
+            self.ymin = min(pt1[1], pt2[1])
+            self.ymax = max(pt1[1], pt2[1])
         else:
             self.xmin = pt1[0]
             self.xmax = pt1[0]
             self.ymin = pt1[1]
             self.ymax = pt1[1]
-        if pt2 is not None:
-            self.xmin = min(self.xmin, pt2[0])
-            self.xmax = max(self.xmax, pt2[0])
-            self.ymin = min(self.ymin, pt2[1])
-            self.ymax = max(self.ymax, pt2[1])
 
     def intersects(self, other):
         return not (self.xmax < other.xmin or other.xmax < self.xmin or
