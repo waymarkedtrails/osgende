@@ -18,9 +18,10 @@
 Tables to trace updates
 """
 
-from osgende.common.postgisconn import PGTable
+from sqlalchemy as Table, Column, String
+from geoalchemy2 import Geometry
 
-class UpdatedGeometriesTable(PGTable):
+class UpdatedGeometriesTable(object):
     """Table that stores just a list of geometries that have been changed
        in the course of an update.
 
@@ -28,16 +29,18 @@ class UpdatedGeometriesTable(PGTable):
        deleted ones. The state of the geometry is identified by the action
        column. ('A' - added, 'M' - modified, 'D' - deleted)
     """
-    srid = '8357'
 
-    def __init__(self, db, name):
-        PGTable.__init__(self, db, name)
+    def __init__(self, meta, name, srid=None):
+        if srid is None:
+            srid = meta.info.get('srid', 8357)
+        self.table = Table(name, meta,
+                           Column('action', String(1)),
+                           Column('geom', Geometry('GEOMETRY', srid=srid)))
+        self.add_query = self.table.insert()
 
-    def create(self):
-        self.layout((("action", "char(1)"),))
-        self.add_geometry_column("geom", self.srid, 'GEOMETRY', with_index=True)
+    def clear(self, conn):
+        conn.execute(table.delete())
 
-    def add(self, geom, action='M'):
-        self.db.query("INSERT INTO %s (action, geom) VALUES (%%s, %%s)"
-                     % (self.table), (action, geom))
+    def add(self, conn, geom, action='M'):
+        conn.execute(self.add_query.values(geom=geom, action=action))
 
