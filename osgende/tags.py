@@ -163,7 +163,7 @@ class TagStore(dict):
         """Return a properly encoded URL for the object.
            Supports `website` and `url` tags, with and without protocol prefix.
         """
-        ret = self.get('url', self.get('website'))
+        ret = self.get_firstof('url', 'website')
 
         if ret is not None:
             # paranoia, to avoid HTML injection
@@ -202,5 +202,5 @@ class TagStore(dict):
                     val = mag
                 elif tagunit in length_matrix[unit]:
                     val = mag * length_matrix[unit][tagunit]
-            
+
         return val
