@@ -19,94 +19,73 @@
 Definitions shared between the different table type.
 """
 
-from osgende.common.postgisconn import PGTable
+from sqlalchemy import Table, Column, BigInteger, select, and_
 from osgende.tags import TagStore
+from osgende.common.connectors import TableSource
+from osgende.common.threads import ThreadableDBObject
 
-
-class OsmosisSubTable(PGTable):
+class OsmosisSubTable(ThreadableDBObject, TableSource):
     """Most basic table type to construct simple derived table from
        the nodes, ways or relations table.
 
-       'basetable' specifies the Osmosis table to use as basis.
-
-
-       For update to work properly, the table needs to have the action
-       module installed and expects the *_changes tables to be existent.
-       (TODO: link to action_function script.)
+       'datatable' specifies the Osmosis table to use as basis.
     """
 
-    # Name of predefined columns
-    column_id = 'id'
+    def __init__(self, meta, name, source, subset=None, change=None):
+        # lay out the table
+        id_col = Column(column_id, BigInteger, primary_key=True)
+        table = Table(name, meta, self.id_col)
+        for c in self.columns():
+            table.append_column(c)
+        TableSource.__init__(self, table, change, id_column=id_col)
 
-    def __init__(self, db, basetable, name, subset, uptable=None):
-        PGTable.__init__(self, db, name)
-        self.update_table = uptable
-        updateset = "%s IN (SELECT id FROM %s_changeset WHERE action <> 'D')" % \
-                      (self.column_id, basetable)
-        if subset is None:
-            self.wherequery = ""
-            self.updatequery = "WHERE %s"% updateset
-        else:
-            self.wherequery = "WHERE %s" % subset
-            self.updatequery = "WHERE %s AND %s" % (subset, updateset)
-        self.basetable = basetable
-        self.geometry_column = None
+        self.subset = subset
+        self.src = source
 
-    def layout(self, columns):
-        """ Layout the table as specified in PGTable.layout() but
-            it will add a column for the OSM id. The name of the column
-            is specified in 'column_id'.
-        """
-        fullcol = [(self.column_id, 'bigint PRIMARY KEY')]
-        fullcol.extend(columns)
-        PGTable.layout(self, fullcol)
-        
+    def truncate(self, conn):
+        conn.execute(self.data.delete())
 
-    def construct(self):
+    def construct(self, engine):
         """Fill the table"""
 
-        self.init_update()
-        self.truncate()
-        self.insert_objects(self.wherequery)
-        self.finish_update()
+        self.truncate(engine)
+        self.insert_objects(engine, self.src.select_all(self.subset))
 
-    def update(self):
-        """Update table
-        """
+    def update(self, engine):
+        """Update table"""
 
-        self.init_update()
-        # delete any objects that might have been changed
-        if self.update_table is not None and self.geometry_column is not None:
-            self.db.select("""WITH deleted AS
-                    (DELETE FROM %s WHERE id IN
-                        (SELECT c.id FROM %s_changeset c WHERE action <> 'A')
-                        RETURNING 'D', %s)
-                    INSERT INTO %s (action,geom) SELECT * FROM deleted""" % (self.table,
-                        self.basetable, self.geometry_column, self.update_table.table))
-        else:
-            self.delete("""id IN (SELECT id FROM %s_changeset WHERE ACTION <> 'A')
-                   """ % (self.basetable))
+        with engine.begin() as conn:
+            # delete any objects that might have been changed
+            delsql = self.data.delete().where(self.id_column.in_
+                                            (self.src.select_modify_delete()))
 
-        # reinsert those that are not deleted
-        self.insert_objects(self.updatequery)
-        if self.update_table is not None and self.geometry_column is not None:
-            cur = self.db.select("""INSERT INTO %s (action,geom)
-                    (SELECT 'A', %s FROM %s WHERE id IN
-                            (SELECT id FROM %s_changeset WHERE ACTION <> 'D'))""" % (
-                                self.update_table.table, self.geometry_column,
-                                self.table, self.basetable))
-        # finish up
-        self.finish_update()
+            if self.change is None:
+                conn.execute(delsql)
+            else:
+                conn.execute(
+                  self.insert_changes(
+                      select([column('id'), text("'D'")],
+                       from_obj(text(str(delsql.returning(self.id_column)))))
+                  )
+                )
 
- 
-    def insert_objects(self, wherequery):
+            # reinsert those that are not deleted
+            self.insert_objects(engine, self.src.select_updated(self.subset))
+
+            # mark newly added objects
+            if self.change is not None:
+                conn.execute(self.insert_changes(
+                              select([self.id_column, text("'A'")]).where(
+                                  self.id_column.in_(self.src.select_add_modify())))
+                            )
+
+    def insert_objects(self, conn, selection):
         # the worker threads
-        workers = self.create_worker_queue(self._process_next)
+        workers = self.create_worker_queue(conn, self._process_next)
 
-        cur = self.db.select("SELECT id, tags FROM %ss %s" 
-                         % (self.basetable, wherequery))
-        for obj in cur:
-            workers.add_task(obj)
+        res = conn.execution_options(stream_results=True).execute(selection)
+        for obj in res:
+            workers.add_task(res)
 
         workers.finish()
 
@@ -115,7 +94,7 @@ class OsmosisSubTable(PGTable):
 
         if tags is not None:
             tags['id'] = obj['id']
-            self.insert_values(tags, self.thread.cursor)
+            self.thread.conn.execute(self.table.insert().values(tags))
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
@@ -134,18 +113,3 @@ class OsmosisSubTable(PGTable):
             are thread-safe.
         """
         return {}
-
-    def init_update(self):
-        """ This funtion is called before the construction of update of the
-            table is started. By default, it doesn't do anything but it can
-            be overwritten to do initialisation of datastructures or the
-            database (e.g. prepare queries).
-        """
-        pass
-
-    def finish_update(self):
-        """ The counterpart of init_update() is called after the data has been
-            written to the table (but before any commit()). Overwrite it to do
-            something useful.
-        """
-        pass

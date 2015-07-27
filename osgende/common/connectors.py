@@ -18,7 +18,7 @@
 Various classes that provide connections between processed tables.
 """
 
-from sqlalchemy import String, Table, Column
+from sqlalchemy import String, Table, Column, select, and_
 
 class TableSource:
     """ Describes a source for another table.
@@ -49,3 +49,57 @@ class TableSource:
                                )
         else:
             self.change = change_table
+
+    def change_id_column(self):
+        return self.change.c[self.id_column.name]
+
+    def insert_changes(self, selstm):
+        """ Return Insert statement for adding rows into the change table.
+            The changes are derived from an SQL select() statement.
+        """
+        return self.change.insert().from_select([self.change], selstm)
+
+    def select_all(self, subset=None):
+        """ Return an SQLAlchemy select statement which will return all
+            data or the part restricted by `subset` which must be a WhereClause.
+        """
+        stm = self.data.select()
+        if subset is not None:
+            stm = stm.where(subset)
+
+        return stm
+
+    def select_updated(self, subset=None):
+        """Return an SQLAlchemy select() with all data lines that have been
+           added or modified and potentially match the subset.
+        """
+        if self.change is None:
+           return self.select_all(subset)
+
+        where = self.id_column.in_(self.select_add_modify())
+        if subset is not None:
+            where = _and(subset, where)
+
+        return self.data.select().where(where)
+
+    def select_modify_delete(self):
+        """ Return am SQLAlchemy where clause describing all objects which
+            have either been modified or deleted. If no change table exists
+            all objects are returned.
+        """
+        if self.change is None:
+            return select([self.id_column])
+
+        return select([self.change_id_column()])
+                      .where(self.change.c.action != text("'A'"))
+
+    def select_add_modify(self):
+        """ Return am SQLAlchemy where clause describing all objects which
+            have either been added or modified. If no change table exists
+            all objects are returned.
+        """
+        if self.change is None:
+            return select([self.id_column])
+
+        return select([self.change_id_column()])
+                      .where(self.change.c.action != text("'D'"))

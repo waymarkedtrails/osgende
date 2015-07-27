@@ -1,5 +1,5 @@
 # This file is part of Osgende
-# Copyright (C) 2010-11 Sarah Hoffmann
+# Copyright (C) 2015 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -65,22 +65,17 @@ class WorkerQueue:
     def add_task(self, data):
         """Add an item to be processed to the queue.
         """
-        try:
-            while True:
-                try:
-                    self.queue.put(data, True, 2)
-                    break
-                except queue.Full:
-                    # check that all our threads are still alive
-                    for w in self.workers:
-                        if not w.is_alive():
-                            print("Internal error. Thread died. Killing other threads.")
-                            self.finish(True)
-                            raise Exception("Internal error. Thread died.")
-        except KeyboardInterrupt:
-            print("User requested abort. Cleaning up...")
-            self.finish(True)
-            raise(SystemExit, "Ctrl-C detected, exiting...")
+        while True:
+            try:
+                self.queue.put(data, True, 2)
+                break
+            except queue.Full:
+                # check that all our threads are still alive
+                for w in self.workers:
+                    if not w.is_alive():
+                        print("Internal error. Thread died. Killing other threads.")
+                        self.finish(True)
+                        raise Exception("Internal error. Thread died.")
 
 
 
@@ -121,6 +116,7 @@ class WorkerQueue:
         for i in range(self.numthreads):
             worker = _WorkerThread(self.queue, process_func, initfunc, shutdownfunc)
             worker_thread = threading.Thread(target=worker.loop)
+            worker_thread.daemon = True
             worker_thread.start()
             self.workers.append(worker_thread)
 
