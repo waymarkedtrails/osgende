@@ -30,10 +30,10 @@ class MapDB:
 
            * '''nodestore''' - filename of the location for the the node store.
            * '''schema''' - schema associated with this DB. The only effect this
-             currently has is that the create action will attempt to craete the
+             currently has is that the create action will attempt to create the
              schema.
            * '''ro_user''' - read-only user to grant rights to for all tables. Only
-             used for create acion.
+             used for create action.
     """
 
     def __init__(self, dba, options=None):
@@ -48,7 +48,7 @@ class MapDB:
     def get_option(self, option):
         """Return the value of the given option or None if not set.
         """
-        return getattr(self.options, option) if hasattr(self.options, option) else None
+        return getattr(self.options, option, None)
 
     def create_tables(self):
         schema = self.get_option('schema')
