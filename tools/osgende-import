@@ -43,7 +43,7 @@ import sqlalchemy as sqla
 import sqlalchemy_utils as sqla_utils
 
 from osgende.common.nodestore import NodeStore
-from osgende.common.osm_tables import OsmSchema
+from osgende.osmdata import OsmSourceTables
 
 
 def mkdict(tags):
@@ -151,7 +151,7 @@ class OSMImporter(osmium.SimpleHandler):
                 raise RuntimeError("Database already exists.")
 
         self.metadata = sqla.MetaData()
-        self.tables = OsmSchema(self.metadata)
+        self.tables = OsmSourceTables(self.metadata)
         self.engine = sqla.create_engine(dburl, echo=options.verbose)
 
         if options.createdb:
