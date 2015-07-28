@@ -93,11 +93,11 @@ class DbWriter:
         self.conn = engine.connect()
         self.trans = self.conn.begin()
         if hasattr(table.c, 'id'):
-            self.update_func = table.update().where(table.c.id == sqla.bindparam('oid'))
-            self.delete_func = table.delete().where(table.c.id == sqla.bindparam('oid'))
+            self.update_func = table.update().where(table.c.id == sqla.bindparam('oid')).compile(engine)
+            self.delete_func = table.delete().where(table.c.id == sqla.bindparam('oid')).compile(engine)
         else:
-            self.update_func = table.insert()
-            self.delete_func = table.delete().where(table.c.relation_id == sqla.bindparam('oid'))
+            self.update_func = table.insert().compile(engine)
+            self.delete_func = table.delete().where(table.c.relation_id == sqla.bindparam('oid')).compile(engine)
         columns = [ str(c.name) for c in table.columns ]
         self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n'
 
@@ -230,7 +230,7 @@ class OSMImporter(osmium.SimpleHandler):
                 if len(node.tags) == 0:
                     self.data.node.delete(node.id)
                     return
-            if self.data.node.update(oid=node.id, tags=mkdict(node.tags), geom=geom):
+            if self.data.node.update(id=node.id, oid=node.id, tags=mkdict(node.tags), geom=geom):
                 return
 
             self.data.node.write(id=node.id, tags=tagstr, geom=geom)
@@ -247,7 +247,7 @@ class OSMImporter(osmium.SimpleHandler):
             self.data.way.delete(way.id)
         else:
             nodes = [int(x.ref) for x in way.nodes]
-            if self.data.way.update(oid=way.id, tags=mkdict(way.tags), nodes=nodes):
+            if self.data.way.update(id=way.id, oid=way.id, tags=mkdict(way.tags), nodes=nodes):
                 return
 
             nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
@@ -267,21 +267,21 @@ class OSMImporter(osmium.SimpleHandler):
 
     def relation_change(self, rel):
         self.change.relation.write(id=rel.id, action=obj2action(rel))
-        self.data.member.delete(rel.id)
+        self.member.delete(rel.id)
 
         if rel.deleted:
             self.data.relation.delete(rel.id)
         else:
             seq = 1
             for m in rel.members:
-                self.data.member.update(relation_id=rel.id,
+                self.member.update(relation_id=rel.id,
                                                member_id=m.ref,
                                                member_type=m.type.upper(),
                                                member_role=m.role,
                                                sequence_id=seq)
                 seq += 1
 
-            if self.data.relation.update(oid=rel.id, tags=mkdict(rel.tags)):
+            if self.data.relation.update(id=rel.id, oid=rel.id, tags=mkdict(rel.tags)):
                 return
 
             self.data.relation.write(id=rel.id,
