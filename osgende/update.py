@@ -33,14 +33,16 @@ class UpdatedGeometriesTable(object):
     def __init__(self, meta, name, srid=None):
         if srid is None:
             srid = meta.info.get('srid', 8357)
-        self.table = Table(name, meta,
+        self.data = Table(name, meta,
                            Column('action', String(1)),
                            Column('geom', Geometry('GEOMETRY', srid=srid)))
-        self.add_query = self.table.insert()
+        self.stm_add = self.data.insert().compile()
 
     def clear(self, conn):
-        conn.execute(table.delete())
+        conn.execute(seld.data.delete())
 
     def add(self, conn, geom, action='M'):
-        conn.execute(self.add_query.values(geom=geom, action=action))
+        conn.execute(self.stm_add, { 'geom' : geom, 'action' : action})
 
+    def add_from_select(self.conn, stm):
+        conn.execute(self.table.insert().from_select(self.table.c, stm))

@@ -18,7 +18,7 @@
 Tables for nodes
 """
 
-from osgende import TagSubTable
+from osgende.subtable import TagSubTable
 from osgende.tags import TagStore
 from geoalchemy2 import Geometry
 from sqlalchemy import Column
@@ -31,7 +31,7 @@ class NodeSubTable(TagSubTable):
     """
 
     def __init__(self, meta, name, source, subset=None, change=None,
-                 column_geom='geom'):
+                 column_geom='geom', geomchange=None):
         TagSubTable.__init__(self, meta, name, source, subset=subset,
                              change=change)
         # need a geometry column
@@ -53,12 +53,29 @@ class NodeSubTable(TagSubTable):
                     params[c.name] = bindparam(c.name)
             self.stm_insert = self.stm_insert.values(params)
 
+        # the table to remember geometry changes
+        self.geom_change = geomchange
+
+    def update(self, engine):
+        if self.geom_change:
+            self.geom_change.add_from_select(
+               select([text("'D'"), self.column_geom])
+                .where(self.column_id.in_(self.src.select_delete()))
+            )
+
+        TagSubTable.update(self, engine)
+
+        if self.geom_change:
+            self.geom_change.add_from_select(
+               select([text("'M'"), self.column_geom])
+                .where(self.column_id.in_(self.src.select_add_modify()))
+
 
     def _process_next(self, obj):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            tags['id'] = obj['id']
+            tags[self.column_id.name] = obj['id']
             tags[self.column_geom.name] = obj['geom']
             self.thread.conn.execute(self.compiled_insert, tags)
 

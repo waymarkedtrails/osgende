@@ -1,5 +1,5 @@
 # This file is part of Osgende
-# Copyright (C) 2010-11 Sarah Hoffmann
+# Copyright (C) 2010-15 Sarah Hoffmann
 #               2012-13 Michael Spreng
 #
 # This is free software; you can redistribute it and/or
@@ -19,62 +19,70 @@
 Tables for ways
 """
 
-from osgende.subtable import OsmosisSubTable
+from osgende.subtable import TagSubTable
 from osgende.tags import TagStore
 import shapely.geometry as sgeom
+from geoalchemy2.shape import from_shape
 
 class Ways(OsmosisSubTable):
     """Most basic table type to construct a simple derived table from
        the ways table. The extension to OsmosisSubTable is that
        it constructs the geometry of the way.
-       Use 'geom' to state the name of the column that should contain
-       the geometry.
     """
 
-    # Name of predefined columns
-    column_geom = 'geom'
-    srid = '3857'
+    def __init__(self, meta, name, subset=None, change=None,
+                 column_geom='geom', geom_change=None, nodestore=None):
+        TagSubTable.__init__(self, meta, name, source, subset=subset,
+                             change=change)
+        # need a geometry column
+        if isinstance(column_geom, Column):
+            self.column_geom = column_geom
+        else:
+            self.column_geom = Column(column_geom,
+                                      Geometry('GEOMETRY', srid=4326))
+        self.data.append_column(self.column_geom)
+        self.nodestore = nodestore
 
+        # add an additional transform to the insert statement if the srid changes
+        if source.data.c.geom.type.srid != self.column_geom.type.srid:
+            params = {}
+            for c in self.data.c:
+                if c == self.column_geom:
+                    params[c.name] = func.st_transform(bindparam(c.name),
+                                                       self.column_geom.type.srid)
+                else:
+                    params[c.name] = bindparam(c.name)
+            self.stm_insert = self.stm_insert.values(params)
 
-    def __init__(self, db, name, subset, uptable = None):
-        OsmosisSubTable.__init__(self, db, 'way', name, subset, uptable = uptable)
+    def update(self, engine):
+        if self.geom_change:
+            self.geom_change.add_from_select(
+               select([text("'D'"), self.column_geom])
+                .where(self.column_id.in_(self.src.select_delete()))
+            )
 
-    def layout(self, columns):
-        """ Layout the table as specified in PGTable.layout() but
-            it will add a column for the OSM id. The name of the column
-            is specified in 'column_id'.
-        """
-        OsmosisSubTable.layout(self, columns)
-        self.add_geometry_column(self.column_geom, self.srid,
-                                 'GEOMETRY', with_index=True)
+        TagSubTable.update(self, engine)
+
+        if self.geom_change:
+            self.geom_change.add_from_select(
+               select([text("'M'"), self.column_geom])
+                .where(self.column_id.in_(self.src.select_add_modify()))
+
 
     def _process_next(self, obj):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            points = []
-            prevpoints = (0,0)
-            cur = self.thread.cursor
+            points = [ x for x in self.nodestore[n] for n in obj['nodes'] if n in self.nodestore ]
 
-            way=self.db.select_one("SELECT nodes FROM ways WHERE id = %s", (obj['id'],), cur=cur)
-
-            for n in way:
-                res = self.db.get_nodegeom(n, cur)
-                if res is not None:
-                    pnt = (res.x, res.y)
-                    if pnt == prevpoints:
-                        points.append((res.x+0.00000001, res.y))
-                    else:
-                        points.append(pnt)
-                    prevpoints = pnt
+            prev = None
+            for p in points:
+                if p == prev:
+                    p.x += 0.00000001
+                prev = p
 
             # ignore ways where the node geometries are missing
             if len(points) > 1:
-                geom = sgeom.LineString(points)
-                geom._crs = 4326
-                query = ("INSERT INTO %s (%s, %s, %s) VALUES (%s, %s, %s)" % 
-                            (self.table, self.column_id, self.column_geom,
-                             ','.join(tags.keys()), obj['id'], "ST_Transform(%%s, %s)" % (self.srid),
-                             ','.join(['%s' for i in range(len(tags))])))
-                params = [geom] + tags.values()
-                self.thread.cursor.execute(query, params)
+                tags[self.column_id.name] = obj['id']
+                tags[self.column_geom.name] = from_shape(sgeom.LineString(points), srid=4326)
+                self.thread.conn.execute(self.compiled_insert, tags)
