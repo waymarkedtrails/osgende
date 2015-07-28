@@ -90,7 +90,7 @@ class TableSource:
         if self.change is None:
             return select([self.id_column])
 
-        return select([self.change_id_column()])
+        return select([self.change_id_column()])\
                       .where(self.change.c.action != text("'A'"))
 
     def select_add_modify(self):
@@ -101,5 +101,5 @@ class TableSource:
         if self.change is None:
             return select([self.id_column])
 
-        return select([self.change_id_column()])
-                      .where(self.change.c.action != text("'D'"))
+        return (select([self.change_id_column()])
+                      .where(self.change.c.action != text("'D'")))
