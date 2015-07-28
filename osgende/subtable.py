@@ -24,9 +24,9 @@ from osgende.tags import TagStore
 from osgende.common.connectors import TableSource
 from osgende.common.threads import ThreadableDBObject
 
-class OsmosisSubTable(ThreadableDBObject, TableSource):
+class TagSubTable(ThreadableDBObject, TableSource):
     """Most basic table type to construct simple derived table from
-       the nodes, ways or relations table.
+       a table source with an id and a tag hstore.
 
        'datatable' specifies the Osmosis table to use as basis.
     """
@@ -41,6 +41,8 @@ class OsmosisSubTable(ThreadableDBObject, TableSource):
 
         self.subset = subset
         self.src = source
+
+        self.stm_insert = self.data.insert()
 
     def truncate(self, conn):
         conn.execute(self.data.delete())
@@ -62,6 +64,7 @@ class OsmosisSubTable(ThreadableDBObject, TableSource):
             if self.change is None:
                 conn.execute(delsql)
             else:
+                conn.execute(self.change.delete())
                 conn.execute(
                   self.insert_changes(
                       select([column('id'), text("'D'")],
@@ -80,6 +83,7 @@ class OsmosisSubTable(ThreadableDBObject, TableSource):
                             )
 
     def insert_objects(self, conn, selection):
+        self.compiled_insert = self.stm_insert.compile(conn)
         # the worker threads
         workers = self.create_worker_queue(conn, self._process_next)
 
@@ -94,7 +98,7 @@ class OsmosisSubTable(ThreadableDBObject, TableSource):
 
         if tags is not None:
             tags['id'] = obj['id']
-            self.thread.conn.execute(self.table.insert().values(tags))
+            self.thread.conn.execute(self.compiled_insert, tags)
 
     def transform_tags(self, osmid, tags):
         """ Transform OSM tags into database table columns.
