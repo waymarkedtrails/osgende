@@ -16,5 +16,4 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from .hierarchy import RelationHierarchy
-from .polygons import RelationPolygons
 from .segments import RelationSegments, RelationSegmentRoutes

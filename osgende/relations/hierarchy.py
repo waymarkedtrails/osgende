@@ -15,9 +15,10 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+from sqlalchemy import Table, Column, BigInteger, Integer, select
 from osgende.common.postgisconn import PGTable
 
-class RelationHierarchy(PGTable):
+class RelationHierarchy(object):
     """Table describing the relation hierarchies of the OSM relations table.
 
        'subset' can be used to limit the relations taken into account.
@@ -27,51 +28,54 @@ class RelationHierarchy(PGTable):
        is given all relations given in the subset will appear.
     """
 
-    def __init__(self, db, name="relations_hier", subset=None):
-        PGTable.__init__(self, db, name)
+    def __init__(self, meta, name, osmdata, subset=None):
+
+        self.data = Table(name, meta,
+                          Column('parent', BigInteger),
+                          Column('child', BigInteger),
+                          Column('depth', Integer)
+                         )
+
+        m = osmdata.member.data
+        prev = self.data.alias()
+        self._stm_step = select([self.data.c.parent, m.member_id, bindparam('depth')])\
+                          .where(self.data.c.depth == bindparam('depth') - 1)\
+                          .where(self.data.c.child == m.c.relation_id)\
+                          .where(m.c.member_type == 'R')
+                          .where(not_(exists().where(prev.c.parent == self.data.c.parent)
+                                              .where(prev.child = m.c.member_id)))
 
         if subset is None:
-            self._subset = """SELECT DISTINCT relation_id 
-                              FROM relation_members
-                              WHERE relation_type = 'R'"""
+            self._stm_base = select([m.c.relation_id, m.c.relation_id, 1])\
+                              .distinct()\
+                              .where(osmdata.member.data.c.relation_type == 'R')
+
         else:
-            self._subset = subset
+            self._stm_base = select([column('id'), column('id'), text('1')],
+                                    from_obj(subset))
+            self._stm_step = self._stm_step.where(m.c.member_id.in_(subset))
 
-    def create(self):
-        """(Re)create a new, empty hierarchy table.
-        """
-        self.layout((
-                    ('parent', 'bigint'),
-                    ('child',  'bigint'),
-                    ('depth',  'int')
-                   ))
+    def truncate(self, conn):
+        conn.execute(self.data.delete())
 
-    def construct(self):
+    def construct(self, engine):
         """Fill the table from the current relation table.
         """
-        self.truncate()
-        # compute top-level relations
-        self.db.query("""INSERT INTO %s
-                          SELECT id as parent, id as child, 1 as depth
-                            FROM (%s) as s""" % (self.table, self._subset))
+        with engine.begin() as conn:
+            self.truncate()
+            # compute top-level relations
+            conn.execute(self.data.insert().from_select(self.data.c,
+                                                        self._stm_base))
 
         # recurse till there are no more children
+        stm = self.data.insert().from_select(self.data.c,
+                                             self._stm_step).compile(engine)
         depth = 1
-        todo = True
-        while todo and depth < 10:
+        res = 1
+        while res > 0 and depth < 10:
             # then go through the recursive parts
             print("Recursion",depth)
-            res = self.db.select_one("""INSERT INTO %s
-                            SELECT h.parent, m.member_id, %s 
-                            FROM relation_members m, %s h 
-                            WHERE h.depth=%s 
-                                  and h.child=m.relation_id 
-                                  and m.member_type='R' 
-                                  and m.member_id IN (%s)
-                                  and not exists (select * from %s u where u.parent = h.parent and u.child = m.member_id)
-                            RETURNING parent
-                            """ % (self.table, depth+1, self.table, depth, self._subset, self.table))
-            todo = (res is not None)
+            res = conn.scalar(stm, { 'depth' : depth })
             depth += 1
 
     def update(self):
