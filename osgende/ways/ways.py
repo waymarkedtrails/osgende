@@ -19,6 +19,8 @@
 Tables for ways
 """
 
+from sqlalchemy import Column
+from geoalchemy2 import Geometry
 from osgende.subtable import TagSubTable
 from osgende.tags import TagStore
 import shapely.geometry as sgeom
@@ -30,9 +32,9 @@ class Ways(OsmosisSubTable):
        it constructs the geometry of the way.
     """
 
-    def __init__(self, meta, name, subset=None, change=None,
-                 column_geom='geom', geom_change=None, nodestore=None):
-        TagSubTable.__init__(self, meta, name, source, subset=subset,
+    def __init__(self, meta, name, osmtables, subset=None, change=None,
+                 column_geom='geom', geom_change=None):
+        TagSubTable.__init__(self, meta, name, osmtables.way, subset=subset,
                              change=change)
         # need a geometry column
         if isinstance(column_geom, Column):
@@ -41,7 +43,8 @@ class Ways(OsmosisSubTable):
             self.column_geom = Column(column_geom,
                                       Geometry('GEOMETRY', srid=4326))
         self.data.append_column(self.column_geom)
-        self.nodestore = nodestore
+        self.osmtables = osmtables
+        self.geom_change = geom_change
 
         # add an additional transform to the insert statement if the srid changes
         if source.data.c.geom.type.srid != self.column_geom.type.srid:
@@ -73,13 +76,7 @@ class Ways(OsmosisSubTable):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            points = [ x for x in self.nodestore[n] for n in obj['nodes'] if n in self.nodestore ]
-
-            prev = None
-            for p in points:
-                if p == prev:
-                    p.x += 0.00000001
-                prev = p
+            points = osmtables.get_points(obj['nodes'])
 
             # ignore ways where the node geometries are missing
             if len(points) > 1:

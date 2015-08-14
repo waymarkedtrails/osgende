@@ -1,5 +1,5 @@
 # This file is part of Osgende
-# Copyright (C) 2010-11 Sarah Hoffmann
+# Copyright (C) 2015 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -15,16 +15,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+from sqlalchemy import Table, Column, BigInteger, select, Index, or_
+from sqlalchemy.dialects.postgresql import ARRAY
+from geoalchemy2 import Geometry
+from osgende.common.sqlalchemy import CreateTableAs
 from sys import version_info as python_version
 import threading
-from osgende.common.postgisconn import PGTable, PGDatabase
 from osgende.common.geom import FusableWay
-from osgende.subtable import OsmosisSubTable
+from osgende.subtable import TagSubTable
 import osgende.common.threads as othreads
 import shapely.geometry as sgeom
 from datetime import datetime as dt
 
-class RelationSegments(PGTable):
+class RelationSegments(ThreadableDBObject):
     """ Builds a routable network out of OSM route relations.
 
         Segments are the basic way system of the network.
@@ -38,44 +41,26 @@ class RelationSegments(PGTable):
         changes a country due to movement of a boundary, this will go undetected.
     """
 
-    srid = '8357'
-
-    def __init__(self, db, name, subset, country_table=None, country_column='code', uptable=None):
-        PGTable.__init__(self, db, name)
+    def __init__(self, meta, name, osmtables,
+                 subset=None, srid=8357, geom_change=None):
         self.subset = subset
         self.country_table = country_table
         self.country_column = country_column
-        self.update_table = uptable
+        self.geom_change = geom
+        self.osmtables = osmtables
 
-    def create(self, with_geom_index=True):
-        columns = [
-                ("id",     "bigserial PRIMARY KEY"),
-                ("nodes",  "bigint[]"),
-                ("ways",   "bigint[]"),
-                ("rels",   "bigint[]")
-                ]
+        self.data = Table(name, meta,
+                          Column('id', BigInteger, primary_key=True),
+                          Column('nodes', ARRAY(BigInteger)),
+                          Column('ways', ARRAY(BigInteger)),
+                          Column('rels', ARRAY(BigInteger)),
+                          Column('geom', Geometry('LINESTRING', srid=srid))
+                         )
 
-        if self.country_table is not None:
-            coltype = self.country_table.get_column_type(self.country_column)
-            if coltype is None:
-                raise Exception("column in country table not found")
-            columns.append(("country", coltype))
-
-        self.layout(columns)
-        self.add_geometry_column("geom", self.srid, 'LINESTRING', with_index=with_geom_index)
+    def truncate(self, engine):
+        engine.execute(self.data.delete())
 
     def _prepare_db(self):
-        self.db.prepare("osg_get_ways(bigint)",
-                 """SELECT member_id FROM relation_members
-                            WHERE member_type = 'W' AND relation_id = $1""")
-        self.db.prepare("osg_get_way_nodes(bigint)",
-                "SELECT nodes FROM ways WHERE id = $1")
-        self.db.prepare("osg_get_way_rels(bigint)",
-                """SELECT relation_id, member_role
-                              FROM relation_members
-                              WHERE member_type = 'W'
-                                AND member_id = $1
-                              ORDER BY relation_id""")
         if self.country_table is None:
             # table without a country column
             self.db.prepare("osg_insert_segment(bigint[], bigint[], bigint[], geometry)",
@@ -90,100 +75,105 @@ class RelationSegments(PGTable):
 
 
     def _cleanup_db(self):
-        self.db.deallocate("osg_get_ways")
-        self.db.deallocate("osg_get_way_nodes")
-        self.db.deallocate("osg_get_way_rels")
         self.db.deallocate("osg_insert_segment")
 
-    def construct(self):
+    def _compute_first(self, conn):
+        self.first_new_id = conn.scalar(select([func.max(self.data.c.id)])) + 1
+
+    def construct(self, engine):
         """Collect all segments.
         """
-        self._prepare_db()
-        self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
-        self.truncate()
-        wayproc = _WayCollector(self, self.country_table, self.country_column,
-                                self.subset, creation_mode=True,
-                                numthreads=self.numthreads)
+        t = self.osmtables.members.data
+        stm_get_ways = select([t.c.member_id])\
+                         .where(t.c.member_type == 'W')\
+                         .where(t.c.relation_id == bindparam('id'))\
+                         .compile(engine)
+        with engine.begin() as conn:
+            self._compute_first(conn)
+            self.truncate(conn)
 
-        sortedrels = list(wayproc.relations)
-        sortedrels.sort()
-        for rel in sortedrels:
-            print(dt.now(), "Processing relation",rel)
-            ways = self.db.select_column("""EXECUTE osg_get_ways(%s)""", (rel,))
-            if ways:
+            # drop indexes if any
+            relidx = Index("%s_rels_idx" % (self.data.name),
+                           self.data.c.rels, postgresql_using='gin')
+            wayidx = Index("%s_ways_idx" % (self.data.name),
+                           self.data.c.ways, postgresql_using='gin')
+            relidx.drop(conn)
+            wayidx.drop(conn)
+
+            wayproc = _WayCollector(self, engine, creation_mode=True)
+
+            sortedrels = list(wayproc.relations)
+            sortedrels.sort()
+            for rel in sortedrels:
+                print(dt.now(), "Processing relation",rel)
+                ways = conn.execute(stm_get_ways, { 'id' : rel })
                 for w in ways:
                     wayproc.add_way(w)
 
                 # Put the ways collected so far into segments
                 wayproc.process_segments()
 
-        wayproc.finish()
-        self._cleanup_db()
+            wayproc.finish()
 
-        # finally prepare indices to speed up update
-        self.db.query("DROP INDEX IF EXISTS %s_rels_idx" % (self.table))
-        self.db.query("DROP INDEX IF EXISTS %s_ways_idx" % (self.table))
-        self.db.query("CREATE INDEX %s_rels_idx on %s USING gin (rels)"
-                    % (self._table.table, self.table))
-        self.db.query("CREATE INDEX %s_ways_idx on %s USING gin (ways)"
-                    % (self._table.table, self.table))
+            # finally prepare indices to speed up update
+            relidx.create(conn)
+            wayidx.create(conn)
 
 
-
-
-    def update(self):
+    def update(self, engine):
         """Update changed segments.
         """
-        self._prepare_db()
-        self.first_new_id = self.db.select_one("""SELECT last_value FROM %s_id_seq""" % (self.table)) + 1
-        wayproc = _WayCollector(self, self.country_table,
-                                self.country_column, self.subset,
-                                precompute_intersections=False, numthreads=self.numthreads)
+        self._compute_first(conn)
+        wayproc = _WayCollector(self, engine, precompute_intersections=False)
         # print("Valid relations:", wayproc.relations)
 
-        print(dt.now(), "Collecting changed and new ways")
-        self.db.query("""CREATE TEMP TABLE temp_updated_ways AS
-                      (SELECT id, nodes FROM ways
-                         WHERE id = ANY(ARRAY
-                         (SELECT member_id
-                             FROM relation_members rm, relations r
-                            WHERE r.id = rm.relation_id
-                              AND rm.member_type = 'W'
-                              AND %s
-                              AND (relation_id IN (SELECT id FROM relation_changeset
-                                                WHERE action != 'D')
-                               OR member_id IN (SELECT id FROM way_changeset
-                                              WHERE action = 'M'))
-                          ))
-                      )""" % (self.subset))
-        print(dt.now(), "Adding those ways to changeset")
-        cur = self.db.select_cursor("SELECT id, nodes FROM temp_updated_ways")
-        for c in cur:
-            wayproc.add_way(c[0], c[1])
+        with engine.begin() as conn:
+            print(dt.now(), "Collecting changed and new ways")
+            wt = self.osmtables.way.data
+            mt = self.osmtables.member.data
+            rt = self.osmtables.relation.data
+            sel = select([wt.c.id, wt.c.nodes]).where(wt.c.id.in_(
+                        select([mt.c.member_id])
+                          .where(rt.c.id = mt.c.relation_id)
+                          .where(mt.c.member_type == 'W')
+                          .where(self.subquery)
+                          .where(or_(mt.c.relation_id.in_(
+                                     self.osmtables.relation.select_add_modify()),
+                                     mt.c.member_id.in_(
+                                     self.osmtables.way.select_modify())))
+                  ))
+            conn.execute(CreateTableAs('temp_updated_ways', sel))
+            temp_ways = Table('temp_updated_ways', meta, autoload_with=conn)
 
+            print(dt.now(), "Adding those ways to changeset")
+            res = conn.execute(temp_wats.select())
+            for c in res:
+                wayproc.add_way(res['id'], res['nodes'])
 
-        print(dt.now(), "Collecting points effected by update")
-        # collect all nodes that are affected by the update:
-        #  1. nodes in segments whose relation or ways have changed
-        #  2. nodes in added or changed ways
-        #  3. nodes that have been moved
-        self.db.query("""CREATE TEMP TABLE temp_updated_nodes AS
-            ((SELECT unnest(ARRAY[nodes[1],nodes[array_length(nodes,1)]]) as id FROM %s
-              WHERE ways && ARRAY(SELECT id FROM way_changeset)
-                 OR rels && ARRAY(SELECT id FROM relation_changeset)
-             )
-            UNION
-            (SELECT unnest(nodes) as id FROM temp_updated_ways)
-            UNION
-             (SELECT id FROM node_changeset WHERE action = 'M')
-            )
-            """ % (self.table))
+            print(dt.now(), "Collecting points effected by update")
+            # collect all nodes that are affected by the update:
+            #  1. nodes in segments whose relation or ways have changed
+            #  2. nodes in added or changed ways
+            #  3. nodes that have been moved
+            sel = union([
+                    select(['unnest(ARRAY[nodes[1],nodes[array_length(nodes,1)]])'])\
+                      .where(or_(
+                          self.data.c.ways.op('&&')(func.ARRAY(select([self.osmtables.way.c.id]))),
+                          self.data.c.rels.op('&&')(func.ARRAY(select([self.osmtables.relation.c.id])))
+                             )),
+                    select([func.unnest(temp_ways.c.nodes)]),
+                    self.osmtables.node.select_modify()
+                  ])
+            conn.execute(CreateTableAs('temp_updated_nodes', sel))
+            temp_nodes = Table('temp_updated_nodes', meta, autoload_with=conn)
 
-        #print("Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes"))
+            # print("Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes"))
 
-        # create a temporary function that scans our temporary
-        # node table. This is hopefully faster than a full cross scan.
-        self.db.query("""CREATE OR REPLACE FUNCTION temp_updated_nodes_find(a ANYARRAY) RETURNS bool AS
+            # create a temporary function that scans our temporary
+            # node table. This is hopefully faster than a full cross scan.
+            conn.execute("""
+                  CREATE OR REPLACE FUNCTION temp_updated_nodes_find(a ANYARRAY)
+                  RETURNS bool AS
                       $$
                         DECLARE
                           ele bigint;
@@ -198,34 +188,36 @@ class RelationSegments(PGTable):
                         LANGUAGE plpgsql;
                        CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id);
                    """)
-        # throw out all segments that have one of these points
-        print(dt.now(), "Segments with bad intersections...")
-        cur = self.db.select_cursor("""DELETE FROM %s
-                                    WHERE temp_updated_nodes_find(nodes)
-                                    RETURNING ways, geom""" % (self.table))
-        for c in cur:
-            for w in c[0]:
-                #print(w)
-                wayproc.add_way(w)
-            if self.update_table is not None:
-                self.update_table.add(c[1], 'D')
+            # throw out all segments that have one of these points
+            print(dt.now(), "Segments with bad intersections...")
+            ret = [self.data.c.ways]
+            if self.geom_change is not None:
+                ret.append(self.data.c.geom)
+            res = conn.execute(self.data.delete()
+                                 .where("temp_updated_nodes_find(nodes)")
+                                 .returning(ret))
+            for c in res:
+                for w in c['ways']:
+                    #print(w)
+                    wayproc.add_way(w)
+                if self.geom_change is not None:
+                    self.geom_change.add(c['geom'], 'D')
 
-        self.db.query("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
+            conn.execute("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
-        # done, add the result back to the table
-        print(dt.now(), "Processing segments")
-        wayproc.process_segments()
-        wayproc.finish()
+            # done, add the result back to the table
+            print(dt.now(), "Processing segments")
+            wayproc.process_segments()
+            wayproc.finish()
 
-        # add all newly created segments to the update table
-        if self.update_table is not None:
-            self.db.query("""INSERT INTO %s (action,geom)
-                      SELECT 'C', geom FROM %s WHERE id >= %%s"""
-                     % (self.update_table.table, self.table), (self.first_new_id, ))
-        self._cleanup_db()
+            # add all newly created segments to the update table
+            if self.geom_change is not None:
+                self.geom_change.add_from_select(
+                      select([ text("'M'"), self.data.c.geom])
+                        .where(self.data.c.id >= self.first_new_id))
 
 
-class _WayCollector:
+class _WayCollector(ThreadableDBObject):
     """Collects a bunch of fusable ways and orders them by
        relation they belong to. If the collector is in creation
        mode, it will do some optimations with respect to remembering
@@ -234,29 +226,23 @@ class _WayCollector:
        of multiple relations.
     """
 
-    def __init__(self, table, cntrytab, cntrycol, subset,
+    def __init__(self, parent, engine,
                   creation_mode=False, precompute_intersections=True,
                   numthreads=0):
-        self.table = table.table
-        self.db = table.db
-        self.subset = subset
-        if cntrytab is None:
-            self._write_segment = self._write_segment_without_country
-        else:
-            self._write_segment = self._write_segment_with_country
-            self.country_table = cntrytab.table
-            self.country_column = cntrycol
+        self.src = parent
         self.not_creation_mode = not creation_mode
         self.intersections_from_ways = not precompute_intersections
         self._get_intersections()
 
         # Next get the set of relevant relations
-        self.relations = self.db.select_column(
-            "SELECT id FROM relations WHERE %s" % (subset))
+        r = self.src.osmtables.relation.data
+        self.relations = set()
+        res = self.engine.execute(select([r.c.id]).where(self.src.subset))
+        for r in res:
+            self.relations.add(r['id'])
 
         if self.relations is None:
             print("WARNING: no relevant relations found")
-            self.relations = set()
         else:
             self.relations = set(self.relations)
 
@@ -267,34 +253,19 @@ class _WayCollector:
         self.relgroups = {}
 
         # the worker threads
-        self.thread = threading.local()
-        self.workers = othreads.WorkerQueue(self._process_next, numthreads,
-                           self._init_worker_thread,
-                           self._shutdown_worker_thread)
+        create_worker_queue(engine, self._process_next)
 
-    def _init_worker_thread(self):
-        print("Initialising worker...")
-        self.thread.cursor = self.db.create_cursor()
-        if hasattr(self, 'country_table'):
-            self.thread.db_cursor = self.db.create_cursor()
-        else:
-            # create an addition DB connection for reading geometries
-            # Put in autocommit mode because we just read tables
-            # that are not supposed to change.
-            # Note that this can only be done if there is no country
-            # table because the country table may not have been
-            # committed yet.
-            self.thread.db = PGDatabase(self.db.conn.dsn)
-            self.thread.db.conn.set_isolation_level(0)
-            self.thread.db_cursor = self.thread.db.create_cursor()
+        # prepare the SQL we are going to need
+        m = self.src.osmtables.member.data
+        self._stm_way_rels = select([m.c.relation_id, m.c.member_role])\
+                               .where(m.c.member_type = 'W')\
+                               .where(m.c.rember_id = bindparam('id'))\
+                               .order_by(m.c.relation_id).compile(engine)
 
-    def _shutdown_worker_thread(self):
-        print("Shutting down worker...")
-        self.thread.cursor.close()
-        self.thread.db_cursor.close()
-        if not hasattr(self, 'country_table'):
-            self.thread.db.close()
-
+        w = self.src.osmtables.way.data
+        self._stm_way_nodes = select([w.c.nodes])\
+                                .where(w.c.id == bindparam('id'))
+                                .compile(engine)
 
     def add_way(self, way, nodes=None):
         """Add another OSM way according to its relations.
@@ -304,7 +275,7 @@ class _WayCollector:
 
 
         # Determine the set of relation/role pairs for each way
-        wcur = self.db.select_cursor("EXECUTE osg_get_way_rels(%s)", (way,))
+        wcur = self.conn.execute(self._stm_way_rels, { 'id' : way })
         membership = []
         for c in wcur:
             # print("Potential member",c)
@@ -321,7 +292,7 @@ class _WayCollector:
         membership = tuple(membership)
         # get the nodes
         if nodes is None:
-            nodes = self.db.select_one("EXECUTE osg_get_way_nodes(%s)", (way,))
+            nodes = self.conn.execute(self._stm_way_nodes, { 'id' : way })
 
         if nodes:
             # remove duplicated nodes if they immediately follow each other
@@ -395,91 +366,55 @@ class _WayCollector:
         # relevant relations it appears. Start and end nodes count only
         # half because we don't care about two ways meeting if they have
         # the same attributes.
-        c = self.db.select("""
-          SELECT nid
-          FROM (
-            SELECT nid, sum(w), count(*)
-            FROM (
-              SELECT nodes[i] as nid,
-                     (case when i = 1 or i = array_length(nodes,1) then 0.5
-                      else 1 end) as w
-              FROM (
-                  SELECT nodes, generate_subscripts(nodes, 1) as i
-                  FROM ways
-                  WHERE id IN
-                    (SELECT DISTINCT member_id
-                     FROM relation_members
-                     WHERE member_type = 'W'
-                       AND relation_id IN
-                             (SELECT id FROM relations WHERE %s)
-                    )
-              ) as nodelist
-            ) as weighted
-            GROUP BY nid
-          ) as total
-          WHERE sum > 1; """ % (self.subset))
+
+        w = self.src.osmtables.way.data
+        r = self.src.osmtables.relation.data
+        m = self.src.osmtables.member.data
+        # first find the ways that are part in any of the interesting relations
+        way_ids = select([m.c.member_id]).distinct()\
+                    .where(m.c.member_type == 'W')\
+                    .where(m.c.relation_id.in_(
+                                select([r.c.id]).where(self.src.subset)))
+        # create a list of nodes with their position in the way
+        nodelist = select([w.c.nodes,
+                           func.generate_subscripts(w.c.nodes, 2).label('i')])\
+                     .where(w.c.id.in_(way_ids)).alias("nodelist")
+
+        # weigh each node by position (front, middle, end)
+        wei = select([nodelist.c.nodes[nodelist.c.i].label('nid'),
+                     case([(or_(nodelist.c.i == 1,
+                                nodelist.c.i == func.array_length(nodelist.c.nodes, 1)),
+                            0.5)],
+                          else_ = 1).label('w')
+                     ]).alias('weighted')
+        # sum up the weights for each node
+        total = select([wei.c.nid.label('nid'), sum(wei.c.w).label('sum')])\
+                  .group_by(wei.c.nid).alias('total')
+
+        # anythinf with weight larger than 1 must be a real intersection
+        c = engine.execute(select([total.c.nid]).where(total.c.sum > 1))
 
         for ele in c:
             self.intersections.add(ele['nid'])
 
 
-
-    def _write_segment_with_country(self, way, relations):
-        points = []
-        # get the node geometries and the countries
-        prevpoints = (0,0)
-
-        # need an extra cursor for thread-safty reasons
-        cur = self.thread.cursor
-        for n in way.nodes:
-            res = self.db.get_nodegeom(n, cur)
-            if res is not None:
-                pnts = (res.x, res.y)
-                if pnts == prevpoints:
-                    points.append((res.x+0.00000001, res.y))
-                else:
-                    points.append(pnts)
-                prevpoints = pnts
-
-        # ignore ways where the node geometries are missing
-        if len(points) > 1:
-            line = sgeom.LineString(points)
-            line._crs = 4326
-
-            cur.execute("EXECUTE osg_insert_segment(%s, %s, %s, %s)",
-                                 (way.nodes, relations, way.ways, line))
-            #self.db.commit()
-        else:
-            print("Warning: empty way", way)
-
-
-
-    def _write_segment_without_country(self, way, relations):
-        points = []
+    def _write_segment(self, way, relations):
         # get the node geometries and the countries
         countries = {}
         prevpoints = (0,0)
 
-        # need an extra cursor for thread-safty reasons
-        cur = self.thread.db_cursor
-        for n in way.nodes:
-            res = self.db.get_nodegeom(n, cur)
-            if res is not None:
-                pnts = (res.x, res.y)
-                if pnts == prevpoints:
-                    points.append((res.x+0.00000001, res.y))
-                else:
-                    points.append(pnts)
-                prevpoints = pnts
+        points = self.src.osmtables.get_points(way.nodes)
 
         # ignore ways where the node geometries are missing
         if len(points) > 1:
             line = sgeom.LineString(points)
-            line._crs = 4326
 
-            self.thread.cursor.execute(
-                    "EXECUTE osg_insert_segment(%s, %s, %s, %s)",
-                         (way.nodes, relations, way.ways, line))
+            self.thread.conn.execute(self.src.data.insert(
+                 { 'nodes' : way.nodes, 
+                   'ways' : way.ways,
+                   'rels' : relations,
+                   'geom' : line })
+
             #self.db.commit()
         else:
             print("Warning: empty way", way)
@@ -554,7 +489,7 @@ class _SegmentCollector:
             self.add(w.ways[0], w.nodes)
 
 
-class RelationSegmentRoutes(OsmosisSubTable):
+class RelationSegmentRoutes(TagSubTable):
     """A relation collection class that gets updated according to
        the changes in a RelationSegment table. If an optional hierarchy
        table is provided, super relations will be updated as well.

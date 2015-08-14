@@ -105,6 +105,16 @@ class TableSource:
                       .where(self.change.c.action != text("'D'")))
 
 
+    def select_modify(self):
+        """ Return am SQLAlchemy where clause describing all objects which
+            have been deleted. If no change table exists
+            all objects are returned.
+        """
+        if self.change is None:
+            return select([self.id_column])
+
+        return (select([self.change_id_column()])
+                      .where(self.change.c.action == text("'M'")))
     def select_delete(self):
         """ Return am SQLAlchemy where clause describing all objects which
             have been deleted. If no change table exists

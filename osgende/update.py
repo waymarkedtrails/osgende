@@ -18,7 +18,7 @@
 Tables to trace updates
 """
 
-from sqlalchemy as Table, Column, String
+from sqlalchemy import Table, Column, String
 from geoalchemy2 import Geometry
 
 class UpdatedGeometriesTable(object):

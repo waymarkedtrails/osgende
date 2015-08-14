@@ -167,8 +167,6 @@ class ThreadableDBObject(object):
                              self._init_worker_thread,
                              self._shutdown_worker_thread)
 
-
-
     def _init_worker_thread(self):
         print("Initialising worker...")
         self.thread.conn = self.worker_engine.connect()

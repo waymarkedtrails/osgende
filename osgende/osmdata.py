@@ -24,7 +24,7 @@ class OsmSourceTables(object):
     """Collection of table sources that point to raw OSM data.
     """
 
-    def __init__(self, meta):
+    def __init__(self, meta, nodestore=None):
         # node table is special as we have a larger change table
         data = Table('nodes', meta,
                      Column('id', BigInteger),
@@ -60,5 +60,30 @@ class OsmSourceTables(object):
                     )
         self.member = TableSource(data, id_column=data.c.relation_id)
 
+        self.nodestore = nodestore
+        if nodestore is None:
+            self.get_points = self.__table_get_points
+        else:
+            self.get_points = __nodestore_get_points
+
     def __getitem__(self, key):
         return getattr(self, key)
+
+    def __nodestore_get_points(self, nodes):
+        ret = []
+        prev = None
+        for n in nodes:
+            if n is not None:
+                try:
+                    coord = self.nodestore[n]
+                    if coord == prev:
+                        coord.x +=0.00000001
+                    prev = coord
+                    ret.append(coord)
+                except KeyError:
+                    pass
+
+        return ret
+
+    def __table_get_points(self, nodes):
+        raise Error("Not implemented")

@@ -30,9 +30,9 @@ class NodeSubTable(TagSubTable):
        it also copies the geometry of the node to the table.
     """
 
-    def __init__(self, meta, name, source, subset=None, change=None,
+    def __init__(self, meta, name, osmtables, subset=None, change=None,
                  column_geom='geom', geomchange=None):
-        TagSubTable.__init__(self, meta, name, source, subset=subset,
+        TagSubTable.__init__(self, meta, name, osmtables.node, subset=subset,
                              change=change)
         # need a geometry column
         if isinstance(column_geom, Column):
