@@ -18,8 +18,17 @@
 File-backed storage for node geometries.
 """
 
-from shapely.geometry import Point
 from osmium import index, osm
+from binascii import hexlify
+from struct import pack
+from collections import namedtuple
+
+class NodeStorePoint(namedtuple('NodeStorePoint', ['x', 'y'])):
+
+    def wkb(self):
+        # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
+        return hexlify(pack("=biidd", 1, 0x20000001, 4326,
+                                   self.x, self.y)).decode()
 
 class NodeStore(object):
     """Provides a map like persistent storage for node geometries.
@@ -35,7 +44,7 @@ class NodeStore(object):
 
     def __getitem__(self, nodeid):
         loc = self.mapfile.get(nodeid)
-        return Point(loc.lon, loc.lat) 
+        return NodeStorePoint(loc.lon, loc.lat)
 
     def __setitem__(self, nodeid, value):
         self.mapfile.set(nodeid, osm.Location(value.x, value.y))
@@ -58,7 +67,7 @@ if __name__ == '__main__':
 
     print("Filling store...")
     for i in range(25500,26000):
-        store[i] = Point(1,i/1000.0)
+        store[i] = NodeStorePoint(1,i/1000.0)
 
     store.close()
     del store
@@ -77,7 +86,7 @@ if __name__ == '__main__':
 
     print("Filling store...")
     for i in range(100055500,100056000):
-        store[i] = Point(i/10000000.0,1)
+        store[i] = NodeStorePoint(i/10000000.0,1)
 
     store.close()
     del store

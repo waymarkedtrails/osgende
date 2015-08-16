@@ -18,12 +18,3 @@
 """ A collection of classes that provide general implementation of tables
     derived from the Osmosis pgsnapshot schema.
 """
-
-from . import mapdb
-from .subtable import OsmosisSubTable
-from .relations import RelationHierarchy, RelationPolygons, RelationSegments, RelationSegmentRoutes
-from .ways import Ways, JoinedWays
-from . import nodes
-from .update import UpdatedGeometriesTable
-from . import common
-from . import tags
