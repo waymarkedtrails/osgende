@@ -19,6 +19,7 @@ from sqlalchemy import Table, Column, Integer, BigInteger, String
 from sqlalchemy.dialects.postgresql import HSTORE, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.connectors import TableSource
+from osgende.common.nodestore import NodeStore
 
 class OsmSourceTables(object):
     """Collection of table sources that point to raw OSM data.
@@ -60,11 +61,15 @@ class OsmSourceTables(object):
                     )
         self.member = TableSource(data, id_column=data.c.relation_id)
 
-        self.nodestore = nodestore
         if nodestore is None:
             self.get_points = self.__table_get_points
+            self.nodestore = None
         else:
-            self.get_points = __nodestore_get_points
+            self.get_points = self.__nodestore_get_points
+            if isinstance(nodestore, str):
+                self.nodestore = NodeStore(nodestore)
+            else:
+                self.nodestore = nodestore
 
     def __getitem__(self, key):
         return getattr(self, key)
