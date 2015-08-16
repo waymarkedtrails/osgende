@@ -33,6 +33,8 @@ def before_scenario(context, scenario):
     except:
         pass # possibly not there
 
+    context.tables = {}
+
 
 def after_scenario(context, scenario):
     if 'enigne' in context:

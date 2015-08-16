@@ -163,14 +163,14 @@ class ThreadableDBObject(object):
     def create_worker_queue(self, engine, processfunc):
         self.thread = threading.local()
         self.worker_engine = engine
-        return othread.WorkerQueue(processfunc, self.numthreads,
+        return WorkerQueue(processfunc, self.numthreads,
                              self._init_worker_thread,
                              self._shutdown_worker_thread)
 
     def _init_worker_thread(self):
         print("Initialising worker...")
         self.thread.conn = self.worker_engine.connect()
-        self.thread.trans = connection.begin()
+        self.thread.trans = self.thread.conn.begin()
 
     def _shutdown_worker_thread(self):
         print("Shutting down worker...")

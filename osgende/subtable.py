@@ -15,26 +15,23 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-""" 
-Definitions shared between the different table type.
-"""
-
 from sqlalchemy import Table, Column, BigInteger, select, and_
 from osgende.tags import TagStore
 from osgende.common.connectors import TableSource
 from osgende.common.threads import ThreadableDBObject
 
 class TagSubTable(ThreadableDBObject, TableSource):
-    """Most basic table type to construct simple derived table from
+    """Basic table type to construct simple derived table from
        a table source with an id and a tag hstore.
 
        'datatable' specifies the Osmosis table to use as basis.
     """
 
-    def __init__(self, meta, name, source, subset=None, change=None):
+    def __init__(self, meta, name, source, subset=None, change=None,
+                 column_id='id'):
         # lay out the table
         id_col = Column(column_id, BigInteger, primary_key=True)
-        table = Table(name, meta, self.id_col)
+        table = Table(name, meta, id_col)
         for c in self.columns():
             table.append_column(c)
         TableSource.__init__(self, table, change, id_column=id_col)
@@ -89,7 +86,7 @@ class TagSubTable(ThreadableDBObject, TableSource):
 
         res = conn.execution_options(stream_results=True).execute(selection)
         for obj in res:
-            workers.add_task(res)
+            workers.add_task(obj)
 
         workers.finish()
 
