@@ -14,3 +14,8 @@ def step_impl(context, name):
             assert_in(row, exp)
             exp.remove(row)
         eq_(0, len(exp))
+
+
+@when("updating table {name}")
+def step_impl(context, name):
+    context.tables[name].update(context.engine)

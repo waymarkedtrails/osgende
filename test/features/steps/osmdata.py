@@ -65,3 +65,28 @@ def step_impl(context):
     with context.engine.begin() as conn:
         for row in context.table:
             _insert_element(row, context.osmdata, conn)
+
+@given("an update of osm data")
+def step_impl(context):
+    context.osmdata.node.change.delete()
+    context.osmdata.way.change.delete()
+    context.osmdata.relation.change.delete()
+    with context.engine.begin() as conn:
+        for row in context.table:
+            tp = row['id'][0]
+            if tp == 'N':
+                src = context.osmdata.node
+            elif tp == 'W':
+                src = context.osmdata.way
+            elif tp == 'R':
+                src = context.osmdata.relation
+            else:
+                assert(False)
+            oid = int(row['id'][1:])
+            # change table
+            conn.execute(src.change.insert({'action' : row['action'], 'id' : oid}))
+            if row['action'] in ('D', 'M'):
+                conn.execute(src.data.delete().where(src.data.c.id == oid))
+            if row['action'] in ('M', 'A'):
+                _insert_element(row, context.osmdata, conn)
+

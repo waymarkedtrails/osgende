@@ -18,7 +18,7 @@
 Various classes that provide connections between processed tables.
 """
 
-from sqlalchemy import String, Table, Column, select, and_
+from sqlalchemy import String, Table, Column, select, and_, text
 
 class TableSource:
     """ Describes a source for another table.

@@ -69,11 +69,12 @@ class TagSubTable(ThreadableDBObject, TableSource):
                   )
                 )
 
-            # reinsert those that are not deleted
-            self.insert_objects(engine, self.src.select_updated(self.subset))
+        # reinsert those that are not deleted
+        self.insert_objects(engine, self.src.select_updated(self.subset))
 
             # mark newly added objects
-            if self.change is not None:
+        if self.change is not None:
+            with engine.begin() as conn:
                 conn.execute(self.insert_changes(
                               select([self.id_column, text("'A'")]).where(
                                   self.id_column.in_(self.src.select_add_modify())))
@@ -113,4 +114,4 @@ class TagSubTable(ThreadableDBObject, TableSource):
             will be executed within a thread, so make sure all commands
             are thread-safe.
         """
-        return {}
+        pass
