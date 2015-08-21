@@ -30,7 +30,7 @@ class TagSubTable(ThreadableDBObject, TableSource):
     def __init__(self, meta, name, source, subset=None, change=None,
                  column_id='id'):
         # lay out the table
-        id_col = Column(column_id, BigInteger, primary_key=True)
+        id_col = Column(column_id, BigInteger, primary_key=True, autoincrement=False)
         table = Table(name, meta, id_col)
         for c in self.columns():
             table.append_column(c)
@@ -72,7 +72,7 @@ class TagSubTable(ThreadableDBObject, TableSource):
         # reinsert those that are not deleted
         self.insert_objects(engine, self.src.select_updated(self.subset))
 
-            # mark newly added objects
+        # mark newly added objects
         if self.change is not None:
             with engine.begin() as conn:
                 conn.execute(self.insert_changes(
@@ -90,6 +90,10 @@ class TagSubTable(ThreadableDBObject, TableSource):
             workers.add_task(obj)
 
         workers.finish()
+
+    def _init_worker_thread(self):
+        ThreadableDBObject._init_worker_thread(self)
+        self.thread.compiled_insert = self.stm_insert.compile(self.thread.conn)
 
     def _process_next(self, obj):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))

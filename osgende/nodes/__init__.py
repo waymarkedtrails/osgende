@@ -20,4 +20,3 @@
 """
 
 from .nodes import NodeSubTable
-from .poi import PoiSubTable

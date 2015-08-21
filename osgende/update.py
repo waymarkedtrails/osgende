@@ -32,7 +32,7 @@ class UpdatedGeometriesTable(object):
 
     def __init__(self, meta, name, srid=None):
         if srid is None:
-            srid = meta.info.get('srid', 8357)
+            srid = meta.info.get('srid', 4326)
         self.data = Table(name, meta,
                            Column('action', String(1)),
                            Column('geom', Geometry('GEOMETRY', srid=srid)))

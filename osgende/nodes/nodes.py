@@ -21,7 +21,10 @@ Tables for nodes
 from osgende.subtable import TagSubTable
 from osgende.tags import TagStore
 from geoalchemy2 import Geometry
-from sqlalchemy import Column
+from geoalchemy2.shape import from_shape
+from geoalchemy2.functions import ST_Transform
+from sqlalchemy import Column, bindparam, func
+from shapely.geometry import Point
 
 
 class NodeSubTable(TagSubTable):
@@ -39,19 +42,24 @@ class NodeSubTable(TagSubTable):
             self.column_geom = column_geom
         else:
             self.column_geom = Column(column_geom,
-                                      Geometry('POINT', srid=4326))
+                                      Geometry('POINT', srid=meta.info.get('srid', 4326)))
         self.data.append_column(self.column_geom)
 
         # add an additional transform to the insert statement if the srid changes
-        if source.data.c.geom.type.srid != self.column_geom.type.srid:
-            params = {}
-            for c in self.data.c:
-                if c == self.column_geom:
-                    params[c.name] = func.st_transform(bindparam(c.name),
-                                                       self.column_geom.type.srid)
+        params = {}
+        for c in self.data.c:
+            if c == self.column_geom:
+                # XXX This ugly from_shape hack is here to be able to inject
+                # the geometry into the compiled expression later. This can't 
+                # be the right way to go about this. Better ideas welcome.
+                if self.src.data.c.geom.type.srid != self.column_geom.type.srid:
+                    params[c.name] = ST_Transform(from_shape(Point(0, 0), srid=0),
+                                              self.column_geom.type.srid)
                 else:
-                    params[c.name] = bindparam(c.name)
-            self.stm_insert = self.stm_insert.values(params)
+                    params[c.name] = from_shape(Point(0, 0), srid=0)
+            else:
+                params[c.name] = bindparam(c.name)
+        self.stm_insert = self.stm_insert.values(params)
 
         # the table to remember geometry changes
         self.geom_change = geomchange
@@ -60,7 +68,7 @@ class NodeSubTable(TagSubTable):
         if self.geom_change:
             self.geom_change.add_from_select(
                select([text("'D'"), self.column_geom])
-                .where(self.column_id.in_(self.src.select_delete()))
+                .where(self.id_column.in_(self.src.select_delete()))
             )
 
         TagSubTable.update(self, engine)
@@ -68,14 +76,14 @@ class NodeSubTable(TagSubTable):
         if self.geom_change:
             self.geom_change.add_from_select(
                select([text("'M'"), self.column_geom])
-                .where(self.column_id.in_(self.src.select_add_modify()))
+                .where(self.id_column.in_(self.src.select_add_modify())))
 
 
     def _process_next(self, obj):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            tags[self.column_id.name] = obj['id']
-            tags[self.column_geom.name] = obj['geom']
-            self.thread.conn.execute(self.compiled_insert, tags)
+            tags[self.id_column.name] = obj['id']
+            tags.update(obj['geom'].compile().params)
+            self.thread.compiled_insert.execute(tags)
 
