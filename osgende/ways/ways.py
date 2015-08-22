@@ -19,14 +19,15 @@
 Tables for ways
 """
 
-from sqlalchemy import Column
+from sqlalchemy import Column, bindparam, select, text
 from geoalchemy2 import Geometry
+from geoalchemy2.functions import ST_Transform
 from osgende.subtable import TagSubTable
 from osgende.tags import TagStore
-import shapely.geometry as sgeom
+from shapely.geometry import Point, LineString
 from geoalchemy2.shape import from_shape
 
-class Ways(OsmosisSubTable):
+class Ways(TagSubTable):
     """Most basic table type to construct a simple derived table from
        the ways table. The extension to OsmosisSubTable is that
        it constructs the geometry of the way.
@@ -47,39 +48,45 @@ class Ways(OsmosisSubTable):
         self.geom_change = geom_change
 
         # add an additional transform to the insert statement if the srid changes
-        if source.data.c.geom.type.srid != self.column_geom.type.srid:
-            params = {}
-            for c in self.data.c:
-                if c == self.column_geom:
-                    params[c.name] = func.st_transform(bindparam(c.name),
-                                                       self.column_geom.type.srid)
+        src_srid = osmtables.node.data.c.geom.type.srid
+        params = {}
+        for c in self.data.c:
+            if c == self.column_geom:
+                # XXX This ugly from_shape hack is here to be able to inject
+                # the geometry into the compiled expression later. This can't 
+                # be the right way to go about this. Better ideas welcome.
+                if src_srid != self.column_geom.type.srid:
+                    params[c.name] = ST_Transform(from_shape(Point(0, 0), srid=0),
+                                              self.column_geom.type.srid)
                 else:
-                    params[c.name] = bindparam(c.name)
-            self.stm_insert = self.stm_insert.values(params)
+                    params[c.name] = from_shape(Point(0, 0), srid=0)
+            else:
+                params[c.name] = bindparam(c.name)
+        self.stm_insert = self.stm_insert.values(params)
 
     def update(self, engine):
         if self.geom_change:
-            self.geom_change.add_from_select(
+            self.geom_change.add_from_select(engine,
                select([text("'D'"), self.column_geom])
-                .where(self.column_id.in_(self.src.select_delete()))
+                .where(self.id_column.in_(self.src.select_modify_delete()))
             )
 
         TagSubTable.update(self, engine)
 
         if self.geom_change:
-            self.geom_change.add_from_select(
-               select([text("'M'"), self.column_geom])
-                .where(self.column_id.in_(self.src.select_add_modify()))
+            self.geom_change.add_from_select(engine,
+               select([text("'A'"), self.column_geom])
+                .where(self.id_column.in_(self.src.select_add_modify())))
 
 
     def _process_next(self, obj):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            points = osmtables.get_points(obj['nodes'])
+            points = self.osmtables.get_points(obj['nodes'])
 
             # ignore ways where the node geometries are missing
             if len(points) > 1:
-                tags[self.column_id.name] = obj['id']
-                tags[self.column_geom.name] = from_shape(sgeom.LineString(points), srid=4326)
+                tags[self.id_column.name] = obj['id']
+                tags.update(from_shape(LineString(points), srid=4326).compile().params)
                 self.thread.conn.execute(self.compiled_insert, tags)

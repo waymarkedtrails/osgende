@@ -34,7 +34,7 @@ class NodeSubTable(TagSubTable):
     """
 
     def __init__(self, meta, name, osmtables, subset=None, change=None,
-                 column_geom='geom', geomchange=None):
+                 column_geom='geom', geom_change=None):
         TagSubTable.__init__(self, meta, name, osmtables.node, subset=subset,
                              change=change)
         # need a geometry column
@@ -62,7 +62,7 @@ class NodeSubTable(TagSubTable):
         self.stm_insert = self.stm_insert.values(params)
 
         # the table to remember geometry changes
-        self.geom_change = geomchange
+        self.geom_change = geom_change
 
     def update(self, engine):
         if self.geom_change:

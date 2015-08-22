@@ -10,7 +10,7 @@ from osgende.nodes import NodeSubTable
 class FooBar(NodeSubTable):
 
     def __init__(self, meta, source, subset, geom):
-        NodeSubTable.__init__(self, meta, 'foobar', source, subset=subset, geomchange=geom)
+        NodeSubTable.__init__(self, meta, 'foobar', source, subset=subset, geom_change=geom)
 
     def columns(self):
         return (Column('foo', String), Column('bar', String))
@@ -27,7 +27,7 @@ class FooBarTransform(FooBar):
         NodeSubTable.__init__(self, meta, 'foobar', source, subset=subset,
                               column_geom=Column('geom',
                                     Geometry('POINT', srid=900913)),
-                              geomchange=geom)
+                              geom_change=geom)
 
 def construct_table(context, name, subset=None, geom=None):
     meta = MetaData()

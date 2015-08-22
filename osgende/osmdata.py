@@ -19,7 +19,7 @@ from sqlalchemy import Table, Column, Integer, BigInteger, String
 from sqlalchemy.dialects.postgresql import HSTORE, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.connectors import TableSource
-from osgende.common.nodestore import NodeStore
+from osgende.common.nodestore import NodeStore, NodeStorePoint
 
 class OsmSourceTables(object):
     """Collection of table sources that point to raw OSM data.
@@ -82,7 +82,7 @@ class OsmSourceTables(object):
                 try:
                     coord = self.nodestore[n]
                     if coord == prev:
-                        coord.x +=0.00000001
+                        coord = NodeStorePoint(coord.x + 0.00000001, coord.y)
                     prev = coord
                     ret.append(coord)
                 except KeyError:
