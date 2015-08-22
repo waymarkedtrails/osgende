@@ -23,7 +23,6 @@ Feature: NodeSubTable
           | id  | foo | bar | geom |
           | 8   | ~~~ | bar | 3.33 -4.5 |
 
-    @wip
     Scenario: Simple import with transform
         Given the osm data
           | id  | tags                      | data |
@@ -42,7 +41,8 @@ Feature: NodeSubTable
           | N1  | "foo" : "1", "bar" : "2"  | 1 1  |
           | N43 | "a" : "a", "b" : "b"      | 2 2.2 |
           | N8  | "x": "...", "bar" : "bar" | 3.33 -4.5 |
-        When constructing a NodeSubTable 'FooBar'
+        And a geometry change table 'Change'
+        When constructing a NodeSubTable 'FooBar' using geometry change 'Change'
         Given an update of osm data
           | action | id |
           | D      | N1 |
@@ -50,6 +50,9 @@ Feature: NodeSubTable
         Then table FooBar consists of
           | id  | foo | bar | geom |
           | 8   | ~~~ | bar | 3.33 -4.5 |
+        And table Change consists of
+          | action | geom |
+          | D      | 1.0 1.0 |
 
     Scenario: Simple modify
         Given the osm data
@@ -57,16 +60,20 @@ Feature: NodeSubTable
           | N1  | "foo" : "1", "bar" : "2"  | 1 1  |
           | N43 | "a" : "a", "b" : "b"      | 2 2.2 |
           | N8  | "x": "...", "bar" : "bar" | 3.33 -4.5 |
-        When constructing a NodeSubTable 'FooBar'
+        And a geometry change table 'Change'
+        When constructing a NodeSubTable 'FooBar' using geometry change 'Change'
         Given an update of osm data
           | action | id  | tags                      | data |
-          | M      | N1  | "foo" : "2", "bar" : "2"  | 1 1  |
+          | M      | N1  | "foo" : "2", "bar" : "2"  | 2 2  |
         When updating table FooBar
         Then table FooBar consists of
           | id  | foo | bar | geom |
-          | 1   | 2   | 2   | 1.0 1.0 |
+          | 1   | 2   | 2   | 2.0 2.0 |
           | 8   | ~~~ | bar | 3.33 -4.5 |
-
+        And table Change consists of
+          | action | geom |
+          | D      | 1.0 1.0 |
+          | A      | 2.0 2.0 |
 
     Scenario: Simple add
         Given the osm data
@@ -74,7 +81,8 @@ Feature: NodeSubTable
           | N1  | "foo" : "1", "bar" : "2"  | 1 1  |
           | N43 | "a" : "a", "b" : "b"      | 2 2.2 |
           | N8  | "x": "...", "bar" : "bar" | 3.33 -4.5 |
-        When constructing a NodeSubTable 'FooBar'
+        And a geometry change table 'Change'
+        When constructing a NodeSubTable 'FooBar' using geometry change 'Change'
         Given an update of osm data
           | action | id  | tags                      | data |
           | A      | N4  | "foo" : "x"  | 4 5  |
@@ -84,3 +92,6 @@ Feature: NodeSubTable
           | 1   | 1   | 2   | 1.0 1.0 |
           | 8   | ~~~ | bar | 3.33 -4.5 |
           | 4   | x   | ~~~ | 4.0 5.0 |
+        And table Change consists of
+          | action | geom |
+          | A      | 4.0 5.0 |

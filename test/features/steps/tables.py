@@ -5,6 +5,8 @@ from geoalchemy2.elements import WKBElement
 from geoalchemy2.shape import to_shape
 from shapely.geometry import Point
 
+logger = logging.getLogger(__name__)
+
 def table_row_to_tuple(row, headings):
     out = []
     for col in headings:
@@ -33,7 +35,7 @@ def step_impl(context, name):
             row = table_row_to_tuple(r, context.table.headings)
             assert_in(row, exp)
             exp.remove(row)
-        eq_(0, len(exp))
+    eq_(0, len(exp), "Missing rows in table: %s" % str(exp))
 
 
 @when("updating table {name}")

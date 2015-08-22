@@ -23,7 +23,7 @@ from osgende.tags import TagStore
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape
 from geoalchemy2.functions import ST_Transform
-from sqlalchemy import Column, bindparam, func
+from sqlalchemy import Column, bindparam, func, select, text
 from shapely.geometry import Point
 
 
@@ -66,16 +66,16 @@ class NodeSubTable(TagSubTable):
 
     def update(self, engine):
         if self.geom_change:
-            self.geom_change.add_from_select(
+            self.geom_change.add_from_select(engine,
                select([text("'D'"), self.column_geom])
-                .where(self.id_column.in_(self.src.select_delete()))
+                .where(self.id_column.in_(self.src.select_modify_delete()))
             )
 
         TagSubTable.update(self, engine)
 
         if self.geom_change:
-            self.geom_change.add_from_select(
-               select([text("'M'"), self.column_geom])
+            self.geom_change.add_from_select(engine,
+               select([text("'A'"), self.column_geom])
                 .where(self.id_column.in_(self.src.select_add_modify())))
 
 

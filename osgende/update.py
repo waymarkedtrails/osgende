@@ -44,5 +44,5 @@ class UpdatedGeometriesTable(object):
     def add(self, conn, geom, action='M'):
         conn.execute(self.stm_add, { 'geom' : geom, 'action' : action})
 
-    def add_from_select(self.conn, stm):
-        conn.execute(self.table.insert().from_select(self.table.c, stm))
+    def add_from_select(self, conn, stm):
+        conn.execute(self.data.insert().from_select(self.data.c, stm))
