@@ -19,6 +19,7 @@ from sqlalchemy import Table, Column, BigInteger, select, Index, or_
 from sqlalchemy.dialects.postgresql import ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.sqlalchemy import CreateTableAs
+from osgende.common.threads import ThreadableDBObject
 from sys import version_info as python_version
 import threading
 from osgende.common.geom import FusableWay
@@ -134,7 +135,7 @@ class RelationSegments(ThreadableDBObject):
             rt = self.osmtables.relation.data
             sel = select([wt.c.id, wt.c.nodes]).where(wt.c.id.in_(
                         select([mt.c.member_id])
-                          .where(rt.c.id = mt.c.relation_id)
+                          .where(rt.c.id == mt.c.relation_id)
                           .where(mt.c.member_type == 'W')
                           .where(self.subquery)
                           .where(or_(mt.c.relation_id.in_(
@@ -258,13 +259,13 @@ class _WayCollector(ThreadableDBObject):
         # prepare the SQL we are going to need
         m = self.src.osmtables.member.data
         self._stm_way_rels = select([m.c.relation_id, m.c.member_role])\
-                               .where(m.c.member_type = 'W')\
-                               .where(m.c.rember_id = bindparam('id'))\
+                               .where(m.c.member_type == 'W')\
+                               .where(m.c.rember_id == bindparam('id'))\
                                .order_by(m.c.relation_id).compile(engine)
 
         w = self.src.osmtables.way.data
         self._stm_way_nodes = select([w.c.nodes])\
-                                .where(w.c.id == bindparam('id'))
+                                .where(w.c.id == bindparam('id'))\
                                 .compile(engine)
 
     def add_way(self, way, nodes=None):
@@ -413,7 +414,7 @@ class _WayCollector(ThreadableDBObject):
                  { 'nodes' : way.nodes, 
                    'ways' : way.ways,
                    'rels' : relations,
-                   'geom' : line })
+                   'geom' : line }))
 
             #self.db.commit()
         else:

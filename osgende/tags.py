@@ -41,7 +41,7 @@ class TagStore(dict):
            codes and the values are weights. Larger weights are
            preferred.
         """
-        ret = {}
+        ret = TagStore()
         tagweights = {}
         for k,v in self.items():
             idx = k.find(':')
@@ -55,7 +55,7 @@ class TagStore(dict):
                 if k not in ret:
                     ret[k] = v
                     tagweights[k] = -1000.0
-        return TagStore(ret)
+        return ret
 
     def get_firstof(self, tags, default=None):
         """ Return the first tag value for which an entry
@@ -68,11 +68,9 @@ class TagStore(dict):
         for t in tags:
             val = self.get(t)
             if val is not None:
-                break
-        else:
-             val = default
+                return val
 
-        return val
+        return default
 
     def get_booleans(self):
         """Return subset of tags that represent booleans and return
