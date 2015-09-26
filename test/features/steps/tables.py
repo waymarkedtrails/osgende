@@ -13,6 +13,8 @@ def table_row_to_tuple(row, headings):
         assert_in(col, row)
         if row[col] is None:
             out.append(None)
+        elif isinstance(row[col], list):
+            out.append(','.join([str(x) for x in row[col]]))
         elif isinstance(row[col], WKBElement):
             geom = to_shape(row[col])
             if isinstance(geom, Point):
@@ -33,7 +35,20 @@ def step_impl(context, name):
     with context.engine.begin() as conn:
         res = conn.execute(context.tables[name].data.select())
         for r in res:
-            eq_(len(context.table.headings), len(r))
+            eq_(len(context.table.headings), len(r), "Unexpected number of columns")
+            row = table_row_to_tuple(r, context.table.headings)
+            assert_in(row, exp)
+            exp.remove(row)
+    eq_(0, len(exp), "Missing rows in table: %s" % str(exp))
+
+@then("table {name} consists of rows")
+def step_impl(context, name):
+    exp = set()
+    for r in context.table:
+        exp.add(tuple([None if r[k] == '~~~' else r[k] for k in context.table.headings]))
+    with context.engine.begin() as conn:
+        res = conn.execute(context.tables[name].data.select())
+        for r in res:
             row = table_row_to_tuple(r, context.table.headings)
             assert_in(row, exp)
             exp.remove(row)

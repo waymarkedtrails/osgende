@@ -54,12 +54,22 @@ def _insert_rel(oid, tags, members, tables, conn, grid):
 
 _insert_func = { 'N' : _insert_node, 'W' : _insert_way, 'R' : _insert_rel }
 
-def _insert_element(row, tables, conn, grid):
-    tags = eval("{%s}" % row['tags']) if 'tags' in row.headings else None
+def _insert_element(row, tables, conn, grid, tagsets):
+    if 'tags' in row.headings:
+        if row['tags'] in tagsets:
+            tags = tagsets[row['tags']]
+        else:
+            tags = eval("{%s}" % row['tags'])
+    else:
+        tags = None
     data = row['data'] if 'data' in row.headings else None
 
     _insert_func[row['id'][0]](int(row['id'][1:]), tags, data, tables, conn, grid)
 
+@given(u'the following tag sets')
+def step_impl(context):
+    for row in context.table:
+        context.tagsets[row['name']] = eval("{%s}" % row['tags'])
 
 @given(u'a {dist} node grid')
 def step_impl(context, dist):
@@ -92,7 +102,7 @@ def step_impl(context):
     grid = context.nodegrid if 'nodegrid' in context else None
     with context.engine.begin() as conn:
         for row in context.table:
-            _insert_element(row, context.osmdata, conn, grid)
+            _insert_element(row, context.osmdata, conn, grid, context.tagsets)
         if grid is not None:
             for oid in tuple(grid.keys()):
                 _insert_node(oid, {}, None, context.osmdata, conn, grid)
@@ -119,5 +129,5 @@ def step_impl(context):
             if row['action'] in ('D', 'M'):
                 conn.execute(src.data.delete().where(src.data.c.id == oid))
             if row['action'] in ('M', 'A'):
-                _insert_element(row, context.osmdata, conn, None)
+                _insert_element(row, context.osmdata, conn, None, context.tagsets)
 

@@ -34,6 +34,7 @@ def before_scenario(context, scenario):
         pass # possibly not there
 
     context.tables = {}
+    context.tagsets = {}
 
 
 def after_scenario(context, scenario):

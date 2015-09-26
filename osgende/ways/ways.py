@@ -37,18 +37,18 @@ class Ways(TagSubTable):
                  column_geom='geom', geom_change=None):
         TagSubTable.__init__(self, meta, name, osmtables.way, subset=subset,
                              change=change)
+        src_srid = osmtables.node.data.c.geom.type.srid
         # need a geometry column
         if isinstance(column_geom, Column):
             self.column_geom = column_geom
         else:
             self.column_geom = Column(column_geom,
-                                      Geometry('GEOMETRY', srid=4326))
+                                      Geometry('GEOMETRY', srid=src_srid))
         self.data.append_column(self.column_geom)
         self.osmtables = osmtables
         self.geom_change = geom_change
 
         # add an additional transform to the insert statement if the srid changes
-        src_srid = osmtables.node.data.c.geom.type.srid
         params = {}
         for c in self.data.c:
             if c == self.column_geom:
