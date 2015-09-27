@@ -1,5 +1,0 @@
-#!/bin/sh
-#
-# convert a JOSM osm fiel to a OSM osm file readable by osmosis
-
-sed "s:id='-:id=':g;s:ref='-:ref=':g;s:action='modify' times:times:;s/action='modify'/timestamp='2010-12-15T21:45:09Z'/;s:timestamp:version='1' changeset='1' user='foo' uid='1' timestamp:" $1 >$2

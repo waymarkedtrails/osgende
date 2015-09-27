@@ -16,9 +16,9 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from sqlalchemy import Table, Column, BigInteger, select, Index, or_, bindparam,\
-                       case
+                       case, union, text, column
 from sqlalchemy.sql import functions as sqlf
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, array
 from geoalchemy2 import Geometry
 from geoalchemy2.functions import ST_Transform
 from geoalchemy2.shape import from_shape
@@ -49,6 +49,7 @@ class RouteSegments(ThreadableDBObject):
         self.subset = subset
         self.geom_change = geom_change
         self.osmtables = osmtables
+        self.meta = meta
 
         if srid is None:
             srid = osmtables.node.data.c.geom.type.srid
@@ -112,7 +113,7 @@ class RouteSegments(ThreadableDBObject):
     def update(self, engine):
         """Update changed segments.
         """
-        self._compute_first(conn)
+        self._compute_first(engine)
         wayproc = _WayCollector(self, engine, precompute_intersections=False)
         # print("Valid relations:", wayproc.relations)
 
@@ -125,36 +126,38 @@ class RouteSegments(ThreadableDBObject):
                         select([mt.c.member_id])
                           .where(rt.c.id == mt.c.relation_id)
                           .where(mt.c.member_type == 'W')
-                          .where(self.subquery)
+                          .where(self.subset)
                           .where(or_(mt.c.relation_id.in_(
                                      self.osmtables.relation.select_add_modify()),
                                      mt.c.member_id.in_(
                                      self.osmtables.way.select_modify())))
                   ))
             conn.execute(CreateTableAs('temp_updated_ways', sel))
-            temp_ways = Table('temp_updated_ways', meta, autoload_with=conn)
+            temp_ways = Table('temp_updated_ways', self.meta, autoload_with=conn)
 
             print(dt.now(), "Adding those ways to changeset")
-            res = conn.execute(temp_wats.select())
+            res = conn.execute(temp_ways.select())
             for c in res:
-                wayproc.add_way(conn, res['id'], res['nodes'])
+                wayproc.add_way(conn, c['id'], c['nodes'])
 
             print(dt.now(), "Collecting points effected by update")
             # collect all nodes that are affected by the update:
             #  1. nodes in segments whose relation or ways have changed
-            #  2. nodes in added or changed ways
-            #  3. nodes that have been moved
-            sel = union([
-                    select(['unnest(ARRAY[nodes[1],nodes[array_length(nodes,1)]])'])\
+            waysel = str(select([self.osmtables.way.change.c.id]))
+            relsel = str(select([self.osmtables.relation.change.c.id]))
+            segchg = select([sqlf.func.unnest(text('ARRAY[nodes[1],nodes[array_length(nodes,1)]]')).label('id')])\
                       .where(or_(
-                          self.data.c.ways.op('&&')(sqlf.func.ARRAY(select([self.osmtables.way.c.id]))),
-                          self.data.c.rels.op('&&')(sqlf.func.ARRAY(select([self.osmtables.relation.c.id])))
-                             )),
-                    select([sqlf.func.unnest(temp_ways.c.nodes)]),
-                    self.osmtables.node.select_modify()
-                  ])
-            conn.execute(CreateTableAs('temp_updated_nodes', sel))
-            temp_nodes = Table('temp_updated_nodes', meta, autoload_with=conn)
+                          self.data.c.ways.op('&&')(sqlf.func.ARRAY(text(waysel))),
+                          self.data.c.rels.op('&&')(sqlf.func.ARRAY(text(relsel)))
+                            ))
+            #  2. nodes in added or changed ways
+            waychg = select([sqlf.func.unnest(temp_ways.c.nodes)])
+            #  3. nodes that have been moved
+            ndchg = self.osmtables.node.select_modify()
+
+            conn.execute(CreateTableAs('temp_updated_nodes',
+                                       union(segchg, waychg, ndchg).alias('sub')))
+            temp_nodes = Table('temp_updated_nodes', self.meta, autoload_with=conn)
 
             # print("Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes"))
 
@@ -184,7 +187,7 @@ class RouteSegments(ThreadableDBObject):
                 ret.append(self.data.c.geom)
             res = conn.execute(self.data.delete()
                                  .where("temp_updated_nodes_find(nodes)")
-                                 .returning(ret))
+                                 .returning(*ret))
             for c in res:
                 for w in c['ways']:
                     #print(w)
@@ -367,7 +370,7 @@ class _WayCollector(ThreadableDBObject):
                                 select([r.c.id]).where(self.src.subset)))
         # create a list of nodes with their position in the way
         nodelist = select([w.c.nodes,
-                           sqlf.func.generate_subscripts(w.c.nodes, 2).label('i')])\
+                           sqlf.func.generate_subscripts(w.c.nodes, 1).label('i')])\
                      .where(w.c.id.in_(way_ids)).alias("nodelist")
 
         # weigh each node by position (front, middle, end)
@@ -386,6 +389,8 @@ class _WayCollector(ThreadableDBObject):
 
         for ele in c:
             self.intersections.add(ele['nid'])
+
+        print("Final intersections:", self.intersections)
 
 
     def _write_segment(self, way, relations):

@@ -106,7 +106,7 @@ class TableSource:
 
 
     def select_modify(self):
-        """ Return am SQLAlchemy where clause describing all objects which
+        """ Return am SQLAlchemy select clause describing all ids which
             have been deleted. If no change table exists
             all objects are returned.
         """

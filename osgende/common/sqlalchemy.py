@@ -36,5 +36,5 @@ class CreateTableAs(Executable, ClauseElement):
 @compiles(CreateTableAs, "postgresql")
 def _create_table_as(element, compiler, **kw):
     return "CREATE %s TABLE %s AS %s" % (
-        self.prefix, element.name, compiler.process(element.query)
+        element.prefix, element.name, compiler.process(element.query)
     )

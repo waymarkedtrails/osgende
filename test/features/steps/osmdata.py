@@ -115,12 +115,14 @@ def step_impl(context):
     with context.engine.begin() as conn:
         for row in context.table:
             tp = row['id'][0]
+            mem = None
             if tp == 'N':
                 src = context.osmdata.node
             elif tp == 'W':
                 src = context.osmdata.way
             elif tp == 'R':
                 src = context.osmdata.relation
+                mem = context.osmdata.member
             else:
                 assert(False)
             oid = int(row['id'][1:])
@@ -128,6 +130,8 @@ def step_impl(context):
             conn.execute(src.change.insert({'action' : row['action'], 'id' : oid}))
             if row['action'] in ('D', 'M'):
                 conn.execute(src.data.delete().where(src.data.c.id == oid))
+                if mem:
+                    conn.execute(mem.data.delete().where(mem.data.c.relation_id == oid))
             if row['action'] in ('M', 'A'):
                 _insert_element(row, context.osmdata, conn, None, context.tagsets)
 
