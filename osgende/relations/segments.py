@@ -493,47 +493,42 @@ class Routes(TagSubTable):
        table is provided, super relations will be updated as well.
     """
 
-    def __init__(self, db, name, subset, segmenttable, hiertable=None):
-        OsmosisSubTable.__init__(self, db, 'relation', name, subset)
-        self.segment_table = segmenttable
+    def __init__(self, name, segments, hiertable=None):
+        TagSubTable.__init__(self, segments.meta, name,
+                             segments.osmtables.relation,
+                             subset=segments.subset)
+        self.segment_table = segments
         self.hierarchy_table = hiertable
 
 
-    def update(self):
+    def update(self, engine):
         firstid = self.segment_table.first_new_id
-        self.init_update()
-        # delete any objects that might have been deleted
-        # (Note: a relation also might get deleted from this table
-        # because it lost its relevant tags
-        self.delete("""id = ANY(ARRAY(SELECT id FROM relation_changeset
-                                    WHERE action <> 'A'))""")
-        # Collect all changed relations in a temporary table
-        tmptable = '__%s_tmp_changedrels' % self._table.table
-        if self.hierarchy_table is None:
-            self.db.query("""CREATE TEMP TABLE %s AS
-                            SELECT DISTINCT unnest(rels)
-                            FROM %s WHERE id >= %%s
-                       """ % (tmptable, self.segment_table.table),
-                       firstid)
-        else:
-            query = """CREATE TEMP TABLE %s AS
-                            (SELECT DISTINCT parent FROM %s
-                            WHERE child IN
-                            ((SELECT DISTINCT unnest(rels)
-                              FROM %s WHERE id >= %%s)
-                             UNION
-                             (SELECT id FROM relation_changeset
-                              WHERE action <> 'D')))
-                       """ % (tmptable,
-                              self.hierarchy_table.table,
-                              self.segment_table.table)
-            #print(query)
-            self.db.query(query, (firstid,))
-        self.delete("id = ANY(ARRAY(SELECT * FROM %s))" % (tmptable))
+
+        with engine.begin() as conn:
+            # delete any objects that might have been deleted
+            # (Note: a relation also might get deleted from this table
+            # because it lost its relevant tags
+            conn.execute(self.data.delete().where(self.id_column.in_
+                                            (self.src.select_modify_delete())))
+            # Collect all changed relations in a temporary table
+            sel = select([sqlf.func.unnest(self.segment_table.data.c.rels)], distinct=True)\
+                       .where(self.segment_table.data.c.id >= firstid)
+
+            if self.hierarchy_table is not None:
+                sel = select([self.hierarchy_table.data.c.parent], distinct=True)\
+                       .where(self.hierarchy_table.data.c.child.in_(
+                                sel.union(self.src.select_add_modify())))
+
+            conn.execute(CreateTableAs('__tmp_osgende_routes_updaterels', sel))
+            tmp_rels = Table('__tmp_osgende_routes_updaterels',
+                             self.segment_table.meta, autoload_with=conn)
+
+            conn.execute(self.data.delete()\
+                           .where(self.id_column.in_(tmp_rels.select())))
+
         # reinsert those that are not deleted
-        self.insert_objects("WHERE id = ANY(ARRAY(SELECT * FROM %s))" % tmptable)
+        inssel = self.src.select_all(self.src.data.c.id.in_(tmp_rels.select()))
+        self.insert_objects(engine, inssel)
         # drop the temporary table
-        self.db.query("DROP TABLE %s" % tmptable)
-        # finish up
-        self.finish_update()
+        tmp_rels.drop(engine)
 

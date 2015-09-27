@@ -81,9 +81,9 @@ class RelationHierarchy(object):
                 res = conn.execute(stm, { 'depth' : depth }).rowcount
                 break
 
-    def update(self):
+    def update(self, engine):
         """Update the table.
 
            The table is actually simply reconstructed because that is faster.
         """
-        self.construct()
+        self.construct(engine)
