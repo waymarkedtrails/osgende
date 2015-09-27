@@ -105,7 +105,6 @@ Feature: Route table from RouteSegments
         | 2  | bar  |
         | 3  | bazz |
 
-    @wip
     Scenario: Change a super relation
       Given a 0.0001 node grid
         | 1 | 2 | 3 |   |   |
