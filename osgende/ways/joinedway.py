@@ -16,162 +16,137 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from osgende.common.postgisconn import PGTable
+from sqlalchemy import Table, Column, BigInteger, and_, select
+import sqlalchemy.sql.functions as sqlf
+from osgende.common.threads import ThreadableDBObject
 
-class JoinedWays(PGTable):
+class JoinedWays(ThreadableDBObject):
     """
     Table for ways that belong together:
-     - they have the same atributes in mastertable
+     - they have the same attributes in mastertable
      - they share at least one node
     """
 
-    def __init__(self, db, mastertable, name="joined_ways"):
-        PGTable.__init__(self, db, name)
+    def __init__(self, meta, mastertable, rows, osmtables, name="joined_ways"):
+        self.master = mastertable
+        self.way_table = osmtables.way
+        self.rows = rows
 
-        self.master_table = mastertable
+        self.data = Table(name, meta,
+                          Column('virtual_id', BigInteger),
+                          Column('child', BigInteger, index=True))
 
-    def create(self):
-        """(Re)create a new, empty joined ways table.
-        """
-        self.layout((
-                    ('virtual_id', 'bigint'),
-                    ('child',  'bigint')
-                   ))
-        self.db.query("""CREATE INDEX %s_child_idx ON %s (child)""" % (self._table.table, self.table))
-        self.db.query("""DROP SEQUENCE IF EXISTS %s_vid""" % (self.table,))
-        self.db.query("""CREATE SEQUENCE %s_vid""" % (self.table,))
 
-    def construct(self):
+    def truncate(self, conn):
+        conn.execute(self.data.delete())
+
+    def construct(self, engine):
         """Fill the table from the current master table.
         """
-        self.truncate()
+        self.truncate(engine)
 
         # the worker threads
-        workers = self.create_worker_queue(self._process_next)
+        workers = self.create_worker_queue(engine, self._process_next)
 
-        cur = self.db.select("""SELECT id FROM %s""" % (self.master_table.fullname,))
-
+        cur = engine.execution_options(stream_results=True).execute(
+                                       select([self.master.data.c.id]))
         for obj in cur:
-            workers.add_task(obj)
+            workers.add_task(obj[0])
 
         workers.finish()
 
-    def update(self):
-        self.db.query("""WITH c AS (SELECT id FROM way_changeset WHERE action='M' OR action='D')
-        SELECT * FROM %s WHERE child IN (SELECT id FROM c)""" % (self.table,))
-        self.db.query("""WITH lonely AS (SELECT virtual_id FROM %s
-                              GROUP BY virtual_id HAVING COUNT(1) < 2)
-                         DELETE FROM %s
-                              WHERE virtual_id IN (SELECT virtual_id FROM lonely);"""
-                              % (self.table, self.table))
+    def update(self, engine):
+
+        with engine.begin() as conn:
+            # XXX do we need this first delete?
+            t = self.data
+            conn.execute(t.delete()
+                       .where(t.c.child.in_(self.way_table.select_modify_delete()))
+            )
+            tin = self.data.alias()
+            lonely = select([tin.c.virtual_id])\
+                      .group_by(tin.c.virtual_id)\
+                      .having(sqlf.count(text(1)) < 2)
+            conn.execute(t.delete().where(t.c.virtual_id.in_(lonely)))
 
         # the worker threads
-        workers = self.create_worker_queue(self._process_next)
+        workers = self.create_worker_queue(engine, self._process_next)
 
-        cur = self.db.select("""SELECT w.id FROM way_changeset c, %s w
-                                     WHERE (action='C' OR action='M') AND w.id = c.id"""
-                % (self.master_table.fullname,))
-
+        idcol = self.sater.data.c.id
+        cur = engine.execute(select([idcol])
+                              .where(idcol.in_(self.way_table.select_add_modify())))
         for obj in cur:
-            workers.add_task(obj)
+            workers.add_task(obj[0])
 
         workers.finish()
 
-    def _get_all_adjacent_way_ids(self, wid, properties):
+    def _get_all_adjacent_way_ids(self, baseid, properties, conn):
         """
             finds all ways adjacent to the one given in wid iteratively
             (sharing at least one node and all properties)
             It checks for directly adjacent ways and repeats this procedure
             for all found ways until all indirectly adjacent ways are found
         """
-        unchecked_ways = [wid]
-        all_adjacent_ways = set(unchecked_ways)
-        ways_not_adjacent = set()
-
-        unchecked_ways += self._get_adjacent_way_ids(wid, properties, all_adjacent_ways, ways_not_adjacent)
+        unchecked_ways = [baseid]
+        all_adjacent_ways = []
+        done_ways = set()
 
         while unchecked_ways:
-            unchecked_ways += self._get_adjacent_way_ids(unchecked_ways.pop(), properties,
-                    all_adjacent_ways, ways_not_adjacent)
+            wid = unchecked_ways.pop()
+            """
+                finds all directly adjacent ways to wid
+                (sharing at least one node and all properties)
+                It first requests all geometrically overlapping ways (assuming
+                there is a geometry index which makes this operation fast) and
+                then checks those candidates for common nodes and properties
+            """
+            malias = self.master.data.alias()
+            intersecting_ways = self.master.data.select()\
+                                 .where(and_(
+                                          malias.c.id == wid,
+                                          malias.c.geom.ST_Intersects(self.master.data.c.geom)))
+
+            for candidate in conn.execute(intersecting_ways):
+                cid = candidate['id']
+                if cid in done_ways:
+                    continue
+
+                done_ways.add(cid)
+
+                for k, v in zip(self.rows, properties):
+                    if candidate[k] != v:
+                        break # not the same
+                else:
+                    w = self.way_table.data.alias()
+                    w2 = self.way_table.data.alias()
+                    res = conn.execute(select([w.c.nodes.op('&&')(w2.c.nodes)])
+                                        .where(and_(w.c.id == wid, w2.c.id == cid)))
+                    if res.fetchone():
+                        all_adjacent_ways.append(cid)
+                        unchecked_ways.append(cid)
+
 
         return all_adjacent_ways
 
-    def _get_adjacent_way_ids(self, wid, properties, known_adjacent_ways, ways_not_adjacent):
-        """
-            finds all directly adjacent ways to wid
-            (sharing at least one node and all properties)
-            It fist requests all geometrically overlapping ways (assuming
-            there is a geometry index which makes this operation fast) and
-            then checks those candidates for common nodes and properties
-        """
-        intersecting_ways = self.db.select("""WITH refway AS (SELECT geom AS ref FROM %s WHERE id = %s)
-                                SELECT * FROM refway, %s WHERE ST_Intersects(geom,ref)"""
-                % (self.master_table.fullname, wid, self.master_table.fullname))
+    def _process_next(self, wid):
+        conn = self.thread.conn
+        with conn.begin() as trans:
+            # check if way already has a virtual_id
+            vid = conn.scalar(select([sqlf.count()]).where(self.data.c.child == wid))
 
-        new_ways = []
+            # if it has an id, it is already done. Otherwise do search
+            if vid > 0:
+                return
 
-        for candidate in intersecting_ways:
-            cid = candidate['id']
-            if cid in known_adjacent_ways or cid in ways_not_adjacent:
-                continue
+            row = conn.execute(self.master.data.select()
+                                     .where(self.master.data.c.id == wid)).first()
 
-            same_tags = True
+            properties = [row[name] for name in self.rows]
 
-            if 'name' not in properties:
-                if candidate['name'][0] != '(' or candidate['name'][-1] != ')':
-                    same_tags = False
-
-            for k,v in properties.items():
-                if candidate[k] != v:
-                    same_tags = False
-
-            if same_tags:
-                node_in_common = self.db.select_one("""SELECT 1 AS res FROM ways WHERE id = %d AND
-                                                       nodes && (SELECT nodes FROM ways WHERE id = %d)
-                                                """ % (wid, cid), cur = self.thread.cursor)
-                if node_in_common:
-                    known_adjacent_ways.update([cid])
-                    new_ways += [cid]
-                else:
-                    ways_not_adjacent.update([cid])
-            else:
-                ways_not_adjacent.update([cid])
-
-        return new_ways
-
-    def _process_next(self, obj):
-        cur = self.thread.cursor
-        wid=obj['id']
-
-        # check if way already has a virtual_id
-        vid = self.db.select_one("""SELECT virtual_id FROM %s WHERE child = %s"""
-                % (self.table, wid), cur = cur)
-
-        # if it has an id, it is already done. Otherwise do search
-        if vid == None:
-
-            row=self.db.select_row("""SELECT * FROM %s WHERE id = %s"""
-                    % (self.master_table.fullname,wid), cur = cur)
-
-            properties = dict()
-            for col,val in zip(cur.description, row):
-                properties[col[0]] = val
-
-            del properties['id']
-            del properties['geom']
-            if properties['name'][0] == '(' and properties['name'][-1] == ')':
-                del properties['name']
-
-            merge_list = self._get_all_adjacent_way_ids(wid, properties)
+            merge_list = self._get_all_adjacent_way_ids(wid, properties, conn)
 
             # only insert ways that have neighbours
             if len(merge_list) > 1:
-                vid = self.db.select_one("""SELECT nextval('%s_vid')"""
-                        % (self.table,), cur = cur)
-
-                for i in merge_list:
-                    line = {'virtual_id' : vid,
-                            'child'      : i}
-                    self.insert_values(line, cur)
-
+                conn.execute(self.data.insert(),
+                             [ { 'virtual_id' : wid, 'child' : x } for x in merge_list ])
 

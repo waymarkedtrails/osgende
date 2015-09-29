@@ -5,7 +5,7 @@ from nose.tools import *
 from sqlalchemy import MetaData, Column, String
 from geoalchemy2 import Geometry
 
-from osgende.ways import Ways
+from osgende.ways import Ways, JoinedWays
 
 class Highway(Ways):
 
@@ -30,6 +30,18 @@ class HighwayTransform(Highway):
                                     Geometry('GEOMETRY', srid=900913)),
                       subset=subset, geom_change=geom)
 
+class Slopes(Ways):
+    def __init__(self, meta, source, subset, geom):
+        Ways.__init__(self, meta, 'slopes', source, subset=subset,
+                      geom_change=geom)
+
+    def columns(self):
+        return (Column('type', String),
+                Column('name', String))
+
+    def transform_tags(self, oid, tags):
+        return { 'type' : tags.get('type'), 'name' : tags.get('name') }
+
 def construct_table(context, name, subset=None, geom=None):
     meta = MetaData()
     if geom is not None:
@@ -39,6 +51,8 @@ def construct_table(context, name, subset=None, geom=None):
         context.tables[name] = Highway(meta, context.osmdata, subset, geom)
     elif name == 'HighwayTransform':
         context.tables[name] = HighwayTransform(meta, context.osmdata, subset, geom)
+    elif name == 'Slopes':
+        context.tables[name] = Slopes(meta, context.osmdata, subset, geom)
     else:
         assert_false("Unknown way table type", name)
 
@@ -58,3 +72,11 @@ def step_impl(context, name, geom):
 def step_impl(context, name):
     construct_table(context, name)
 
+@when("constructing a JoinedWay table '{name}' from '{master}' with rows '{rows}'")
+def step_impl(context, name, master, rows):
+    mtable = context.tables[master]
+    context.tables[name] = JoinedWays(MetaData(), mtable,
+                                      rows.split(','), context.osmdata, name)
+
+    context.tables[name].data.create(context.engine)
+    context.tables[name].construct(context.engine)

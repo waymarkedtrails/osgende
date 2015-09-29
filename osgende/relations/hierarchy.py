@@ -17,7 +17,6 @@
 
 from sqlalchemy import Table, Column, BigInteger, Integer, select, bindparam,\
                        not_, exists, column, text, union
-from osgende.common.postgisconn import PGTable
 
 class RelationHierarchy(object):
     """Table describing the relation hierarchies of the OSM relations table.
