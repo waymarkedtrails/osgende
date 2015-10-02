@@ -1,5 +1,5 @@
 
-# Copyright (C) 2010-11 Sarah Hoffmann
+# Copyright (C) 2010-15 Sarah Hoffmann
 #               2012-13 Michael Spreng
 #
 # This is free software; you can redistribute it and/or
@@ -16,7 +16,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, BigInteger, and_, select
+from sqlalchemy import Table, Column, BigInteger, and_, select, text
 import sqlalchemy.sql.functions as sqlf
 from osgende.common.threads import ThreadableDBObject
 
@@ -66,13 +66,13 @@ class JoinedWays(ThreadableDBObject):
             tin = self.data.alias()
             lonely = select([tin.c.virtual_id])\
                       .group_by(tin.c.virtual_id)\
-                      .having(sqlf.count(text(1)) < 2)
+                      .having(sqlf.count(text('1')) < 2)
             conn.execute(t.delete().where(t.c.virtual_id.in_(lonely)))
 
         # the worker threads
         workers = self.create_worker_queue(engine, self._process_next)
 
-        idcol = self.sater.data.c.id
+        idcol = self.master.data.c.id
         cur = engine.execute(select([idcol])
                               .where(idcol.in_(self.way_table.select_add_modify())))
         for obj in cur:
@@ -88,11 +88,13 @@ class JoinedWays(ThreadableDBObject):
             for all found ways until all indirectly adjacent ways are found
         """
         unchecked_ways = [baseid]
-        all_adjacent_ways = []
+        all_adjacent_ways = [baseid]
         done_ways = set()
 
         while unchecked_ways:
             wid = unchecked_ways.pop()
+            done_ways.add(wid)
+
             """
                 finds all directly adjacent ways to wid
                 (sharing at least one node and all properties)
@@ -103,7 +105,7 @@ class JoinedWays(ThreadableDBObject):
             malias = self.master.data.alias()
             intersecting_ways = self.master.data.select()\
                                  .where(and_(
-                                          malias.c.id == wid,
+                                          malias.c.id == wid, self.master.data.c.id != wid,
                                           malias.c.geom.ST_Intersects(self.master.data.c.geom)))
 
             for candidate in conn.execute(intersecting_ways):
@@ -111,17 +113,15 @@ class JoinedWays(ThreadableDBObject):
                 if cid in done_ways:
                     continue
 
-                done_ways.add(cid)
-
                 for k, v in zip(self.rows, properties):
                     if candidate[k] != v:
                         break # not the same
                 else:
                     w = self.way_table.data.alias()
                     w2 = self.way_table.data.alias()
-                    res = conn.execute(select([w.c.nodes.op('&&')(w2.c.nodes)])
+                    res = conn.scalar(select([w.c.nodes.op('&&')(w2.c.nodes)])
                                         .where(and_(w.c.id == wid, w2.c.id == cid)))
-                    if res.fetchone():
+                    if res:
                         all_adjacent_ways.append(cid)
                         unchecked_ways.append(cid)
 
@@ -147,6 +147,7 @@ class JoinedWays(ThreadableDBObject):
 
             # only insert ways that have neighbours
             if len(merge_list) > 1:
+                print(merge_list)
                 conn.execute(self.data.insert(),
                              [ { 'virtual_id' : wid, 'child' : x } for x in merge_list ])
 
