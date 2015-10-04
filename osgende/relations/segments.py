@@ -298,11 +298,11 @@ class _WayCollector(ThreadableDBObject):
             self.relgroups[membership].add(way,nodes)
             # update intersections
             if self.intersections_from_ways:
-                self._add_intersection(nodes[0], 0.5)
+                self._add_intersection(nodes[0], 1)
                 if len(nodes) > 1:
                     for n in nodes[1:-1]:
-                        self._add_intersection(n, 1)
-                    self._add_intersection(nodes[-1], 0.5)
+                        self._add_intersection(n, 2)
+                    self._add_intersection(nodes[-1], 1)
 
         else:
             print("No nodes. Dropped")
@@ -319,9 +319,9 @@ class _WayCollector(ThreadableDBObject):
         """
         if self.intersections_from_ways:
             if python_version[0] < 3:
-                self.processing_intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 1])
+                self.processing_intersections = set([k for (k,v) in self.collected_nodes.iteritems() if v > 2])
             else:
-                self.processing_intersections = set([k for (k,v) in self.collected_nodes.items() if v > 1])
+                self.processing_intersections = set([k for (k,v) in self.collected_nodes.items() if v > 2])
 
         else:
             self.processing_intersections = None
@@ -377,15 +377,15 @@ class _WayCollector(ThreadableDBObject):
         wei = select([nodelist.c.nodes[nodelist.c.i].label('nid'),
                      case([(or_(nodelist.c.i == 1,
                                 nodelist.c.i == sqlf.func.array_length(nodelist.c.nodes, 1)),
-                            0.5)],
-                          else_ = 1).label('w')
+                            1)],
+                          else_ = 2).label('w')
                      ]).alias('weighted')
         # sum up the weights for each node
         total = select([wei.c.nid.label('nid'), sqlf.sum(wei.c.w).label('sum')])\
                   .group_by(wei.c.nid).alias('total')
 
         # anything with weight larger than 1 must be a real intersection
-        c = engine.execute(select([total.c.nid]).where(total.c.sum > 1))
+        c = engine.execute(select([total.c.nid]).where(total.c.sum > 2))
 
         for ele in c:
             self.intersections.add(ele['nid'])
