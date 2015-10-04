@@ -18,3 +18,5 @@
 """ A collection of classes that provide general implementation of tables
     derived from the Osmosis pgsnapshot schema.
 """
+
+from .mapdb import MapDB
