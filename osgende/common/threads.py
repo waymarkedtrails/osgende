@@ -18,11 +18,14 @@
 Helper classes for multi-threaded execution.
 """
 
+import logging
 import threading
 try:
     import queue
 except ImportError:
     import Queue as queue
+
+log = logging.getLogger(__name__)
 
 class WorkerError(Exception):
     """Raised when a worker thread unexpectedly dies."""
@@ -73,7 +76,7 @@ class WorkerQueue:
                 # check that all our threads are still alive
                 for w in self.workers:
                     if not w.is_alive():
-                        print("Internal error. Thread died. Killing other threads.")
+                        log.critical("Internal error. Thread died. Killing other threads.")
                         self.finish(True)
                         raise Exception("Internal error. Thread died.")
 
@@ -102,14 +105,14 @@ class WorkerQueue:
 
             for i in range(self.numthreads):
                 self.queue.put(None)
-            print("Waiting for threads to finish")
+            log.debug("Waiting for threads to finish")
             for w in self.workers:
                 w.join()
 
 
 
     def _setup_threads(self, process_func, initfunc, shutdownfunc):
-        print("Using", self.numthreads, "parallel threads.")
+        log.info("Using %d parallel threads.", self.numthreads)
         self.queue = queue.Queue(10*self.numthreads)
 
         self.workers = []
@@ -168,12 +171,12 @@ class ThreadableDBObject(object):
                              self._shutdown_worker_thread)
 
     def _init_worker_thread(self):
-        print("Initialising worker...")
+        log.debug("Initialising worker...")
         self.thread.conn = self.worker_engine.connect()
         self.thread.trans = self.thread.conn.begin()
 
     def _shutdown_worker_thread(self):
-        print("Shutting down worker...")
+        log.debug("Shutting down worker...")
         self.thread.trans.commit()
         self.thread.conn.close()
 

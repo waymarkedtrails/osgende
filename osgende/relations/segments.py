@@ -33,7 +33,6 @@ from osgende.subtable import TagSubTable
 from osgende.common.sqlalchemy import DropIndexIfExists
 import osgende.common.threads as othreads
 import shapely.geometry as sgeom
-from datetime import datetime as dt
 
 log = logging.getLogger(__name__)
 
@@ -112,14 +111,18 @@ class RouteSegments(object):
         with engine.begin() as conn:
             sortedrels = list(wayproc.relations)
             sortedrels.sort()
+            todo = len(sortedrels)
+            done = 0
             for rel in sortedrels:
-                print(dt.now(), "Processing relation",rel)
+                log.log(logging.INFO if done % 100 == 0 else logging.DEBUG,
+                        "Processing relation %d (%d %%)", rel, done * 100 / todo)
                 ways = conn.execute(stm_get_ways, { 'id' : rel })
                 for w in ways:
                     wayproc.add_way(conn, w[0])
 
                 # Put the ways collected so far into segments
                 wayproc.process_segments()
+                done += 1
 
             wayproc.finish()
 
@@ -133,10 +136,10 @@ class RouteSegments(object):
         """
         self._compute_first(engine)
         wayproc = _WayCollector(self, engine, precompute_intersections=False)
-        # print("Valid relations:", wayproc.relations)
+        log.debug("Valid relations:", wayproc.relations)
 
         with engine.begin() as conn:
-            print(dt.now(), "Collecting changed and new ways")
+            log.info("Collecting changed and new ways")
             wt = self.osmtables.way.data
             mt = self.osmtables.member.data
             rt = self.osmtables.relation.data
@@ -153,12 +156,12 @@ class RouteSegments(object):
             conn.execute(CreateTableAs('temp_updated_ways', sel))
             temp_ways = Table('temp_updated_ways', self.meta, autoload_with=conn)
 
-            print(dt.now(), "Adding those ways to changeset")
+            log.info("Adding those ways to changeset")
             res = conn.execute(temp_ways.select())
             for c in res:
                 wayproc.add_way(conn, c['id'], c['nodes'])
 
-            print(dt.now(), "Collecting points effected by update")
+            log.info("Collecting points effected by update")
             # collect all nodes that are affected by the update:
             #  1. nodes in segments whose relation or ways have changed
             waysel = select([self.osmtables.way.change.c.id])
@@ -177,7 +180,8 @@ class RouteSegments(object):
                                        union(segchg, waychg, ndchg).alias('sub')))
             temp_nodes = Table('temp_updated_nodes', self.meta, autoload_with=conn)
 
-            # print("Nodes needing updating:", self.select_column("SELECT * FROM temp_updated_nodes"))
+            log.debug("Nodes needing updating:",
+                      self.select_column("SELECT * FROM temp_updated_nodes"))
 
             # create a temporary function that scans our temporary
             # node table. This is hopefully faster than a full cross scan.
@@ -199,7 +203,7 @@ class RouteSegments(object):
                        CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id);
                    """)
             # throw out all segments that have one of these points
-            print(dt.now(), "Segments with bad intersections...")
+            log.info("Segments with bad intersections...")
             ret = [self.data.c.ways]
             if self.geom_change is not None:
                 ret.append(self.data.c.geom)
@@ -208,7 +212,6 @@ class RouteSegments(object):
                                  .returning(*ret))
             for c in res:
                 for w in c['ways']:
-                    #print(w)
                     wayproc.add_way(conn, w)
                 if self.geom_change is not None:
                     self.geom_change.add(c['geom'], 'D')
@@ -216,7 +219,7 @@ class RouteSegments(object):
             conn.execute("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
             # done, add the result back to the table
-            print(dt.now(), "Processing segments")
+            log.info("Processing segments")
             wayproc.process_segments()
             wayproc.finish()
 
@@ -254,7 +257,7 @@ class _WayCollector(ThreadableDBObject):
             self.relations.add(r['id'])
 
         if self.relations is None:
-            print("WARNING: no relevant relations found")
+            log.warning("WARNING: no relevant relations found")
         else:
             self.relations = set(self.relations)
 
@@ -290,10 +293,8 @@ class _WayCollector(ThreadableDBObject):
         wcur = conn.execute(self._stm_way_rels, { 'id' : way })
         membership = []
         for c in wcur:
-            # print("Potential member",c)
             if c[0] in self.relations:
                 membership.append((c[0], c[1]))
-                # print("approved")
         if len(membership) == 0:
             return
         # We actually only need to remember ways with more than one
@@ -347,7 +348,6 @@ class _WayCollector(ThreadableDBObject):
 
         while self.relgroups:
             (rels, collector) = self.relgroups.popitem()
-            # print("Processing collector", collector)
             relids = [x for (x,y) in rels]
             self.workers.add_task((relids, collector))
 
@@ -434,7 +434,7 @@ class _WayCollector(ThreadableDBObject):
 
             #self.db.commit()
         else:
-            print("Warning: empty way", way)
+            log.warning("empty way: %s", way)
 
 
 
@@ -460,7 +460,6 @@ class _SegmentCollector:
         # find all nodes that are forced intersecions
         splitidx = [x for x in range(len(nodes))
                      if nodes[x] in self.intersections]
-        # print("Split points:", splitidx)
         if len(splitidx) == 0 or splitidx[0] != 0:
             splitidx[:0] = [0]
         if splitidx[-1] != len(nodes)-1:

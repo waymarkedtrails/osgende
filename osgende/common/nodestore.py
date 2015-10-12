@@ -18,10 +18,14 @@
 File-backed storage for node geometries.
 """
 
+import logging
+
 from osmium import index, osm
 from binascii import hexlify
 from struct import pack
 from collections import namedtuple
+
+log = logging.getLogger(__name__)
 
 class NodeStorePoint(namedtuple('NodeStorePoint', ['x', 'y'])):
 
@@ -57,48 +61,48 @@ class NodeStore(object):
 
     def close(self):
         if hasattr(self, 'mapfile'):
-            print("Used memory by index: %d" % self.mapfile.used_memory())
+            log.info("Used memory by index: %d" % self.mapfile.used_memory())
             del self.mapfile
 
 
 if __name__ == '__main__':
-    print("Creating store...")
+    log.debug("Creating store...")
     store = NodeStore('test.store')
 
-    print("Filling store...")
+    log.debug("Filling store...")
     for i in range(25500,26000):
         store[i] = NodeStorePoint(1,i/1000.0)
 
     store.close()
     del store
 
-    print("Reloading store...")
+    log.debug("Reloading store...")
     store = NodeStore('test.store')
 
-    print("Checking store...")
+    log.debug("Checking store...")
     for i in range(25500,26000):
         assert store[i].y == i/1000.0
 
     try:
         x = store[1000]
     except KeyError:
-        print("Yeah!")
+        log.debug("Yeah!")
 
-    print("Filling store...")
+    log.debug("Filling store...")
     for i in range(100055500,100056000):
         store[i] = NodeStorePoint(i/10000000.0,1)
 
     store.close()
     del store
 
-    print("Reloading store...")
+    log.debug("Reloading store...")
     store = NodeStore('test.store')
 
-    print("Checking store...")
+    log.debug("Checking store...")
     for i in range(100055500,100056000):
         assert store[i].x == i/10000000.0
 
-    print("Checking store...")
+    log.debug("Checking store...")
     for i in range(25500,26000):
         assert store[i].y == i/1000.0
 
