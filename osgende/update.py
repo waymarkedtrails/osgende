@@ -39,7 +39,13 @@ class UpdatedGeometriesTable(object):
         self.stm_add = self.data.insert().compile()
 
     def clear(self, conn):
-        conn.execute(seld.data.delete())
+        conn.execute(self.data.delete())
+
+    def construct(self, engine):
+        self.clear(engine)
+
+    def update(self, engine):
+        self.clear(engine)
 
     def add(self, conn, geom, action='M'):
         conn.execute(self.stm_add, { 'geom' : geom, 'action' : action})

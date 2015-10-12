@@ -35,14 +35,15 @@ class NodeSubTable(TagSubTable):
 
     def __init__(self, meta, name, osmtables, subset=None, change=None,
                  column_geom='geom', geom_change=None):
-        TagSubTable.__init__(self, meta, name, osmtables.node, subset=subset,
+        super().__init__(meta, name, osmtables.node, subset=subset,
                              change=change)
         # need a geometry column
         if isinstance(column_geom, Column):
             self.column_geom = column_geom
+            srid = column_geom.type.srid
         else:
-            self.column_geom = Column(column_geom,
-                                      Geometry('POINT', srid=meta.info.get('srid', 4326)))
+            srid = meta.info.get('srid', self.src.data.c.geom.type.srid)
+            self.column_geom = Column(column_geom, Geometry('POINT', srid=srid))
         self.data.append_column(self.column_geom)
 
         # add an additional transform to the insert statement if the srid changes
@@ -52,7 +53,7 @@ class NodeSubTable(TagSubTable):
                 # XXX This ugly from_shape hack is here to be able to inject
                 # the geometry into the compiled expression later. This can't 
                 # be the right way to go about this. Better ideas welcome.
-                if self.src.data.c.geom.type.srid != self.column_geom.type.srid:
+                if self.src.data.c.geom.type.srid != srid:
                     params[c.name] = ST_Transform(from_shape(Point(0, 0), srid=0),
                                               self.column_geom.type.srid)
                 else:
@@ -71,7 +72,7 @@ class NodeSubTable(TagSubTable):
                 .where(self.id_column.in_(self.src.select_modify_delete()))
             )
 
-        TagSubTable.update(self, engine)
+        super().update(engine)
 
         if self.geom_change:
             self.geom_change.add_from_select(engine,

@@ -119,7 +119,7 @@ class JoinedWays(ThreadableDBObject):
                 else:
                     w = self.way_table.data.alias()
                     w2 = self.way_table.data.alias()
-                    res = conn.scalar(select([w.c.nodes.op('&&')(w2.c.nodes)])
+                    res = conn.scalar(select([w.c.nodes.overlap(w2.c.nodes)])
                                         .where(and_(w.c.id == wid, w2.c.id == cid)))
                     if res:
                         all_adjacent_ways.append(cid)

@@ -23,7 +23,7 @@ def step_impl(context, name):
     meta = MetaData()
 
     if name == 'Hiking':
-        subset = text("tags->'type' = 'route' AND tags->'route' = 'hiking'")
+        subset = "tags->'type' = 'route' AND tags->'route' = 'hiking'"
     else:
         assert_false("Unknown way table type", name)
 

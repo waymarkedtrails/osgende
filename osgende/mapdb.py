@@ -19,8 +19,10 @@ import logging
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.engine.url import URL
 from sqlalchemy.schema import CreateSchema
+from sqlalchemy_utils.functions import analyze
 
 from osgende.osmdata import OsmSourceTables
+from osgende.common.sqlalchemy import Analyse
 
 log = logging.getLogger(__name__)
 
@@ -49,15 +51,15 @@ class MapDB:
 
         self.osmdata = OsmSourceTables(MetaData(),
                                        nodestore=self.get_option('nodestore'))
-        self.engine = create_engine(dba)
+        self.engine = create_engine(dba, echo=self.get_option('echo_sql', False))
         self.metadata = MetaData(schema=self.get_option('schema'))
 
         self.tables = self.create_tables()
 
-    def get_option(self, option):
+    def get_option(self, option, default=None):
         """Return the value of the given option or None if not set.
         """
-        return getattr(self.options, option, None)
+        return getattr(self.options, option, default)
 
     def create(self):
         schema = self.get_option('schema')
@@ -79,24 +81,18 @@ class MapDB:
     def construct(self):
         for tab in self.tables:
             log.info("Importing %s..." % str(tab.data.name))
-            tab.construct()
+            tab.construct(self.engine)
 
     def update(self):
         for tab in self.tables:
             log.info("Updating %s..." % str(tab.data.name))
-            tab.construct()
+            tab.construct(self.engine)
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\
                  .execution_options(isolation_level="AUTOCOMMIT")
-        if dovacuum:
-            log.info("Vacuuming and analysing tables...")
-            cmd = "VACUUM ANALYSE %s"
-        else:
-            log.info("Analysing tables...")
-            cmd = "ANALYSE %s"
         with conn.begin() as trans:
             for tab in self.tables:
-                self.db.query(cmd % str(tab.data.name));
+                conn.execute(Analyse(tab.data, dovacuum));
 
 

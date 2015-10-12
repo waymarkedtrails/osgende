@@ -15,6 +15,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import logging
+
 from sqlalchemy import Table, Column, BigInteger, select, Index, or_, bindparam,\
                        case, union, text, column
 from sqlalchemy.sql import functions as sqlf
@@ -28,11 +30,14 @@ from sys import version_info as python_version
 import threading
 from osgende.common.geom import FusableWay
 from osgende.subtable import TagSubTable
+from osgende.common.sqlalchemy import DropIndexIfExists
 import osgende.common.threads as othreads
 import shapely.geometry as sgeom
 from datetime import datetime as dt
 
-class RouteSegments(ThreadableDBObject):
+log = logging.getLogger(__name__)
+
+class RouteSegments(object):
     """ Collects the geometries of route relations in a network.
 
         Segments are the basic way system of the network. They are the longest
@@ -46,13 +51,17 @@ class RouteSegments(ThreadableDBObject):
 
     def __init__(self, meta, name, osmtables,
                  subset=None, srid=None, geom_change=None):
-        self.subset = subset
+        if isinstance(subset, str):
+            self.subset = text(subset)
+        else:
+            self.subset = subset
         self.geom_change = geom_change
         self.osmtables = osmtables
         self.meta = meta
+        self.numthreads = None
 
         if srid is None:
-            srid = osmtables.node.data.c.geom.type.srid
+            srid = meta.info.get('srid', osmtables.node.data.c.geom.type.srid)
 
         self.data = Table(name, meta,
                           Column('id', BigInteger, primary_key=True),
@@ -61,6 +70,9 @@ class RouteSegments(ThreadableDBObject):
                           Column('rels', ARRAY(BigInteger)),
                           Column('geom', Geometry('LINESTRING', srid=srid))
                          )
+
+    def set_num_threads(self, num):
+        self.numthreads = num
 
     def truncate(self, engine):
         engine.execute(self.data.delete())
@@ -82,14 +94,22 @@ class RouteSegments(ThreadableDBObject):
                          .compile(engine)
         with engine.begin() as conn:
             self._compute_first(conn)
+
+            # manual indexes
+            relidx = Index("%s_rels_idx" % (self.data.name),
+                           self.data.c.rels, postgresql_using='gin')
+            wayidx = Index("%s_ways_idx" % (self.data.name),
+                           self.data.c.ways, postgresql_using='gin')
+            # drop indexes if any
+            conn.execute(DropIndexIfExists(relidx))
+            conn.execute(DropIndexIfExists(wayidx))
+
             self.truncate(conn)
 
-            # drop indexes if any
-            conn.execute('DROP INDEX IF EXISTS %s_rels_idx' % (self.data.name))
-            conn.execute('DROP INDEX IF EXISTS %s_ways_idx' % (self.data.name))
+            wayproc = _WayCollector(self, engine, creation_mode=True,
+                                    numthreads=self.numthreads)
 
-            wayproc = _WayCollector(self, engine, creation_mode=True)
-
+        with engine.begin() as conn:
             sortedrels = list(wayproc.relations)
             sortedrels.sort()
             for rel in sortedrels:
@@ -104,10 +124,8 @@ class RouteSegments(ThreadableDBObject):
             wayproc.finish()
 
             # finally prepare indices to speed up update
-            Index("%s_rels_idx" % (self.data.name),
-                  self.data.c.rels, postgresql_using='gin').create(conn)
-            Index("%s_ways_idx" % (self.data.name),
-                  self.data.c.ways, postgresql_using='gin').create(conn)
+            relidx.create(conn)
+            wayidx.create(conn)
 
 
     def update(self, engine):
@@ -143,12 +161,12 @@ class RouteSegments(ThreadableDBObject):
             print(dt.now(), "Collecting points effected by update")
             # collect all nodes that are affected by the update:
             #  1. nodes in segments whose relation or ways have changed
-            waysel = str(select([self.osmtables.way.change.c.id]))
-            relsel = str(select([self.osmtables.relation.change.c.id]))
+            waysel = select([self.osmtables.way.change.c.id])
+            relsel = select([self.osmtables.relation.change.c.id])
             segchg = select([sqlf.func.unnest(text('ARRAY[nodes[1],nodes[array_length(nodes,1)]]')).label('id')])\
                       .where(or_(
-                          self.data.c.ways.op('&&')(sqlf.func.ARRAY(text(waysel))),
-                          self.data.c.rels.op('&&')(sqlf.func.ARRAY(text(relsel)))
+                          self.data.c.ways.op('&& ARRAY')(waysel),
+                          self.data.c.rels.op('&& ARRAY')(relsel)
                             ))
             #  2. nodes in added or changed ways
             waychg = select([sqlf.func.unnest(temp_ways.c.nodes)])
@@ -220,7 +238,7 @@ class _WayCollector(ThreadableDBObject):
 
     def __init__(self, parent, engine,
                   creation_mode=False, precompute_intersections=True,
-                  numthreads=0):
+                  numthreads=None):
         self.src = parent
         self.not_creation_mode = not creation_mode
         self.intersections_from_ways = not precompute_intersections
@@ -247,6 +265,7 @@ class _WayCollector(ThreadableDBObject):
         self.relgroups = {}
 
         # the worker threads
+        self.set_num_threads(numthreads)
         self.workers = self.create_worker_queue(engine, self._process_next)
 
         # prepare the SQL we are going to need
@@ -305,7 +324,7 @@ class _WayCollector(ThreadableDBObject):
                     self._add_intersection(nodes[-1], 1)
 
         else:
-            print("No nodes. Dropped")
+            log.debug("No nodes. Dropped")
 
     def _add_intersection(self, nid, weight):
         if nid in self.collected_nodes:
@@ -390,7 +409,7 @@ class _WayCollector(ThreadableDBObject):
         for ele in c:
             self.intersections.add(ele['nid'])
 
-        print("Final intersections:", self.intersections)
+        log.debug("Final intersections:", self.intersections)
 
 
     def _write_segment(self, way, relations):
@@ -494,11 +513,11 @@ class Routes(TagSubTable):
     """
 
     def __init__(self, name, segments, hiertable=None):
+        self.segment_table = segments
+        self.hierarchy_table = hiertable
         TagSubTable.__init__(self, segments.meta, name,
                              segments.osmtables.relation,
                              subset=segments.subset)
-        self.segment_table = segments
-        self.hierarchy_table = hiertable
 
 
     def update(self, engine):

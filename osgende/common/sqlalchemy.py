@@ -17,6 +17,7 @@
 
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.expression import ClauseElement, Executable
+from sqlalchemy.schema import DDLElement
 
 
 class CreateTableAs(Executable, ClauseElement):
@@ -38,3 +39,31 @@ def _create_table_as(element, compiler, **kw):
     return "CREATE %s TABLE %s AS %s" % (
         element.prefix, element.name, compiler.process(element.query)
     )
+
+class Analyse(Executable, ClauseElement):
+
+    def __init__(self, table, dovacuum=False):
+        self.table = table
+        self.dovacuum = dovacuum
+
+
+@compiles(Analyse, "postgresql")
+def _analyse(element, compiler, **kw):
+    return "%sANALYSE %s" % (
+              "VACUUM " if element.dovacuum else '',
+               compiler.process(element.table, asfrom=True))
+
+
+class DropIndexIfExists(Executable, ClauseElement):
+
+    def __init__(self, index):
+        self.index = index
+
+
+@compiles(DropIndexIfExists, "postgresql")
+def _analyse(element, compiler, **kw):
+    if element.index.table is not None and element.index.table.schema:
+        schema = "%s." % (element.index.table.schema)
+    else:
+        schema = ''
+    return "DROP INDEX IF EXISTS %s%s" % (schema, element.index.name)
