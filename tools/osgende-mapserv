@@ -1,0 +1,198 @@
+#!/usr/bin/python3
+# This file is part of Osgende
+# Copyright (C) 2011-15 Sarah Hoffmann
+#               2013 Michael Spreng
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+"""
+ CherryPi tile server for tile databases generated with osgende-mapgen.
+"""
+
+import os
+from math import pi,exp,atan
+
+import cherrypy
+import mapnik
+
+DEFAULT_TESTMAP="""\
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Testmap - %(style)s</title>
+    <link rel="stylesheet" href="http://cdn.leafletjs.com/leaflet-0.7.5/leaflet.css" />
+</head>
+<body >
+    <div id="map" style="position: absolute; width: 99%%; height: 97%%"></div>
+
+    <script src="http://cdn.leafletjs.com/leaflet-0.7.5/leaflet.js"></script>
+    <script>
+        var map = L.map('map').setView([47.3317, 8.5017], 13);
+
+        L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+        }).addTo(map);
+        L.tileLayer('/%(style)s/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+        }).addTo(map);
+    </script>
+</body>
+</html>
+"""
+
+RAD_TO_DEG = 180/pi
+
+class TileProjection:
+    def __init__(self,levels=18):
+        self.Bc = []
+        self.Cc = []
+        self.zc = []
+        self.Ac = []
+        c = 256
+        for d in range(0,levels + 1):
+            e = c/2;
+            self.Bc.append(c/360.0)
+            self.Cc.append(c/(2 * pi))
+            self.zc.append((e,e))
+            self.Ac.append(c)
+            c *= 2
+
+    def fromTileToLL(self, zoom, x, y):
+         e = self.zc[zoom]
+         f = (x*256.0 - e[0])/self.Bc[zoom]
+         g = (y*256.0 - e[1])/-self.Cc[zoom]
+         h = RAD_TO_DEG * ( 2 * atan(exp(g)) - 0.5 * pi)
+         return (f,h)
+
+
+class DummyCache(object):
+    """ A tile cache that does not remember any tiles. 
+
+        Useful when testing out a new style.
+    """
+    def __init__(self, config):
+        pass
+
+    def get(self, zoom, x, y, fmt):
+        return None
+
+    def set(self, zoom, x, y, fmt, image):
+        pass
+
+
+class MapnikRenderer(object):
+    config = { 'formats' : [ 'png' ],
+               'tile_size' : (256, 256),
+               'max_zoom' : 18
+             }
+
+    def __init__(self, config):
+        if config is not None:
+            self.config.update(config)
+
+        self.map = mapnik.Map(*self.config['tile_size'])
+        if self.config['source_type'] == 'xml':
+            mapnik.load_map(self.map, self.config['source'])
+        self.mproj = mapnik.Projection(self.map.srs)
+        self.gproj = TileProjection(self.config['max_zoom'])
+
+    @classmethod
+    def set_global_config(cls, k, v):
+        cls.config[k] = v
+
+    def split_url(self, zoom, x, y):
+        ypt = y.find('.')
+        if ypt < 0:
+            return None
+        tiletype = y[ypt+1:]
+        if tiletype not in self.config['formats']:
+            return None
+        try:
+            return (int(zoom), int(x), int(y[:ypt]), tiletype)
+        except ValueError:
+            return None
+
+    def render(self, zoom, x, y, fmt):
+        p0 = self.gproj.fromTileToLL(zoom, x, y+1)
+        p1 = self.gproj.fromTileToLL(zoom, x+1, y)
+
+        c0 = self.mproj.forward(mapnik.Coord(p0[0],p0[1]))
+        c1 = self.mproj.forward(mapnik.Coord(p1[0],p1[1]))
+
+        bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
+        self.map.zoom_to_box(bbox)
+
+        im = mapnik.Image(256, 256)
+        mapnik.render(self.map, im)
+
+        return im.tostring('png256')
+
+
+@cherrypy.popargs('zoom', 'x', 'y')
+class TileServer(object):
+    cachecfg = { 'type' : 'DummyCache'}
+
+    def __init__(self, style):
+        self.style_name = style
+
+    def setup(self, app):
+        if 'Cache' in app.config:
+            self.cachecfg.update(app.config['Cache'])
+        cacheclass = globals()[self.cachecfg['type']]
+        self.cache = cacheclass(self.cachecfg)
+        self.renderer = MapnikRenderer(app.config.get('Renderer'))
+
+    @classmethod
+    def set_cache_config(cls, k, v):
+        cls.cachecfg[k] = v
+
+    @cherrypy.expose
+    def test_map(self):
+        return DEFAULT_TESTMAP % { 'style' : self.style_name }
+
+    @cherrypy.expose
+    @cherrypy.tools.response_headers(headers=[('Content-Type', 'image/png')])
+    def index(self, zoom, x, y):
+        tile_desc = self.renderer.split_url(zoom, x, y)
+        if tile_desc is None:
+            raise cherrypy.NotFound()
+
+        tile = self.cache.get(*tile_desc)
+        if tile is None:
+            tile = self.renderer.render(*tile_desc)
+
+        return tile
+
+
+def setup_sites(confpath):
+    cherrypy.config.namespaces['tilecache'] = TileServer.set_cache_config
+    cherrypy.config.namespaces['tileserver'] = MapnikRenderer.set_global_config
+
+    if os.path.exists(os.path.join(confpath, 'global.conf')):
+        cherrypy.config.update(os.path.join(confpath, 'global.conf'))
+
+    for f in os.listdir(confpath):
+        if f != 'global.conf' and f.endswith('.conf'):
+            server = TileServer(f[:-5])
+            app = cherrypy.tree.mount(server, '/' + f[:-5], os.path.join(confpath, f))
+            server.setup(app)
+    # now disable trailing slash
+    cherrypy.config.update({'tools.trailing_slash.on': False })
+
+
+setup_sites(os.environ['TILE_CONFIG_PATH'])
+
+if __name__ == '__main__':
+    cherrypy.engine.start()
+    cherrypy.engine.block()
