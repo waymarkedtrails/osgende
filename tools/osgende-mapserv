@@ -22,6 +22,7 @@
 
 import os
 import sys
+from threading import Lock
 from math import pi,exp,atan
 
 import cherrypy
@@ -115,6 +116,8 @@ class MapnikRenderer(object):
         self.mproj = mapnik.Projection(self.map.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
+        self.map_lock = Lock()
+
     @classmethod
     def set_global_config(cls, k, v):
         cls.config[k] = v
@@ -143,11 +146,11 @@ class MapnikRenderer(object):
         c1 = self.mproj.forward(mapnik.Coord(p1[0],p1[1]))
 
         bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
-        self.map.zoom_to_box(bbox)
-
         im = mapnik.Image(256, 256)
-        mapnik.render(self.map, im)
-        print(str(self.map.background))
+
+        with self.map_lock:
+            self.map.zoom_to_box(bbox)
+            mapnik.render(self.map, im)
 
         return im.tostring('png256')
 
