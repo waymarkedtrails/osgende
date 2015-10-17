@@ -41,9 +41,11 @@ class Ways(TagSubTable):
         # need a geometry column
         if isinstance(column_geom, Column):
             self.column_geom = column_geom
+            srid = column_geom.type.srid
         else:
+            srid = meta.info.get('srid', osmtables.node.data.c.geom.type.srid)
             self.column_geom = Column(column_geom,
-                                      Geometry('GEOMETRY', srid=src_srid))
+                                      Geometry('GEOMETRY', srid=srid))
         self.data.append_column(self.column_geom)
         self.osmtables = osmtables
         self.geom_change = geom_change
@@ -55,9 +57,9 @@ class Ways(TagSubTable):
                 # XXX This ugly from_shape hack is here to be able to inject
                 # the geometry into the compiled expression later. This can't 
                 # be the right way to go about this. Better ideas welcome.
-                if src_srid != self.column_geom.type.srid:
+                if src_srid != srid:
                     params[c.name] = ST_Transform(from_shape(Point(0, 0), srid=0),
-                                              self.column_geom.type.srid)
+                                                  srid)
                 else:
                     params[c.name] = from_shape(Point(0, 0), srid=0)
             else:
