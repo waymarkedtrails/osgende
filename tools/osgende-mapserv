@@ -21,6 +21,7 @@
 """
 
 import os
+import sys
 from math import pi,exp,atan
 
 import cherrypy
@@ -96,20 +97,31 @@ class MapnikRenderer(object):
                'tile_size' : (256, 256),
                'max_zoom' : 18
              }
+    stylecfg = {}
 
-    def __init__(self, config):
+    def __init__(self, config, styleconfig):
         if config is not None:
             self.config.update(config)
+        if styleconfig is not None:
+            self.stylecfg.update(styleconfig)
 
         self.map = mapnik.Map(*self.config['tile_size'])
         if self.config['source_type'] == 'xml':
             mapnik.load_map(self.map, self.config['source'])
+        if self.config['source_type'] == 'python':
+            __import__(self.config['source'])
+            sys.modules[self.config['source']].construct_map(self.map, self.stylecfg)
+            print(mapnik.save_map_to_string(self.map))
         self.mproj = mapnik.Projection(self.map.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
     @classmethod
     def set_global_config(cls, k, v):
         cls.config[k] = v
+
+    @classmethod
+    def set_style_config(cls, k, v):
+        cls.stylecfg[k] = v
 
     def split_url(self, zoom, x, y):
         ypt = y.find('.')
@@ -135,6 +147,7 @@ class MapnikRenderer(object):
 
         im = mapnik.Image(256, 256)
         mapnik.render(self.map, im)
+        print(str(self.map.background))
 
         return im.tostring('png256')
 
@@ -151,7 +164,8 @@ class TileServer(object):
             self.cachecfg.update(app.config['Cache'])
         cacheclass = globals()[self.cachecfg['type']]
         self.cache = cacheclass(self.cachecfg)
-        self.renderer = MapnikRenderer(app.config.get('Renderer'))
+        self.renderer = MapnikRenderer(app.config.get('Renderer'),
+                                       app.config.get('Style'))
 
     @classmethod
     def set_cache_config(cls, k, v):
@@ -178,6 +192,7 @@ class TileServer(object):
 def setup_sites(confpath):
     cherrypy.config.namespaces['tilecache'] = TileServer.set_cache_config
     cherrypy.config.namespaces['tileserver'] = MapnikRenderer.set_global_config
+    cherrypy.config.namespaces['tilestyle'] = MapnikRenderer.set_style_config
 
     if os.path.exists(os.path.join(confpath, 'global.conf')):
         cherrypy.config.update(os.path.join(confpath, 'global.conf'))
