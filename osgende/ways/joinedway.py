@@ -147,7 +147,6 @@ class JoinedWays(ThreadableDBObject):
 
             # only insert ways that have neighbours
             if len(merge_list) > 1:
-                print(merge_list)
                 conn.execute(self.data.insert(),
                              [ { 'virtual_id' : wid, 'child' : x } for x in merge_list ])
 
