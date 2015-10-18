@@ -45,7 +45,7 @@ DEFAULT_TESTMAP="""\
         L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 18,
         }).addTo(map);
-        L.tileLayer('/%(style)s/{z}/{x}/{y}.png', {
+        L.tileLayer('%(script_name)s/%(style)s/{z}/{x}/{y}.png', {
             maxZoom: 18,
         }).addTo(map);
     </script>
@@ -93,6 +93,13 @@ class DummyCache(object):
         pass
 
 
+class DummyCM(object):
+
+    def __enter__( self ):
+        pass
+    def __exit__( self, type, value, tb ):
+        pass
+
 class MapnikRenderer(object):
     config = { 'formats' : [ 'png' ],
                'tile_size' : (256, 256),
@@ -116,7 +123,10 @@ class MapnikRenderer(object):
         self.mproj = mapnik.Projection(self.map.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
-        self.map_lock = Lock()
+        if self.config['locking']:
+            self.map_lock = Lock()
+        else:
+            self.map_lock = DummyCM()
 
     @classmethod
     def set_global_config(cls, k, v):
@@ -159,8 +169,9 @@ class MapnikRenderer(object):
 class TileServer(object):
     cachecfg = { 'type' : 'DummyCache'}
 
-    def __init__(self, style):
+    def __init__(self, style, script_name):
         self.style_name = style
+        self.script_name = script_name
 
     def setup(self, app):
         if 'Cache' in app.config:
@@ -176,7 +187,8 @@ class TileServer(object):
 
     @cherrypy.expose
     def test_map(self):
-        return DEFAULT_TESTMAP % { 'style' : self.style_name }
+        return DEFAULT_TESTMAP % { 'style' : self.style_name,
+                                   'script_name' : self.script_name }
 
     @cherrypy.expose
     @cherrypy.tools.response_headers(headers=[('Content-Type', 'image/png')])
@@ -192,25 +204,33 @@ class TileServer(object):
         return tile
 
 
-def setup_sites(confpath):
+def setup_sites(confpath, needs_lock=False, script_name=''):
     cherrypy.config.namespaces['tilecache'] = TileServer.set_cache_config
     cherrypy.config.namespaces['tileserver'] = MapnikRenderer.set_global_config
     cherrypy.config.namespaces['tilestyle'] = MapnikRenderer.set_style_config
+
+    MapnikRenderer.set_global_config('locking', needs_lock)
 
     if os.path.exists(os.path.join(confpath, 'global.conf')):
         cherrypy.config.update(os.path.join(confpath, 'global.conf'))
 
     for f in os.listdir(confpath):
         if f != 'global.conf' and f.endswith('.conf'):
-            server = TileServer(f[:-5])
-            app = cherrypy.tree.mount(server, '/' + f[:-5], os.path.join(confpath, f))
+            server = TileServer(f[:-5], script_name)
+            app = cherrypy.tree.mount(server, script_name + '/' + f[:-5], os.path.join(confpath, f))
             server.setup(app)
     # now disable trailing slash
     cherrypy.config.update({'tools.trailing_slash.on': False })
 
 
-setup_sites(os.environ['TILE_CONFIG_PATH'])
+def application(environ, start_response):
+    """ Handler for WSGI appications.
+        Must NOT be run with threading enabled."""
+    setup_sites(environ['TILE_CONFIG_PATH'], script_name=environ['SCRIPT_NAME'])
+    globals()['application'] = cherrypy.tree
+    return cherrypy.tree(environ, start_response)
 
 if __name__ == '__main__':
+    setup_sites(os.environ['TILE_CONFIG_PATH'], needs_lock=True)
     cherrypy.engine.start()
     cherrypy.engine.block()
