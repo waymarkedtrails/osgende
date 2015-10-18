@@ -78,7 +78,7 @@ class TableSource:
 
         where = self.id_column.in_(self.select_add_modify())
         if subset is not None:
-            where = _and(subset, where)
+            where = and_(subset, where)
 
         return self.data.select().where(where)
 

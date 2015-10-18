@@ -18,7 +18,7 @@
 import logging
 
 from sqlalchemy import Table, Column, BigInteger, select, Index, or_, bindparam,\
-                       case, union, text, column
+                       case, union, text, column, MetaData
 from sqlalchemy.sql import functions as sqlf
 from sqlalchemy.dialects.postgresql import ARRAY, array
 from geoalchemy2 import Geometry
@@ -154,7 +154,7 @@ class RouteSegments(object):
                                      self.osmtables.way.select_modify())))
                   ))
             conn.execute(CreateTableAs('temp_updated_ways', sel))
-            temp_ways = Table('temp_updated_ways', self.meta, autoload_with=conn)
+            temp_ways = Table('temp_updated_ways', MetaData(), autoload_with=conn)
 
             log.info("Adding those ways to changeset")
             res = conn.execute(temp_ways.select())
@@ -178,10 +178,11 @@ class RouteSegments(object):
 
             conn.execute(CreateTableAs('temp_updated_nodes',
                                        union(segchg, waychg, ndchg).alias('sub')))
-            temp_nodes = Table('temp_updated_nodes', self.meta, autoload_with=conn)
+            temp_nodes = Table('temp_updated_nodes', MetaData(), autoload_with=conn)
 
-            log.debug("Nodes needing updating:",
-                      self.select_column("SELECT * FROM temp_updated_nodes"))
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug("Nodes needing updating:",
+                          self.select_column("SELECT * FROM temp_updated_nodes"))
 
             # create a temporary function that scans our temporary
             # node table. This is hopefully faster than a full cross scan.
@@ -214,7 +215,7 @@ class RouteSegments(object):
                 for w in c['ways']:
                     wayproc.add_way(conn, w)
                 if self.geom_change is not None:
-                    self.geom_change.add(c['geom'], 'D')
+                    self.geom_change.add(conn, c['geom'], 'D')
 
             conn.execute("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
@@ -225,7 +226,7 @@ class RouteSegments(object):
 
             # add all newly created segments to the update table
             if self.geom_change is not None:
-                self.geom_change.add_from_select(
+                self.geom_change.add_from_select(conn,
                       select([ text("'M'"), self.data.c.geom])
                         .where(self.data.c.id >= self.first_new_id))
 
@@ -537,9 +538,10 @@ class Routes(TagSubTable):
                        .where(self.hierarchy_table.data.c.child.in_(
                                 sel.union(self.src.select_add_modify())))
 
-            conn.execute(CreateTableAs('__tmp_osgende_routes_updaterels', sel))
+            conn.execute(CreateTableAs('__tmp_osgende_routes_updaterels', sel,
+                         temporary=False))
             tmp_rels = Table('__tmp_osgende_routes_updaterels',
-                             self.segment_table.meta, autoload_with=conn)
+                             MetaData(), autoload_with=conn)
 
             conn.execute(self.data.delete()\
                            .where(self.id_column.in_(tmp_rels.select())))
