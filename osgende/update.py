@@ -36,7 +36,6 @@ class UpdatedGeometriesTable(object):
         self.data = Table(name, meta,
                            Column('action', String(1)),
                            Column('geom', Geometry('GEOMETRY', srid=srid)))
-        self.stm_add = self.data.insert().compile()
 
     def clear(self, conn):
         conn.execute(self.data.delete())
@@ -48,7 +47,7 @@ class UpdatedGeometriesTable(object):
         self.clear(engine)
 
     def add(self, conn, geom, action='M'):
-        conn.execute(self.stm_add, { 'geom' : geom, 'action' : action})
+        conn.execute(self.data.insert().values(geom=geom, action=action))
 
     def add_from_select(self, conn, stm):
         conn.execute(self.data.insert().from_select(self.data.c, stm))
