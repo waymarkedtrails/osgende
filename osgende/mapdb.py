@@ -86,7 +86,7 @@ class MapDB:
     def update(self):
         for tab in self.tables:
             log.info("Updating %s..." % str(tab.data.name))
-            tab.construct(self.engine)
+            tab.update(self.engine)
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\
