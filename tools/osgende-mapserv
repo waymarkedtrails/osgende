@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # This file is part of Osgende
 # Copyright (C) 2011-15 Sarah Hoffmann
-#               2013 Michael Spreng
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -115,7 +114,11 @@ class MapnikRenderer(object):
 
         self.map = mapnik.Map(*self.config['tile_size'])
         if self.config['source_type'] == 'xml':
-            mapnik.load_map(self.map, self.config['source'])
+            if os.path.isabs(self.config['source']):
+                src = self.config['source']
+            else:
+                src = os.path.join(cherrypy.config['CONFIG_PATH'], self.config['source'])
+            mapnik.load_map(self.map, src)
         if self.config['source_type'] == 'python':
             __import__(self.config['source'])
             sys.modules[self.config['source']].construct_map(self.map, self.stylecfg)
@@ -211,6 +214,7 @@ def setup_sites(confpath, needs_lock=False, script_name=''):
 
     MapnikRenderer.set_global_config('locking', needs_lock)
 
+    cherrypy.config['CONFIG_PATH'] = confpath
     if os.path.exists(os.path.join(confpath, 'global.conf')):
         cherrypy.config.update(os.path.join(confpath, 'global.conf'))
 
@@ -227,6 +231,7 @@ def application(environ, start_response):
     """ Handler for WSGI appications.
         Must NOT be run with threading enabled."""
     setup_sites(environ['TILE_CONFIG_PATH'], script_name=environ['SCRIPT_NAME'])
+    cherrypy.config.update({'log.wsgi' : True, 'log.screen' : False })
     globals()['application'] = cherrypy.tree
     return cherrypy.tree(environ, start_response)
 
