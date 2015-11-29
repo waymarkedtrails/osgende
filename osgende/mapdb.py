@@ -45,13 +45,14 @@ class MapDB:
 
     def __init__(self, options):
         self.options = options
-
-        dba = URL('postgresql', username=options.username,
-                  password=options.password, database=options.database)
-
         self.osmdata = OsmSourceTables(MetaData(),
                                        nodestore=self.get_option('nodestore'))
-        self.engine = create_engine(dba, echo=self.get_option('echo_sql', False))
+
+        if not self.get_option('no_engine'):
+            dba = URL('postgresql', username=options.username,
+                      password=options.password, database=options.database)
+            self.engine = create_engine(dba, echo=self.get_option('echo_sql', False))
+
         self.metadata = MetaData(schema=self.get_option('schema'))
 
         self.tables = self.create_tables()
