@@ -32,12 +32,12 @@ DEFAULT_TESTMAP="""\
 <html>
 <head>
     <title>Testmap - %(style)s</title>
-    <link rel="stylesheet" href="http://cdn.leafletjs.com/leaflet-0.7.5/leaflet.css" />
+    <link rel="stylesheet" href="%(leaflet_path)s/leaflet.css" />
 </head>
 <body >
     <div id="map" style="position: absolute; width: 99%%; height: 97%%"></div>
 
-    <script src="http://cdn.leafletjs.com/leaflet-0.7.5/leaflet.js"></script>
+    <script src="%(leaflet_path)s/leaflet.js"></script>
     <script>
         var map = L.map('map').setView([47.3317, 8.5017], 13);
 
@@ -92,13 +92,6 @@ class DummyCache(object):
         pass
 
 
-class DummyCM(object):
-
-    def __enter__( self ):
-        pass
-    def __exit__( self, type, value, tb ):
-        pass
-
 class MapnikRenderer(object):
     config = { 'formats' : [ 'png' ],
                'tile_size' : (256, 256),
@@ -106,7 +99,7 @@ class MapnikRenderer(object):
              }
     stylecfg = {}
 
-    def __init__(self, config, styleconfig):
+    def __init__(self, config, styleconfig, needs_locking=False):
         if config is not None:
             self.config.update(config)
         if styleconfig is not None:
@@ -114,10 +107,7 @@ class MapnikRenderer(object):
 
         self.map = mapnik.Map(*self.config['tile_size'])
         if self.config['source_type'] == 'xml':
-            if os.path.isabs(self.config['source']):
-                src = self.config['source']
-            else:
-                src = os.path.join(cherrypy.config['CONFIG_PATH'], self.config['source'])
+            src = os.path.join(self.config['source'])
             mapnik.load_map(self.map, src)
         if self.config['source_type'] == 'python':
             __import__(self.config['source'])
@@ -126,18 +116,11 @@ class MapnikRenderer(object):
         self.mproj = mapnik.Projection(self.map.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
-        if self.config['locking']:
+        if needs_locking:
             self.map_lock = Lock()
+            self.render_image = self._render_with_lock
         else:
-            self.map_lock = DummyCM()
-
-    @classmethod
-    def set_global_config(cls, k, v):
-        cls.config[k] = v
-
-    @classmethod
-    def set_style_config(cls, k, v):
-        cls.stylecfg[k] = v
+            self.render_image = self._render_without_lock
 
     def split_url(self, zoom, x, y):
         ypt = y.find('.')
@@ -161,11 +144,18 @@ class MapnikRenderer(object):
         bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
         im = mapnik.Image(256, 256)
 
+        self.render_image(bbox, im)
+
+        return im.tostring('png256')
+
+    def _render_with_lock(self, bbox, im):
         with self.map_lock:
             self.map.zoom_to_box(bbox)
             mapnik.render(self.map, im)
 
-        return im.tostring('png256')
+    def _render_without_lock(self, bbox, im):
+        self.map.zoom_to_box(bbox)
+        mapnik.render(self.map, im)
 
 
 @cherrypy.popargs('zoom', 'x', 'y')
@@ -176,22 +166,20 @@ class TileServer(object):
         self.style_name = style
         self.script_name = script_name
 
-    def setup(self, app):
-        if 'Cache' in app.config:
-            self.cachecfg.update(app.config['Cache'])
+    def setup(self, app, config, needs_lock):
+        if 'TILE_CACHE' in config:
+            self.cachecfg.update(config['TILE_CACHE'])
         cacheclass = globals()[self.cachecfg['type']]
         self.cache = cacheclass(self.cachecfg)
-        self.renderer = MapnikRenderer(app.config.get('Renderer'),
-                                       app.config.get('Style'))
-
-    @classmethod
-    def set_cache_config(cls, k, v):
-        cls.cachecfg[k] = v
+        self.renderer = MapnikRenderer(config.get('RENDERER'),
+                                       config.get('TILE_STYLE'),
+                                       needs_lock)
 
     @cherrypy.expose
     def test_map(self):
         return DEFAULT_TESTMAP % { 'style' : self.style_name,
-                                   'script_name' : self.script_name }
+                                   'script_name' : self.script_name,
+                                   'leaflet_path' : os.environ.get('LEAFLET_PATH', 'http://cdn.leafletjs.com/leaflet-0.7.5')}
 
     @cherrypy.expose
     @cherrypy.tools.response_headers(headers=[('Content-Type', 'image/png')])
@@ -207,22 +195,22 @@ class TileServer(object):
         return tile
 
 
-def setup_sites(confpath, needs_lock=False, script_name=''):
-    cherrypy.config.namespaces['tilecache'] = TileServer.set_cache_config
-    cherrypy.config.namespaces['tileserver'] = MapnikRenderer.set_global_config
-    cherrypy.config.namespaces['tilestyle'] = MapnikRenderer.set_style_config
+def setup_sites(sites, needs_lock=False, script_name=''):
+    for site in sites:
+        try:
+            __import__(site)
+        except ImportError:
+            print("Missing config for site '%s'. Skipping." % site)
+            continue
 
-    MapnikRenderer.set_global_config('locking', needs_lock)
+        site_cfg = {}
+        for var in dir(sys.modules[site]):
+            site_cfg[var] = getattr(sys.modules[site], var)
 
-    cherrypy.config['CONFIG_PATH'] = confpath
-    if os.path.exists(os.path.join(confpath, 'global.conf')):
-        cherrypy.config.update(os.path.join(confpath, 'global.conf'))
-
-    for f in os.listdir(confpath):
-        if f != 'global.conf' and f.endswith('.conf'):
-            server = TileServer(f[:-5], script_name)
-            app = cherrypy.tree.mount(server, script_name + '/' + f[:-5], os.path.join(confpath, f))
-            server.setup(app)
+        basename = site.split('.')[-1]
+        server = TileServer(basename, script_name)
+        app = cherrypy.tree.mount(server,  script_name + '/' + basename)
+        server.setup(app, site_cfg, needs_lock)
     # now disable trailing slash
     cherrypy.config.update({'tools.trailing_slash.on': False })
 
@@ -230,12 +218,13 @@ def setup_sites(confpath, needs_lock=False, script_name=''):
 def application(environ, start_response):
     """ Handler for WSGI appications.
         Must NOT be run with threading enabled."""
-    setup_sites(environ['TILE_CONFIG_PATH'], script_name=environ['SCRIPT_NAME'])
+    setup_sites(environ['TILE_SITES'].split(','),
+                script_name=environ['SCRIPT_NAME'])
     cherrypy.config.update({'log.wsgi' : True, 'log.screen' : False })
     globals()['application'] = cherrypy.tree
     return cherrypy.tree(environ, start_response)
 
 if __name__ == '__main__':
-    setup_sites(os.environ['TILE_CONFIG_PATH'], needs_lock=True)
+    setup_sites(os.environ['TILE_SITES'].split(','), needs_lock=True)
     cherrypy.engine.start()
     cherrypy.engine.block()
