@@ -23,6 +23,8 @@ unit_re = re.compile("\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
 # conversion matrix for units of length
 length_matrix = { 'km' : { 'm' : 0.001,
                            'mi' : 1.6093 },
+                  'm' : { 'km' : 1000,
+                          'mi' : 1609.3 }
                 }
 
 class TagStore(dict):
@@ -34,37 +36,35 @@ class TagStore(dict):
     def __init__(self, *args):
         dict.__init__(self, *args)
 
-    def get_localized_tagstore(self, locales):
+    @staticmethod
+    def make_localized(tags, locales):
         """Returns a TagStore with localization replacements.
 
-           locales must be a hash where the keys are language
-           codes and the values are weights. Larger weights are
-           preferred.
+           locales must be a list of language codes with
+           decreasing preference.
         """
         ret = TagStore()
         tagweights = {}
-        for k,v in self.items():
+        for k,v in tags.items():
             idx = k.find(':')
-            if idx > 0 and k[idx+1:] in locales:
+            lang = k[idx+1:]
+            if idx > 0 and lang in locales:
+                w = locales.index(k[idx+1:])
                 outkey = k[:idx]
-                w = locales[k[idx+1:]]
-                if outkey not in ret or w > tagweights[outkey]:
+                if w < tagweights.get(outkey, 1000):
                     ret[outkey] = v
                     tagweights[outkey] = w
             else:
-                if k not in ret:
-                    ret[k] = v
-                    tagweights[k] = -1000.0
+                ret[k] = v
+                tagweights[k] = 1000
+
         return ret
 
-    def get_firstof(self, tags, default=None):
+
+    def firstof(self, *tags, default=None):
         """ Return the first tag value for which an entry
             exists in the tags store.
         """
-
-        if isinstance(tags, str):
-            return self.get(tags, default)
-
         for t in tags:
             val = self.get(t)
             if val is not None:
@@ -89,46 +89,41 @@ class TagStore(dict):
         return ret
 
 
-    def get_wikipedia_url(self, locales=None):
+    def get_wikipedia_url(self, as_url=True):
         """Return a link to the wikipedia page for the object.
            Supports tags of the following formats:
            * wikipedia=<page>  (assumes English wikipedia)
            * wikipedia=<lang>:<page>
            * wikipedia:<lang>=<page>
 
-           where <page> may either be just the page name or the
-           complete url.
-
-           locales allows to state the preferred language
-           if multiple tags are available.
+           If `as_url` is true, then <page> may be either a
+           complete URL or a page name. If it set to false, URLs
+           in <page> are ignored.
         """
-        ret = None # triple of weight, language, link
-        if locales is None:
-            locales = {'en' : 1.0}
-        for k,v in self.items():
-            newurl = None # tuple of languge, link
-            if k == 'wikipedia':
-                if len(v) > 3 and v[2] == ':':
-                    newurl = (v[:2], v[3:])
-                else:
-                    newurl = ('en', v)
-            elif k.startswith('wikipedia:'):
-                newurl = (k[10:], v)
-            if newurl is not None:
-                w = locales.get(newurl[0], 0)
-                if ret is None or w > ret[0]:
-                    ret = (w, newurl[0], newurl[1])
-
-        if ret is None:
-            return None
-        else:
-            # paranoia, avoid HTML injection
-            ret[2].replace('"', '%22')
-            ret[2].replace("'", '%27')
-            if ret[2].startswith('http:'):
-                return ret[2]
+        entry = None # triple of weight, language, link
+        if 'wikipedia' in self:
+            v = self['wikipedia']
+            idx = v.find(':')
+            if idx in (2, 3):
+                entry = (v[:idx], v[idx+1:])
             else:
-                return 'http://%s.wikipedia.org/wiki/%s' % (ret[1], ret[2])
+                entry = ('en', v)
+
+        if ret is None or (not as_url and ret[1].startswith('http')):
+            for k,v in self.items():
+                if k.startswith('wikipedia:') and (as_url or not v.startswith('http')):
+                    entry = (k[10:], v)
+                    break
+            else:
+                return None
+
+        # paranoia, avoid HTML injection
+        ret[1].replace('"', '%22')
+        ret[1].replace("'", '%27')
+        if ret[1].startswith('http'):
+            return ret[1] if as_url else None
+
+        return 'http://%s.wikipedia.org/wiki/%s' % ret
 
     def get_wikipedia_tags(self):
         """Return a dictionary of available wikipedia links.
@@ -145,13 +140,14 @@ class TagStore(dict):
         ret = {}
         for k,v in self.items():
             if k == 'wikipedia':
-                if len(v) > 3 and v[2] == ':':
-                    ret[v[:2]] = v[3:]
-                elif len(v) > 4 and v[3] == ':' :
-                    ret[v[:3]] = v[4:]
+                idx = v.find(':')
+                if idx in (2, 3):
+                    if not v[idx+1:].startswith('http'):
+                        ret[v[:idx]] = v[idx+1:]
                 else:
-                    ret['en'] = v
-            elif k.startswith('wikipedia:'):
+                    if not v.startswith('http'):
+                        ret['en'] = v
+            elif k.startswith('wikipedia:') and not v.startswith('http'):
                 ret[k[10:]] = v
 
         return ret
@@ -161,7 +157,7 @@ class TagStore(dict):
         """Return a properly encoded URL for the object.
            Supports `website` and `url` tags, with and without protocol prefix.
         """
-        ret = self.get_firstof('url', 'website')
+        ret = self.firstof('url', 'website')
 
         if ret is not None:
             # paranoia, to avoid HTML injection
@@ -173,7 +169,7 @@ class TagStore(dict):
 
         return ret
 
-    def get_as_length(self, tags, unit='km', default='km'):
+    def get_length(self, *tags, unit='km', default='km'):
         """ Return a tag as a distance using the given unit.
             If tags is an iterable, the first tag given is used.
 
@@ -183,22 +179,22 @@ class TagStore(dict):
         if unit not in length_matrix:
             raise Error('Unknown distance unit')
 
-        tag = self.get_firstof(tags)
-        val = None
+        tag = self.firstof(*tags)
+        if tag is None:
+            return None
 
-        if tag is not None:
-            m = unit_re.match(tag)
-            if m is not None:
-                if m.group(3) is None:
-                    mag = float(m.group(1))
-                else:
-                    mag = float('%s.%s' % (m.group(1), m.group(3)))
-                tagunit = m.group(4).lower()
-                if tagunit == '':
-                    tagunit = default
-                if tagunit == unit:
-                    val = mag
-                elif tagunit in length_matrix[unit]:
-                    val = mag * length_matrix[unit][tagunit]
+        m = unit_re.match(tag)
+        if m is not None:
+            if m.group(3) is None:
+                mag = float(m.group(1))
+            else:
+                mag = float('%s.%s' % (m.group(1), m.group(3)))
+            tagunit = m.group(4).lower()
+            if tagunit == '':
+                tagunit = default
+            if tagunit == unit:
+                return mag
+            elif tagunit in length_matrix[unit]:
+                return mag * length_matrix[unit][tagunit]
 
-        return val
+        return None
