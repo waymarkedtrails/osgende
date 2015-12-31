@@ -658,9 +658,8 @@ if __name__ == '__main__':
 
     if options.changetable is None:
         log.warning("""\
-Warning: no change table supplied. This will lead to every tile'
-being considered changed and therefore processed, which'
-probably is not what you intended.""")
+Warning: no change table supplied. This will lead to every tile being considered
+changed and therefore processed, which probably is not what you intended.""")
         if options.datatable is not None:
             log.warning('Info: For initialisation supply your data table as -c and omit -q')
 
