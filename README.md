@@ -38,7 +38,7 @@ Installation
 
 Osgende can be installed using Python's default setup tools:
 
-  python3 setup.py install
+    python3 setup.py install
 
 Usage
 -----
@@ -50,10 +50,10 @@ the OSM data you like to process. You can use the osgende-import tool
 to create such a database. To create a new database and import an
 OSM file into the database run:
 
-  osgende-import -d planet -c -i liechtenstein.osm.pbf
+    osgende-import -d planet -c -i liechtenstein.osm.pbf
 
 It is strongly recommended that you make use of an external node
-location file to speed up processing using the -n option.
+location file to speed up processing using the `-n` option.
 
 ### Creating a custom Database
 
