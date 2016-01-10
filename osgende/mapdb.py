@@ -77,7 +77,11 @@ class MapDB:
         if rouser is not None:
             with self.engine.begin() as conn:
                 for t in self.tables:
-                    conn.execute('GRANT SELECT ON TABLE %s TO "%s"' % (str(t.data.name), rouser))
+                    if schema:
+                        tname = '%s.%s' % (schema, str(t.data.name))
+                    else:
+                        tname = str(t.data.name)
+                    conn.execute('GRANT SELECT ON TABLE %s TO "%s"' % (tname, rouser))
 
     def construct(self):
         for tab in self.tables:
