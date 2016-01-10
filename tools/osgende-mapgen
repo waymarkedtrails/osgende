@@ -304,7 +304,7 @@ class Tile:
 
 
 class MapnikOverlayGenerator:
-    """Generates tiles in Google format in a top-down way.
+    """Generates tiles in spherical mercator format in a top-down way.
 
        It will start at the lowest zoomlevel, render a tile, then its
        subtiles and so on until the highest zoomlevel. Then it proceeds
@@ -360,14 +360,14 @@ class MapnikOverlayGenerator:
         def boxquery3857 (xmin, ymin, xmax, ymax):
             return basequery("ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)" % (xmin, ymin, xmax, ymax))
 
-        boxquery = boxquery900913
+        boxquery = boxquery3857
         cur = self.conn.cursor()
         try:
             cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
         except Exception:
             # did not work, try the other projection
             self.conn.rollback()
-            boxquery = boxquery3857
+            boxquery = boxquery900913
             try:
                 cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
             finally:
