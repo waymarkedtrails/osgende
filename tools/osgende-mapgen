@@ -69,6 +69,12 @@ def mk_tileid(zoom, x, y):
     """
     return zoom + (x << 5) + (y << (5 + zoom))
 
+def mk_dba(user, dbname):
+    if user is None:
+        return 'dbname=%s' % dbname
+    else:
+        return 'user=%s dbname=%s' %(user, dbname)
+
 class TileWriterFilesystem:
     """
        If 'tilenumber_rewrite' is True, then for tiles of zoomlevel 10 and
@@ -553,7 +559,7 @@ class MapGenOptions(Option):
             pos = value.index('-')
             return (int(value[0:pos]), int(value[pos+1:])+1)
         except:
-            raise optparse.OptionValueError(
+            raise OptionValueError(
             "option %s: expect a range, e.g 0-19, got %s" % (opt, value))
 
     def check_inttuple(option, opt, value):
@@ -561,7 +567,7 @@ class MapGenOptions(Option):
             pos = value.index(',')
             return (int(value[0:pos]), int(value[pos+1:]))
         except:
-            raise optparse.OptionValueError(
+            raise OptionValueError(
             "option %s: expect a tuple of numbers, e.g 10,19, got %s" % (opt, value))
 
 
@@ -598,7 +604,7 @@ if __name__ == '__main__':
     OptionParser.format_epilog = lambda self, formatter: self.epilog
     parser.add_option('-d', action='store', dest='database', default='planet',
                        help='name of database')
-    parser.add_option('-u', action='store', dest='username', default='osm',
+    parser.add_option('-u', action='store', dest='username', default=None,
                        help='database user')
     parser.add_option('-p', action='store', dest='password', default='',
                        help='password for database')
@@ -614,9 +620,9 @@ if __name__ == '__main__':
                        help='table to query for updated objects (column is always geom)')
     parser.add_option('-j', action='store', dest='numprocesses', default=numproc, type='int',
             help='number of parallel processes to use (default: %d)' % numproc)
-    parser.add_option('-o', action='store', dest='output', default='filesystem', type='choice',
+    parser.add_option('-o', action='store', dest='output', default='postgresql', type='choice',
                        choices=('filesystem', 'sqlite3', 'postgresql'),
-                       help='where to output the tiles, default: filesystem (see also below)')
+                       help='where to output the tiles, default: postgresql (see also below)')
     parser.add_option('-r', action='store_true', dest='rewrite_tileschema', default=False,
                        help='for filesystem storage: split tile numbers for high zoom levels')
     parser.add_option('-T', action='store', dest='table', default='maps',
@@ -650,8 +656,7 @@ if __name__ == '__main__':
     elif options.output == 'sqlite3':
         writer = TileWriterSqlite3(args[1], options.table)
     elif options.output == 'postgresql':
-        writer = TileWriterPSQL('user=%s dbname=%s' % 
-                                 (options.username, args[1]), options.table)
+        writer = TileWriterPSQL(mk_dba(options.username, args[1]), options.table)
     else:
         log.critical("Unknown storage backend '%s'", options.output)
         exit(-1)
@@ -665,11 +670,10 @@ changed and therefore processed, which probably is not what you intended.""")
 
     dataquery = make_table_query(options.datatable)
     changequery = make_table_query(options.changetable)
-    renderer = MapnikOverlayGenerator('user=%s dbname=%s' % 
-                                        (options.username, options.database),
-                         dataquery=dataquery,
-                         changequery=changequery,
-                         numprocesses=options.numprocesses,
-                         prerender=options.prerender)
+    renderer = MapnikOverlayGenerator(mk_dba(options.username, options.database),
+                                      dataquery=dataquery,
+                                      changequery=changequery,
+                                      numprocesses=options.numprocesses,
+                                      prerender=options.prerender)
     renderer.check_mapnik_version(701)
     renderer.render(writer, args[0], box)
