@@ -77,6 +77,13 @@ class TileProjection:
          return (f,h)
 
 
+def mk_tileid(zoom, x, y):
+    """Create a unique 64 bit tile ID.
+       Works up to zoom level 24."
+    """
+    return zoom + (x << 5) + (y << (5 + zoom))
+
+
 class DummyCache(object):
     """ A tile cache that does not remember any tiles. 
 
@@ -88,8 +95,44 @@ class DummyCache(object):
     def get(self, zoom, x, y, fmt):
         return None
 
-    def set(self, zoom, x, y, fmt, image):
+    def set(self, zoom, x, y, fmt, image=None):
         pass
+
+
+class PostgresCache(object):
+    """ A cache that saves tiles in postgres.
+    """
+
+    def __init__(self, config):
+        self.empty = {}
+        for fmt, fname in config['empty_tile'].items():
+            with open(fname, 'rb') as myfile:
+                self.empty[fmt] = myfile.read()
+
+        self.pg = __import__('psycopg2')
+        self.db = self.pg.connect(config['dba'])
+        # set into autocommit mode so that tiles still can be
+        # read while the db is updated
+        self.db.set_isolation_level(0)
+
+        c = self.db.cursor()
+        c.execute("PREPARE get_tile(bigint) AS SELECT pixbuf FROM %s WHERE id=$1"
+                  % config['table'])
+        c.execute("""PREPARE set_tile(bigint, bytea) AS
+                     UPDATE %s SET pixbuf=$2 WHERE id=$1 AND pixbuf is Null"""
+                  % config['table'])
+
+    def get(self, zoom, x, y, fmt):
+        c = self.db.cursor()
+        c.execute("EXECUTE get_tile(%s)", (mk_tileid(zoom, x, y), ))
+        if c.rowcount < 1:
+            return self.empty[fmt]
+        else:
+            return c.fetchone()[0]
+
+    def set(self, zoom, x, y, fmt, image=None):
+        c = self.db.cursor()
+        c.execute("EXECUTE set_tile(%s, %s)", (mk_tileid(zoom, x, y), image))
 
 
 class MapnikRenderer(object):
@@ -191,6 +234,7 @@ class TileServer(object):
         tile = self.cache.get(*tile_desc)
         if tile is None:
             tile = self.renderer.render(*tile_desc)
+            self.cache.set(*tile_desc, image=tile)
 
         return tile
 
