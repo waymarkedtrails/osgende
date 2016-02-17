@@ -37,6 +37,7 @@ import tempfile
 from binascii import hexlify
 import argparse
 import osmium
+import osmium.replication.server as rserv
 from collections import namedtuple
 
 import sqlalchemy as sqla
@@ -154,6 +155,17 @@ class OSMImporter(osmium.SimpleHandler):
         self.tables = OsmSourceTables(self.metadata)
         self.engine = sqla.create_engine(dburl, echo=options.verbose)
 
+        if options.replication:
+            self.replication_table = sqla.Table('sync_date', self.metadata,
+                                        sqla.Column('part', sqla.String),
+                                        sqla.Column('date', sqla.DateTime(timezone=True)),
+                                        sqla.Column('sequence', sqla.Integer)
+                                     )
+            self.repserver = rserv.ReplicationServer(options.replication)
+            self.change_size = options.change_size
+        else:
+            self.repserver = None
+
         if options.createdb:
             with self.engine.begin() as conn:
                 conn.execute("CREATE EXTENSION postgis")
@@ -165,8 +177,21 @@ class OSMImporter(osmium.SimpleHandler):
         else:
             self.nodestore = NodeStore(options.nodestore)
 
-        self.reader = osmium.io.Reader(options.inputfile)
-        self.is_change_file = self.reader.header().has_multiple_object_versions
+        if options.replication is not None and options.inputfile == '-':
+            self.reader = None
+            self.is_change_file = True
+        else:
+            self.reader = osmium.io.Reader(options.inputfile)
+            self.is_change_file = self.reader.header().has_multiple_object_versions
+            if options.replication is not None:
+                ts = osmium.replication.newest_change_from_file(options.inputfile)
+                diffinfo = self.repserver.get_state_info(self.repserver.timestamp_to_sequence(ts))
+                with self.engine.begin() as conn:
+                    conn.execute(self.replication_table.delete()
+                                      .where(self.replication_table.c.part == 'base'))
+                    conn.execute(self.replication_table.insert()
+                                      .values(part='base', date=diffinfo.timestamp,
+                                              sequence=diffinfo.sequence))
 
         self.data = DbWriterSet(
                       node=DbWriter(self.engine, self.tables.node.data),
@@ -185,7 +210,23 @@ class OSMImporter(osmium.SimpleHandler):
 
 
     def readfile(self):
-        osmium.apply(self.reader, self)
+        if self.reader is not None:
+            osmium.apply(self.reader, self)
+        else:
+            with self.engine.begin() as conn:
+                sel = sqla.select([self.replication_table.c.sequence])\
+                          .where(self.replication_table.c.part == 'base')
+                seq = conn.scalar(sel)
+                if seq is None:
+                    raise RuntimeError("Replication sequence missing.")
+            seq = self.repserver.apply_diffs(self, seq + 1, self.change_size)
+            diffinfo = self.repserver.get_state_info(seq)
+            with self.engine.begin() as conn:
+                conn.execute(self.replication_table.update()
+                               .where(self.replication_table.c.part == 'base')
+                               .values(date=diffinfo.timestamp,
+                                       sequence=diffinfo.sequence))
+
 
         for tab in self.data:
             tab.close()
@@ -314,6 +355,10 @@ if __name__ == '__main__':
                        help='password for database')
     parser.add_argument('-n', action='store', dest='nodestore', default=None,
                        help='File containing the node store')
+    parser.add_argument('-r', action='store', dest='replication', default=None,
+                       help='URL to replication service')
+    parser.add_argument('-S', action='store', dest='change_size', default=50*1024,
+                       help='Maxium size in kB for changes to download at once')
     parser.add_argument('-c', action='store_true', dest='createdb', default=False,
                        help='Create a new database and set up the tables')
     parser.add_argument('-i', action='store_true', dest='createindices', default=False,
