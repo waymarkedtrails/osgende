@@ -354,6 +354,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', action='store', dest='replication', default=None,
                        help='URL to replication service')
     parser.add_argument('-S', action='store', dest='change_size', default=50*1024,
+                       type=int,
                        help='Maxium size in kB for changes to download at once')
     parser.add_argument('-c', action='store_true', dest='createdb', default=False,
                        help='Create a new database and set up the tables')
