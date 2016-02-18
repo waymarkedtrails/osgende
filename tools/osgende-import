@@ -152,15 +152,11 @@ class OSMImporter(osmium.SimpleHandler):
                 raise RuntimeError("Database already exists.")
 
         self.metadata = sqla.MetaData()
-        self.tables = OsmSourceTables(self.metadata)
+        self.tables = OsmSourceTables(self.metadata,
+                                      status_table=options.replication is not None)
         self.engine = sqla.create_engine(dburl, echo=options.verbose)
 
         if options.replication:
-            self.replication_table = sqla.Table('sync_date', self.metadata,
-                                        sqla.Column('part', sqla.String),
-                                        sqla.Column('date', sqla.DateTime(timezone=True)),
-                                        sqla.Column('sequence', sqla.Integer)
-                                     )
             self.repserver = rserv.ReplicationServer(options.replication)
             self.change_size = options.change_size
         else:
@@ -187,9 +183,9 @@ class OSMImporter(osmium.SimpleHandler):
                 ts = osmium.replication.newest_change_from_file(options.inputfile)
                 diffinfo = self.repserver.get_state_info(self.repserver.timestamp_to_sequence(ts))
                 with self.engine.begin() as conn:
-                    conn.execute(self.replication_table.delete()
-                                      .where(self.replication_table.c.part == 'base'))
-                    conn.execute(self.replication_table.insert()
+                    conn.execute(self.tables.status.delete()
+                                      .where(self.tables.status.c.part == 'base'))
+                    conn.execute(self.tables.status.insert()
                                       .values(part='base', date=diffinfo.timestamp,
                                               sequence=diffinfo.sequence))
 
@@ -214,16 +210,16 @@ class OSMImporter(osmium.SimpleHandler):
             osmium.apply(self.reader, self)
         else:
             with self.engine.begin() as conn:
-                sel = sqla.select([self.replication_table.c.sequence])\
-                          .where(self.replication_table.c.part == 'base')
+                sel = sqla.select([self.tables.status.c.sequence])\
+                          .where(self.tables.status.c.part == 'base')
                 seq = conn.scalar(sel)
                 if seq is None:
                     raise RuntimeError("Replication sequence missing.")
             seq = self.repserver.apply_diffs(self, seq + 1, self.change_size)
             diffinfo = self.repserver.get_state_info(seq)
             with self.engine.begin() as conn:
-                conn.execute(self.replication_table.update()
-                               .where(self.replication_table.c.part == 'base')
+                conn.execute(self.tables.status.update()
+                               .where(self.tables.status.c.part == 'base')
                                .values(date=diffinfo.timestamp,
                                        sequence=diffinfo.sequence))
 

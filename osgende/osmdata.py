@@ -15,7 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, Integer, BigInteger, String
+from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime
 from sqlalchemy.dialects.postgresql import HSTORE, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.connectors import TableSource
@@ -25,7 +25,7 @@ class OsmSourceTables(object):
     """Collection of table sources that point to raw OSM data.
     """
 
-    def __init__(self, meta, nodestore=None):
+    def __init__(self, meta, nodestore=None, status_table=False):
         # node table is special as we have a larger change table
         data = Table('nodes', meta,
                      Column('id', BigInteger),
@@ -70,6 +70,13 @@ class OsmSourceTables(object):
                 self.nodestore = NodeStore(nodestore)
             else:
                 self.nodestore = nodestore
+
+        if status_table:
+            self.status = Table('status', meta,
+                                Column('part', String),
+                                Column('date', DateTime(timezone=True)),
+                                Column('sequence', Integer)
+                               )
 
     def __getitem__(self, key):
         return getattr(self, key)
