@@ -46,7 +46,8 @@ class MapDB:
     def __init__(self, options):
         self.options = options
         self.osmdata = OsmSourceTables(MetaData(),
-                                       nodestore=self.get_option('nodestore'))
+                                       nodestore=self.get_option('nodestore'),
+                                       status_table=self.get_option('status', True))
 
         if not self.get_option('no_engine'):
             dba = URL('postgresql', username=options.username,
