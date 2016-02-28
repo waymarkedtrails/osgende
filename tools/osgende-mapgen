@@ -597,6 +597,8 @@ def make_table_query(tables):
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s',
+                        datefmt='%y-%m-%d %H:%M:%S')
     # if Python 2.6+, get us the number of CPUs, otherwise just invent a number
     try:
         import multiprocessing
