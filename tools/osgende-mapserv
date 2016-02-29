@@ -113,9 +113,10 @@ class PostgresCache(object):
         self.db = self.pg.connect(config['dba'])
         # set into autocommit mode so that tiles still can be
         # read while the db is updated
-        self.db.set_isolation_level(0)
+        self.db.autocommit = True
 
         c = self.db.cursor()
+        c.execute("SET synchronous_commit TO OFF")
         c.execute("PREPARE get_tile(bigint) AS SELECT pixbuf FROM %s WHERE id=$1"
                   % config['table'])
         c.execute("""PREPARE set_tile(bigint, bytea) AS

@@ -212,6 +212,7 @@ class TileWriterPSQL:
         cur.execute("""PREPARE insert_tile(bigint, bytea) AS
                 INSERT INTO %s (id, pixbuf) VALUES($1,$2)"""
                 % tablename)
+        cur.execute("SET synchronous_commit TO OFF")
         if truncate:
             self.add_tile = self._insert_tile
         else:
