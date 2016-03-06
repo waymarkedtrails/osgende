@@ -189,6 +189,9 @@ class OSMImporter(osmium.SimpleHandler):
                                       .values(part='base', date=diffinfo.timestamp,
                                               sequence=diffinfo.sequence))
 
+        if self.is_change_file:
+            self.prepare_changeset()
+
         self.data = DbWriterSet(
                       node=DbWriter(self.engine, self.tables.node.data),
                       way=DbWriter(self.engine, self.tables.way.data),
@@ -236,15 +239,27 @@ class OSMImporter(osmium.SimpleHandler):
 
 
     def create_indices(self):
-        for n in ('node', 'way', 'relation'):
-            i = sqla.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
-            i.create(self.engine)
+        with self.engine.begin() as conn:
+            if self.is_change_file:
+                for n in ('node', 'way', 'relation'):
+                    i = sqla.Index('pk_%s_change' % n, self.tables[n].change.c.id)
+                    i.create(conn)
+            else:
+                for n in ('node', 'way', 'relation'):
+                    i = sqla.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
+                    i.create(conn)
 
-        i = sqla.Index('pk_relation_members',
-                  self.tables.member.data.c.relation_id,
-                  self.tables.member.data.c.sequence_id,
-                  unique=True)
-        i.create(self.engine)
+                i = sqla.Index('pk_relation_members',
+                          self.tables.member.data.c.relation_id,
+                          self.tables.member.data.c.sequence_id,
+                          unique=True)
+                i.create(conn)
+
+    def prepare_changeset(self):
+        with self.engine.begin() as conn:
+            for n in ('node', 'way', 'relation'):
+                conn.execute("DROP INDEX IF EXISTS pk_%s_change" % n)
+                conn.execute("TRUNCATE %s_changeset" % n)
 
     def node(self, node):
         if not self.nodestore or len(node.tags) > 0:
