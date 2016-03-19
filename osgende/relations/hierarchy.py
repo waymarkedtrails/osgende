@@ -70,7 +70,7 @@ class RelationHierarchy(object):
 
             # recurse till there are no more children
             stm = self.data.insert().from_select(self.data.c,
-                                                 self._stm_step).compile(engine)
+                                                 self._stm_step)
             depth = 1
             res = 1
             while res > 0 and depth < 10:
@@ -78,7 +78,6 @@ class RelationHierarchy(object):
                 print("Recursion",depth)
                 depth += 1
                 res = conn.execute(stm, { 'depth' : depth }).rowcount
-                break
 
     def update(self, engine):
         """Update the table.

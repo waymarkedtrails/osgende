@@ -95,3 +95,20 @@ Feature: NodeSubTable
         And table Change consists of
           | action | geom |
           | A      | 4.0 5.0 |
+
+
+    Scenario: Remove relevant tags
+        Given the osm data
+          | id  | tags                      | data |
+          | N1  | "foo" : "1", "bar" : "2"  | 1 1  |
+        And a geometry change table 'Change'
+        When constructing a NodeSubTable 'FooBar' using geometry change 'Change'
+        Given an update of osm data
+          | action | id  | tags          | data |
+          | M      | N1  | "name" : "x"  | 2 2  |
+        When updating table FooBar
+        Then table FooBar consists of
+          | id  | foo | bar | geom |
+        And table Change consists of
+          | action | geom |
+          | D      | 1.0 1.0 |
