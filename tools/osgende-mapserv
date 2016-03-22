@@ -109,6 +109,7 @@ class PostgresCache(object):
             with open(fname, 'rb') as myfile:
                 self.empty[fmt] = myfile.read()
 
+        self.max_zoom = config.get('max_zoom', 100)
         self.pg = __import__('psycopg2')
         self.db = self.pg.connect(config['dba'])
         # set into autocommit mode so that tiles still can be
@@ -119,21 +120,31 @@ class PostgresCache(object):
         c.execute("SET synchronous_commit TO OFF")
         c.execute("PREPARE get_tile(bigint) AS SELECT pixbuf FROM %s WHERE id=$1"
                   % config['table'])
+        c.execute("PREPARE has_tile(bigint) AS SELECT count(*) FROM %s WHERE id=$1"
+                  % config['table'])
         c.execute("""PREPARE set_tile(bigint, bytea) AS
                      UPDATE %s SET pixbuf=$2 WHERE id=$1 AND pixbuf is Null"""
                   % config['table'])
 
     def get(self, zoom, x, y, fmt):
         c = self.db.cursor()
-        c.execute("EXECUTE get_tile(%s)", (mk_tileid(zoom, x, y), ))
-        if c.rowcount < 1:
-            return self.empty[fmt]
+        if zoom > self.max_zoom:
+            shift = zoom - self.max_zoom
+            c.execute("EXECUTE has_tile(%s)",
+                      (mk_tileid(self.max_zoom, x >> shift, y >> shift), ))
+            if c.fetchone()[0]:
+                return None
         else:
-            return c.fetchone()[0]
+            c.execute("EXECUTE get_tile(%s)", (mk_tileid(zoom, x, y), ))
+            if c.rowcount > 0:
+                return c.fetchone()[0]
+
+        return self.empty[fmt]
 
     def set(self, zoom, x, y, fmt, image=None):
-        c = self.db.cursor()
-        c.execute("EXECUTE set_tile(%s, %s)", (mk_tileid(zoom, x, y), image))
+        if zoom <= self.max_zoom:
+            c = self.db.cursor()
+            c.execute("EXECUTE set_tile(%s, %s)", (mk_tileid(zoom, x, y), image))
 
 
 class MapnikRenderer(object):
