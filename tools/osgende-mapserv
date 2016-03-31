@@ -185,9 +185,16 @@ class MapnikRenderer(object):
         if tiletype not in self.config['formats']:
             return None
         try:
-            return (int(zoom), int(x), int(y[:ypt]), tiletype)
+            zoom = int(zoom)
+            x = int(x)
+            y = int(y[:ypt])
         except ValueError:
             return None
+
+        if zoom > self.config['max_zoom']:
+            return None
+
+        return (zoom, x, y, tiletype)
 
     def render(self, zoom, x, y, fmt):
         p0 = self.gproj.fromTileToLL(zoom, x, y+1)
