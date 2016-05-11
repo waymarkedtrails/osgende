@@ -269,6 +269,35 @@ Feature: RouteSegments
         | nodes      | ways | rels |
         | 1,3,2      | 1    | 1    |
 
+    Scenario: Move node in segmented way
+      Given a 0.0001 node grid
+        |   |   | 6 |   |   |
+        | 1 | 3 | 2 | 4 | 5 |
+        |   |   | 7 |   |   |
+      And the osm data
+        | id  | data      | tags |
+        | W1  | 1,3,2,4,5 |        |
+        | W2  | 6,2,7     |        |
+        | R1  | W1        | HIKING |
+        | R2  | W2        | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      Then table Hiking consists of rows
+        | nodes      | ways | rels |
+        | 1,3,2      | 1    | 1    |
+        | 2,4,5      | 1    | 1    |
+        | 6,2        | 2    | 2    |
+        | 2,7        | 2    | 2    |
+      Given an update of osm data
+        | action | id | data      | tags |
+        | M      | N3 | 0.0 -0.001 | |
+      When updating table Hiking
+      Then table Hiking consists of rows
+        | nodes      | ways | rels |
+        | 1,3,2      | 1    | 1    |
+        | 2,4,5      | 1    | 1    |
+        | 6,2        | 2    | 2    |
+        | 2,7        | 2    | 2    |
+
     Scenario: Replace way
       Given a 0.0001 node grid
         | 1 | 2 |

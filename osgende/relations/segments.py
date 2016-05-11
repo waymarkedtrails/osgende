@@ -18,7 +18,7 @@
 import logging
 
 from sqlalchemy import Table, Column, BigInteger, select, Index, or_, bindparam,\
-                       case, union, text, column, MetaData
+                       case, union, union_all, text, column, MetaData
 from sqlalchemy.sql import functions as sqlf
 from sqlalchemy.dialects.postgresql import ARRAY, array
 from geoalchemy2 import Geometry
@@ -99,9 +99,12 @@ class RouteSegments(object):
                            self.data.c.rels, postgresql_using='gin')
             wayidx = Index("%s_ways_idx" % (self.data.name),
                            self.data.c.ways, postgresql_using='gin')
+            ndsidx = Index("%s_nodes_idx" % (self.data.name),
+                           self.data.c.nodes, postgresql_using='gin')
             # drop indexes if any
             conn.execute(DropIndexIfExists(relidx))
             conn.execute(DropIndexIfExists(wayidx))
+            conn.execute(DropIndexIfExists(ndsidx))
 
             self.truncate(conn)
 
@@ -129,6 +132,7 @@ class RouteSegments(object):
             # finally prepare indices to speed up update
             relidx.create(conn)
             wayidx.create(conn)
+            ndsidx.create(conn)
 
 
     def update(self, engine):
@@ -143,15 +147,21 @@ class RouteSegments(object):
             wt = self.osmtables.way.data
             mt = self.osmtables.member.data
             rt = self.osmtables.relation.data
+
+            wayrelchange = select([mt.c.member_id]) \
+                            .where(rt.c.id == mt.c.relation_id) \
+                            .where(mt.c.member_type == 'W') \
+                            .where(self.subset) \
+                            .where(or_(mt.c.relation_id.in_(
+                                       self.osmtables.relation.select_add_modify()),
+                                       mt.c.member_id.in_(
+                                       self.osmtables.way.select_modify())))
+            nodechange = select([sqlf.func.unnest(self.data.c.ways)]) \
+                          .where(self.data.c.nodes.op('&& ARRAY')
+                                  (select([self.osmtables.node.change.c.id])))
+
             sel = select([wt.c.id, wt.c.nodes]).where(wt.c.id.in_(
-                        select([mt.c.member_id])
-                          .where(rt.c.id == mt.c.relation_id)
-                          .where(mt.c.member_type == 'W')
-                          .where(self.subset)
-                          .where(or_(mt.c.relation_id.in_(
-                                     self.osmtables.relation.select_add_modify()),
-                                     mt.c.member_id.in_(
-                                     self.osmtables.way.select_modify())))
+                        union_all(wayrelchange, nodechange)
                   ))
             conn.execute(CreateTableAs('temp_updated_ways', sel))
             temp_ways = Table('temp_updated_ways', MetaData(), autoload_with=conn)
@@ -173,11 +183,9 @@ class RouteSegments(object):
                             ))
             #  2. nodes in added or changed ways
             waychg = select([sqlf.func.unnest(temp_ways.c.nodes)])
-            #  3. nodes that have been moved
-            ndchg = self.osmtables.node.select_modify()
 
             conn.execute(CreateTableAs('temp_updated_nodes',
-                                       union(segchg, waychg, ndchg).alias('sub')))
+                                       union(segchg, waychg).alias('sub')))
             temp_nodes = Table('temp_updated_nodes', MetaData(), autoload_with=conn)
 
             if log.isEnabledFor(logging.DEBUG):
