@@ -729,3 +729,75 @@ Feature: RouteSegments
         | nodes     | ways | rels |
         | 1,2,3,4,5 | 1,2  | 1,2  |
 
+    Scenario: Add relation to Y intersection
+      Given a 0.0001 node grid
+        | 1 | 2 | 3 | 4 | 5 |
+        |   | 6 |   | 7 |   |
+      And the osm data
+        | id  | data      | tags |
+        | W1  | 1,2,3,4,5 | |
+        | W2  | 2,6       | |
+        | W3  | 4,7       | |
+        | R1  | W1        | HIKING |
+        | R2  | W2        | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      Given an update of osm data
+        | action | id | data      | tags |
+        | A      | R3 | W3        | HIKING |
+      When updating table Hiking
+      Then table Hiking consists of rows
+        | nodes      | ways | rels |
+        | 1,2        | 1    | 1    |
+        | 2,3,4      | 1    | 1    |
+        | 4,5        | 1    | 1    |
+        | 2,6        | 2    | 2    |
+        | 4,7        | 3    | 3    |
+
+    Scenario: Add relation to crossing way on intersected way
+      Given a 0.0001 node grid
+        |   |   |   | 6 |   |
+        | 1 | 2 | 3 | 4 | 5 |
+        |   | 8 |   | 7 |   |
+      And the osm data
+        | id  | data      | tags |
+        | W1  | 1,2,3,4,5 | |
+        | W2  | 6,4,7     | |
+        | W3  | 2,8       | |
+        | R1  | W1        | HIKING |
+        | R3  | W3        | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      Given an update of osm data
+        | action | id | data      | tags |
+        | A      | R2 | W2        | HIKING |
+      When updating table Hiking
+      Then table Hiking consists of rows
+        | nodes      | ways | rels |
+        | 1,2        | 1    | 1    |
+        | 2,3,4      | 1    | 1    |
+        | 4,5        | 1    | 1    |
+        | 6,4        | 2    | 2    |
+        | 4,7        | 2    | 2    |
+        | 2,8        | 3    | 3    |
+
+    Scenario: Add relation to the end of intersected way
+      Given a 0.0001 node grid
+        | 1 | 2 | 3 | 4 | 5 |
+        | 6 |   |   | 7 |   |
+      And the osm data
+        | id  | data      | tags |
+        | W1  | 1,2,3,4,5 | |
+        | W2  | 1,6       | |
+        | W3  | 4,7       | |
+        | R1  | W1        | HIKING |
+        | R3  | W3        | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      Given an update of osm data
+        | action | id | data      | tags |
+        | A      | R2 | W2        | HIKING |
+      When updating table Hiking
+      Then table Hiking consists of rows
+        | nodes      | ways | rels |
+        | 1,2,3,4    | 1    | 1    |
+        | 4,5        | 1    | 1    |
+        | 1,6        | 2    | 2    |
+        | 4,7        | 3    | 3    |
