@@ -225,7 +225,7 @@ class RouteSegments(object):
                 if additional_ways:
                     conn.execute(temp_nodes.delete())
                     conn.execute(temp_nodes.insert().from_select(temp_nodes.c,
-                                  select([sqlf.func.unnest(wt.c.nodes)])
+                        select([sqlf.func.unnest(wt.c.nodes[2:sqlf.func.array_upper(wt.c.nodes, 1)-1])])
                                    .where(wt.c.id.in_(additional_ways))))
                 else:
                     break
