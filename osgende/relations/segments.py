@@ -99,9 +99,12 @@ class RouteSegments(object):
                            self.data.c.rels, postgresql_using='gin')
             wayidx = Index("%s_ways_idx" % (self.data.name),
                            self.data.c.ways, postgresql_using='gin')
+            ndsidx = Index("%s_nodes_idx" % (self.data.name),
+                           self.data.c.nodes, postgresql_using='gin')
             # drop indexes if any
             conn.execute(DropIndexIfExists(relidx))
             conn.execute(DropIndexIfExists(wayidx))
+            conn.execute(DropIndexIfExists(ndsidx))
 
             self.truncate(conn)
 
@@ -129,6 +132,7 @@ class RouteSegments(object):
             # finally prepare indices to speed up update
             relidx.create(conn)
             wayidx.create(conn)
+            ndsidx.create(conn)
 
 
     def update(self, engine):
@@ -184,35 +188,19 @@ class RouteSegments(object):
                 log.debug("Nodes needing updating: ",
                         [x for x in conn.execute(temp_nodes.select())])
 
-            # create a temporary function that scans our temporary
-            # node table. This is hopefully faster than a full cross scan.
-            conn.execute("""
-                  CREATE OR REPLACE FUNCTION temp_updated_nodes_find(a ANYARRAY)
-                  RETURNS bool AS
-                      $$
-                        DECLARE
-                          ele bigint;
-                        BEGIN
-                         FOR ele IN SELECT unnest(a) LOOP
-                           PERFORM * FROM temp_updated_nodes WHERE id = ele LIMIT 1;
-                           IF FOUND THEN RETURN true; END IF;
-                         END LOOP;
-                         RETURN false;
-                        END
-                        $$
-                        LANGUAGE plpgsql;
-                       CREATE INDEX temp_updated_nodes_index ON temp_updated_nodes(id);
-                   """)
-
             while True:
                 # throw out all segments that have one of these points
                 log.info("Segments with bad intersections...")
-                ret = [self.data.c.ways]
+                # SQLAlchemy cannot produce DELTE FROM ... USING syntax
+                # Falling back to handwritten SQL instead.
+                ret = "ways"
                 if self.geom_change is not None:
-                    ret.append(self.data.c.geom)
-                res = conn.execute(self.data.delete()
-                                     .where("temp_updated_nodes_find(nodes)")
-                                     .returning(*ret))
+                    ret += ",geom"
+                q = """%s USING temp_updated_nodes
+                        WHERE nodes && ARRAY[temp_updated_nodes.id]
+                        RETURNING %s""" \
+                     % (str(self.data.delete()), ret)
+                res = conn.execute(q)
 
                 additional_ways = []
                 for c in res:
@@ -229,8 +217,6 @@ class RouteSegments(object):
                                    .where(wt.c.id.in_(additional_ways))))
                 else:
                     break
-
-            conn.execute("DROP FUNCTION temp_updated_nodes_find(ANYARRAY)")
 
             # done, add the result back to the table
             log.info("Processing segments")
