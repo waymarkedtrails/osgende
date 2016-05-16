@@ -66,43 +66,54 @@ class NodeStore(object):
 
 
 if __name__ == '__main__':
-    log.debug("Creating store...")
+    print("Creating store...")
     store = NodeStore('test.store')
 
-    log.debug("Filling store...")
+    print("Filling store...")
     for i in range(25500,26000):
         store[i] = NodeStorePoint(1,i/1000.0)
 
     store.close()
     del store
 
-    log.debug("Reloading store...")
+    print("Reloading store...")
     store = NodeStore('test.store')
 
-    log.debug("Checking store...")
+    print("Checking store...")
     for i in range(25500,26000):
         assert store[i].y == i/1000.0
 
     try:
         x = store[1000]
     except KeyError:
-        log.debug("Yeah!")
+        print("Yeah!")
 
-    log.debug("Filling store...")
+    try:
+        x = store[0]
+    except KeyError:
+        print("Yeah!")
+
+    print("Filling store...")
     for i in range(100055500,100056000):
         store[i] = NodeStorePoint(i/10000000.0,1)
+
+    try:
+        x = store[26001]
+        print("Unexpected node location:", x)
+    except KeyError:
+        print("Yeah!")
 
     store.close()
     del store
 
-    log.debug("Reloading store...")
+    print("Reloading store...")
     store = NodeStore('test.store')
 
-    log.debug("Checking store...")
+    print("Checking store...")
     for i in range(100055500,100056000):
         assert store[i].x == i/10000000.0
 
-    log.debug("Checking store...")
+    print("Checking store...")
     for i in range(25500,26000):
         assert store[i].y == i/1000.0
 
