@@ -15,8 +15,9 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, BigInteger, Integer, select, bindparam,\
-                       not_, exists, column, text, union
+from sqlalchemy import Table, Column, BigInteger, Integer, select,\
+                       not_, column, literal_column, union_all, func
+from sqlalchemy.dialects.postgresql import array
 
 class RelationHierarchy(object):
     """Table describing the relation hierarchies of the OSM relations table.
@@ -36,25 +37,15 @@ class RelationHierarchy(object):
                           Column('depth', Integer)
                          )
 
-        m = osmdata.member.data
-        prev = self.data.alias()
-        self._stm_step = select([self.data.c.parent, m.c.member_id, bindparam('depth')])\
-                          .where(self.data.c.depth == bindparam('depth') - 1)\
-                          .where(self.data.c.child == m.c.relation_id)\
-                          .where(m.c.member_type == 'R')\
-                          .where(not_(exists().where(prev.c.parent == self.data.c.parent)
-                                              .where(prev.c.child == m.c.member_id)))
-
         if subset is None:
-            allrels = select([m.c.relation_id.label('id')]).where(m.c.member_type == 'R').union(
-                       select([m.c.member_id.label('id')]).where(m.c.member_type == 'R'))
-            self._stm_base = select([column('id'), column('id'), text('1')],
-                                    from_obj=allrels.alias())
+            m = osmdata.member.data.alias()
+            self.subset = select([func.unnest(array([m.c.relation_id,
+                                                     m.c.member_id])).label('id')],
+                                 distinct=True)\
+                            .where(m.c.member_type == 'R')
         else:
-            # work around SQLAlchemy being stupid and removing a duplicated column
-            a = subset.alias()
-            self._stm_base = select([a.c.values()[0], text(a.c.keys()[0]), text('1')])
-            self._stm_step = self._stm_step.where(m.c.member_id.in_(subset))
+            self.subset = subset
+        self.osmdata = osmdata
 
     def truncate(self, conn):
         conn.execute(self.data.delete())
@@ -64,20 +55,41 @@ class RelationHierarchy(object):
         """
         with engine.begin() as conn:
             self.truncate(conn)
-            # compute top-level relations
-            conn.execute(self.data.insert().from_select(self.data.c,
-                                                        self._stm_base))
 
-            # recurse till there are no more children
-            stm = self.data.insert().from_select(self.data.c,
-                                                 self._stm_step)
-            depth = 1
-            res = 1
-            while res > 0 and depth < 10:
-                # then go through the recursive parts
-                print("Recursion",depth)
-                depth += 1
-                res = conn.execute(stm, { 'depth' : depth }).rowcount
+            # Initial step of the recursive query: all relations themselves.
+            # path is a temporary array with all relations between parent and
+            # child and is used to detect cycles.
+            s = self.subset.alias()
+            recurse = select([s.c.id.label('parent'), s.c.id.label('child'),
+                              literal_column('1').label('depth'),
+                              array([s.c.id]).label('path')])
+
+
+            # temporary select with direct parent-child relations between relations
+            sm = self.osmdata.member.data.alias()
+            subs = select([sm.c.relation_id.label('up'),
+                           sm.c.member_id.label('down')])\
+                     .where(sm.c.member_type == 'R')\
+                     .where(sm.c.relation_id.in_(self.subset.alias()))\
+                     .alias('subs')
+
+            # iterative step of recursion query: add next level of depth
+            recurse = recurse.cte(recursive=True)
+            iterstep = select([recurse.c.parent, subs.c.down,
+                               recurse.c.depth + 1,
+                               recurse.c.path.op('||')(subs.c.down)])\
+                         .where(subs.c.up == recurse.c.child)\
+                         .where(not_(recurse.c.path.any(subs.c.down)))\
+                         .where(subs.c.down.in_(self.subset.alias()))
+
+            # and union them all together
+            recurse = recurse.union_all(iterstep)
+
+            # insert the endresult in out hierarchy table
+            conn.execute(self.data.insert()
+                          .from_select(self.data.c,
+                                       select([recurse.c.parent, recurse.c.child,
+                                               recurse.c.depth])))
 
     def update(self, engine):
         """Update the table.
