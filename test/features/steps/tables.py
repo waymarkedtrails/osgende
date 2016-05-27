@@ -3,7 +3,7 @@ from behave import *
 from nose.tools import *
 from geoalchemy2.elements import WKBElement
 from geoalchemy2.shape import to_shape
-from shapely.geometry import Point, LineString
+from shapely.geometry import Point, LineString, MultiLineString
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,12 @@ def table_row_to_tuple(row, headings):
                 out.append("%s %s" % (geom.x, geom.y))
             elif isinstance(geom, LineString):
                 out.append(", ".join(["%s %s" % p for p in geom.coords]))
+            elif isinstance(geom, MultiLineString):
+                out.append(", ".join(['(' +
+                            ", ".join(["%s %s" % p for p in l.coords]) + ')'
+                            for l in geom]))
             else:
-                assert_false("Unknown geometry type %s", type(geom))
+                assert_false("Unknown geometry type %s" % type(geom))
         else:
             out.append(str(row[col]))
     return tuple(out)

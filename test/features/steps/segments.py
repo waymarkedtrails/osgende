@@ -3,8 +3,11 @@ from behave import *
 from nose.tools import *
 
 from sqlalchemy import MetaData, text, String, Column
+from geoalchemy2 import Geometry
+from geoalchemy2.shape import from_shape
 
 from osgende.relations import Routes, RouteSegments
+from osgende.tags import TagStore
 
 class HikingRoutes(Routes):
 
@@ -12,10 +15,22 @@ class HikingRoutes(Routes):
         Routes.__init__(self, 'HikingRoutes', segments, hier)
 
     def columns(self):
-        return (Column('name', String),)
+        return (Column('name', String),
+                Column('geom', Geometry('GEOMETRY',
+                                        srid=self.segment_table.data.c.geom.type.srid)))
 
     def transform_tags(self, oid, tags):
-        return { 'name' : tags.get('name') }
+        g = self.build_geometry(oid)
+        return { 'name' : tags.get('name'),
+                 'geom' : None if g is None else from_shape(g, srid=self.data.c.geom.type.srid) }
+
+    def _process_next(self, obj):
+        tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
+
+        if tags is not None:
+            tags['id'] = obj['id']
+            self.thread.conn.execute(self.data.insert().values(**tags))
+
 
 
 @when(u"constructing a RouteSegments table '{name}'")

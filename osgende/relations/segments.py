@@ -18,12 +18,12 @@
 import logging
 
 from sqlalchemy import Table, Column, BigInteger, select, Index, or_, bindparam,\
-                       case, union, text, column, MetaData
+                       case, union, text, column, MetaData, cast, not_, String
 from sqlalchemy.sql import functions as sqlf
 from sqlalchemy.dialects.postgresql import ARRAY, array
 from geoalchemy2 import Geometry
 from geoalchemy2.functions import ST_Transform
-from geoalchemy2.shape import from_shape
+from geoalchemy2.shape import from_shape, to_shape
 from osgende.common.sqlalchemy import CreateTableAs
 from osgende.common.threads import ThreadableDBObject
 from sys import version_info as python_version
@@ -33,6 +33,7 @@ from osgende.subtable import TagSubTable
 from osgende.common.sqlalchemy import DropIndexIfExists
 import osgende.common.threads as othreads
 import shapely.geometry as sgeom
+from shapely.ops import linemerge
 
 log = logging.getLogger(__name__)
 
@@ -553,3 +554,124 @@ class Routes(TagSubTable):
         # drop the temporary table
         tmp_rels.drop(engine)
 
+    def build_geometry(self, osmid):
+        """ Build the geometry for the given relation. Geometries are
+            computed by concatenating the geometries from the segments
+            in the order of the relation members.
+        """
+        # Retrive the segment geometries in the order in which they appear
+        # in the relation. Needs to be done iteratively for nested relations.
+
+        # initially put the source relation
+        recurse = select([cast('R', String(length=1)).label('tp'),
+                          cast(osmid, BigInteger).label('id'),
+                          cast(array([osmid]), ARRAY(BigInteger)).label('path'),
+                          array([1]).label('pospath')])
+
+        # then iteratively establish the path for all contained elements
+        recurse = recurse.cte(recursive=True)
+        m = self.segment_table.osmtables.member.data
+        recurse = recurse.union_all(
+                    select([m.c.member_type, m.c.member_id,
+                            recurse.c.path.op('||')(m.c.member_id),
+                            recurse.c.pospath.op('||')(m.c.sequence_id)])
+                      .where(recurse.c.id == m.c.relation_id)
+                      .where(recurse.c.tp != 'W')
+                      .where(or_(m.c.member_type != 'R',
+                             not_(recurse.c.path.any(m.c.member_id))))
+                  )
+
+        # now get the geometries for each way from the segment table
+        s = self.segment_table.data
+        sel = select([s.c.id.label('segid'), recurse.c.id.label('wayid'), s.c.geom])\
+                .where(recurse.c.tp == 'W')\
+                .where(array([recurse.c.id]).op('&&')(s.c.ways))\
+                .order_by(recurse.c.pospath, s.c.id)
+
+        # as geometries may be returned multiple times, this can become
+        # a large result, stream it in
+        cur = self.thread.conn.execution_options(stream_results=True).execute(sel)
+
+        curway = None
+        cursegs = []
+        geom = RouteGeometry()
+        for res in cur:
+            print("Relation", osmid,"Segment:", dict(res))
+            if curway != res['wayid']:
+                if curway is not None:
+                    geom.process_segment()
+
+                # set up for the next way
+                curway = res['wayid']
+                prevsegs = cursegs
+                cursegs = []
+
+            cursegs.append(res['segid'])
+            if res['segid'] not in prevsegs:
+                geom.append(to_shape(res['geom']))
+
+        geom.process_segment()
+
+        return geom.geometry()
+
+
+class RouteGeometry(object):
+
+    def __init__(self):
+        self.geom = None
+        self.num_segs = 0
+        self.todo = []
+
+    def append(self, geom):
+        self.todo.append(geom)
+
+    def process_segment(self):
+        if not self.todo:
+            return
+
+        segment = linemerge(self.todo)
+        assert(segment.geom_type == 'LineString') # XXX if that does not work then we are screwed
+
+        if self.num_segs == 0:
+            self.geom = [segment]
+        elif self.num_segs == 1:
+            newsegment = linemerge((self.geom[-1], segment))
+            if newsegment.geom_type == 'LineString':
+                # we still might have to invert the initial geometry
+                if newsegment.coords[0] in (segment.coords[0], segment.coords[-1]):
+                    self.geom = [sgeom.LineString(newsegment.coords[::-1])]
+                else:
+                    self.geom = [newsegment]
+            else:
+                # Lines don't overlap, find the endpoints with the shortest distance
+                dist, x, y = min([(sgeom.Point(self.geom[-1].coords[-x]).distance(sgeom.Point(segment.coords[-y])), x, y)
+                                          for x in (0, 1) for y in (0, 1)])
+                if x == 0:
+                    self.geom[-1] = sgeom.LineString(self.geom[-1].coords[::-1])
+                if y == 1:
+                    segment = sgeom.LineString(segment.coords[::-1])
+                self.geom.append(segment)
+        else:
+            # just append the segment
+            lastpt = sgeom.Point(self.geom[-1].coords[-1])
+            dist, x = min([(lastpt.distance(sgeom.Point(segment.coords[-x])), x) for x in (0, 1)])
+            if x == 1:
+                segment = sgeom.LineString(segment.coords[::-1])
+            if dist < 0.000001:
+                coords = self.geom[-1].coords[:]
+                coords.extend(segment.coords[1:])
+                self.geom[-1] = s.geom.LineString(coords)
+            else:
+                self.geom.append(segment)
+
+        self.todo = []
+        self.num_segs += 1
+
+    def geometry(self):
+        if self.geom is None:
+            return None
+
+        if len(self.geom) == 1:
+            return self.geom[0]
+
+        return sgeom.MultiLineString(self.geom)
