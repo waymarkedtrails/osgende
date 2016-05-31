@@ -219,12 +219,14 @@ class OSMImporter(osmium.SimpleHandler):
                 if seq is None:
                     raise RuntimeError("Replication sequence missing.")
             seq = self.repserver.apply_diffs(self, seq + 1, self.change_size)
-            diffinfo = self.repserver.get_state_info(seq)
-            with self.engine.begin() as conn:
-                conn.execute(self.tables.status.update()
-                               .where(self.tables.status.c.part == 'base')
-                               .values(date=diffinfo.timestamp,
-                                       sequence=diffinfo.sequence))
+            if seq is not None:
+                diffinfo = self.repserver.get_state_info(seq)
+                if diffinfo is not None:
+                    with self.engine.begin() as conn:
+                        conn.execute(self.tables.status.update()
+                                       .where(self.tables.status.c.part == 'base')
+                                       .values(date=diffinfo.timestamp,
+                                               sequence=diffinfo.sequence))
 
 
         for tab in self.data:
