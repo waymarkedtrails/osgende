@@ -596,7 +596,6 @@ class Routes(TagSubTable):
         cursegs = []
         geom = RouteGeometry()
         for res in cur:
-            print("Relation", osmid,"Segment:", dict(res))
             if curway != res['wayid']:
                 if curway is not None:
                     geom.process_segment()
@@ -639,19 +638,19 @@ class RouteGeometry(object):
                 for i in range(len(lines)):
                     l = lines[i]
                     if src[0] == l[0]:
-                        lines[i] = src[1::-1] + l
+                        lines[i] = src[:0:-1] + l
                     elif src[-1] == l[0]:
                         lines[i] = src + l[1:]
                     elif src[0] == l[-1]:
-                        lines[i] = src[1::-1] + l[::-1]
+                        lines[i] = src[:0:-1] + l[::-1]
                     elif src[-1] == l[-1]:
-                        lines[i] = src + l[:-2:-1]
+                        lines[i] = src + l[-2::-1]
                     else:
                         continue
                     break
                 else:
                     assert("No match found when merging lines")
-            segment = LineString(lines[0])
+            segment = sgeom.LineString(lines[0])
 
         if self.num_segs == 0:
             self.geom = [segment]
@@ -671,7 +670,10 @@ class RouteGeometry(object):
                     self.geom[-1] = sgeom.LineString(self.geom[-1].coords[::-1])
                 if y == 1:
                     segment = sgeom.LineString(segment.coords[::-1])
-                self.geom.append(segment)
+                if self.geom[-1].coords[-1] == segment.coords[0]:
+                    self.geom[-1] = sgeom.LineString(self.geom[-1].coords[:] + segment.coords[1:])
+                else:
+                    self.geom.append(segment)
         else:
             # just append the segment
             lastpt = sgeom.Point(self.geom[-1].coords[-1])

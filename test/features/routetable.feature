@@ -26,7 +26,7 @@ Feature: Route table from RouteSegments
         | id | name | geom |
         | 1  | foo  | 0.0 0.0, 0.0001 0.0, 0.0002 0.0 |
         | 2  | bar  | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001 |
-        | 3  | bazz | (0.0004 0.0001, 0.0003 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002)  |
+        | 3  | bazz | (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002)  |
 
     Scenario: Route with roundabout
       Given a 0.0001 node grid
@@ -43,7 +43,7 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x    | (0.0 0.0001, 0.0001 0.0001), (0.0001 0.0001, 0.0002 0.0, 0.0003 0.0001, 0.0002 0.0002, 0.0001 0.0001), (0.0003 0.0001, 0.0004 0.0001) |
+        | 1  | x    | (0.0 0.0001, 0.0001 0.0001, 0.0002 0.0, 0.0003 0.0001, 0.0002 0.0002, 0.0001 0.0001), (0.0003 0.0001, 0.0004 0.0001) |
 
     Scenario: Segmented route
       Given a 0.0001 node grid
@@ -78,6 +78,26 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
+        | 1  | x    | 0.0003 0.0001, 0.0002 0.0001, 0.0001 0.0, 0.0 0.0001, 0.0001 0.0002, 0.0002 0.0001, 0.0003 0.0001 |
+
+    Scenario: Balloon route with side track
+      Given a 0.0001 node grid
+        |   |   | 2 |   |   |
+        | 6 | 1 |   | 4 | 5 |
+        |   |   | 3 |   |   |
+      And the osm data
+        | id | data      | tags |
+        | W1 | 5,4,3,1,2,4 | |
+        | W2 | 1,6       | |
+        | R1 | W1        | HIKING |
+        | R2 | W2        | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+        | id | name | geom |
+        | 1  | x    | 0.0003 0.0001, 0.0002 0.0, 0.0001 0.0001, 0.0002 0.0002, 0.0003 0.0001, 0.0004 0.0001 |
+        | 2  | x    | 0.0001 0.0001, 0.0 0.0001 |
+
 
     Scenario: Remove relation
       Given a 0.0001 node grid
@@ -104,7 +124,7 @@ Feature: Route table from RouteSegments
       Then table HikingRoutes consists of
         | id | name | geom |
         | 2  | bar  | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001 |
-        | 3  | bazz | (0.0004 0.0001, 0.0003 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
+        | 3  | bazz | (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
 
     Scenario: Rename relation
       Given a 0.0001 node grid
@@ -132,7 +152,7 @@ Feature: Route table from RouteSegments
         | id | name | geom |
         | 1  | FOO  | 0.0 0.0, 0.0001 0.0, 0.0002 0.0 |
         | 2  | bar  | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001 |
-        | 3  | bazz | (0.0004 0.0001, 0.0003 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
+        | 3  | bazz | (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
 
     Scenario: Add relation
       Given a 0.0001 node grid
@@ -159,7 +179,7 @@ Feature: Route table from RouteSegments
         | id | name | geom |
         | 1  | foo  | 0.0 0.0, 0.0001 0.0, 0.0002 0.0 |
         | 2  | bar  | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001 |
-        | 3  | bazz | (0.0004 0.0001, 0.0003 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
+        | 3  | bazz | (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
 
     Scenario: Change a super relation
       Given a 0.0001 node grid
@@ -187,7 +207,7 @@ Feature: Route table from RouteSegments
       And updating table HikingRoutes
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 2  | foo  | (0.0 0.0, 0.0001 0.0, 0.0002 0.0), (0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001) |
-        | 3  | bazz | (0.0004 0.0001, 0.0003 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
-        | 4  | sup | (0.0 0.0, 0.0001 0.0, 0.0002 0.0), (0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001), (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
+        | 2  | foo  | (0.0002 0.0, 0.0001 0.0, 0.0 0.0), (0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001) |
+        | 3  | bazz | (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
+        | 4  | sup | (0.0002 0.0, 0.0001 0.0, 0.0 0.0), (0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001), (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002) |
 
