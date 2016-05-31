@@ -45,6 +45,40 @@ Feature: Route table from RouteSegments
         | id | name | geom |
         | 1  | x    | (0.0 0.0001, 0.0001 0.0001), (0.0001 0.0001, 0.0002 0.0, 0.0003 0.0001, 0.0002 0.0002, 0.0001 0.0001), (0.0003 0.0001, 0.0004 0.0001) |
 
+    Scenario: Segmented route
+      Given a 0.0001 node grid
+        |   |   | 1 |   |   |
+        | 2 | 3 | 4 | 5 | 6 |
+      And the osm data
+        | id | data      | tags |
+        | W1 | 2,3,4     | |
+        | W2 | 4,1       | |
+        | W3 | 4,5,6     | |
+        | R1 | W1, W2    | HIKING |
+        | R2 | W2, W3    | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+        | id | name | geom |
+        | 1  | x    | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001, 0.0002 0.0 |
+        | 2  | x    | 0.0002 0.0, 0.0002 0.0001, 0.0003 0.0001, 0.0004 0.0001 |
+
+    Scenario: Balloon route with duplicate
+      Given a 0.0001 node grid
+        |   | 2 |   |   |
+        | 1 |   | 4 | 5 |
+        |   | 3 |   |   |
+      And the osm data
+        | id | data      | tags |
+        | W1 | 1,2,4     | |
+        | W2 | 1,3,4     | |
+        | W3 | 4,5       | |
+        | R1 | W3,W1,W2,W3 | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+        | id | name | geom |
+
     Scenario: Remove relation
       Given a 0.0001 node grid
         | 1 | 2 | 3 |   |   |

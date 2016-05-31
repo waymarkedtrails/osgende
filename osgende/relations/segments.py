@@ -630,7 +630,28 @@ class RouteGeometry(object):
             return
 
         segment = linemerge(self.todo)
-        assert(segment.geom_type == 'LineString') # XXX if that does not work then we are screwed
+
+        if segment.geom_type == 'MultiLineString':
+            # oh dear, there was a loop, resolve it somehow
+            lines = [ l.coords[:] for l in segment ]
+            while len(lines) > 1:
+                src = lines.pop()
+                for i in range(len(lines)):
+                    l = lines[i]
+                    if src[0] == l[0]:
+                        lines[i] = src[1::-1] + l
+                    elif src[-1] == l[0]:
+                        lines[i] = src + l[1:]
+                    elif src[0] == l[-1]:
+                        lines[i] = src[1::-1] + l[::-1]
+                    elif src[-1] == l[-1]:
+                        lines[i] = src + l[:-2:-1]
+                    else:
+                        continue
+                    break
+                else:
+                    assert("No match found when merging lines")
+            segment = LineString(lines[0])
 
         if self.num_segs == 0:
             self.geom = [segment]
@@ -660,7 +681,7 @@ class RouteGeometry(object):
             if dist < 0.000001:
                 coords = self.geom[-1].coords[:]
                 coords.extend(segment.coords[1:])
-                self.geom[-1] = s.geom.LineString(coords)
+                self.geom[-1] = sgeom.LineString(coords)
             else:
                 self.geom.append(segment)
 
