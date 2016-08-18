@@ -18,7 +18,8 @@
 import logging
 
 from sqlalchemy import Table, Column, BigInteger, select, Index, or_, bindparam,\
-                       case, union, text, column, MetaData, cast, not_, String
+                       case, union, text, column, MetaData, cast, not_, String,\
+                       literal_column
 from sqlalchemy.sql import functions as sqlf
 from sqlalchemy.dialects.postgresql import ARRAY, array
 from geoalchemy2 import Geometry
@@ -582,18 +583,44 @@ class Routes(TagSubTable):
                   )
 
         # now get the geometries for each way from the segment table
-        s = self.segment_table.data
-        sel = select([s.c.id.label('segid'), recurse.c.id.label('wayid'), s.c.geom])\
-                .where(recurse.c.tp == 'W')\
-                .where(array([recurse.c.id]).op('&&')(s.c.ways))\
-                .order_by(recurse.c.pospath, s.c.id)
+        # We cut exactly the part covered by the way in question.
+        s = self.segment_table.data.alias('s')
+        w = self.segment_table.osmtables.way.data.alias('w')
+
+        # get the segments involved in each way
+        waypaths = select([recurse.c.id, recurse.c.pospath, w.c.nodes.label('nds')])\
+                    .where(recurse.c.tp == 'W')\
+                    .where(w.c.id == recurse.c.id).alias('x')
+
+        # black magic that cuts the geometry
+        # Basic idea: create a table with node id/geometry point for segment
+        # another for node id/index for way, match up nodes, sort by way index,
+        # so that we get the original order of the way (for forward, backward
+        # handling later), reassemble geometry points as LineString.
+        # The additional where clause filters duplicate points for way loops
+        # on segments, the ST_RemoveRepeatedPoints on ways.
+        geom = literal_column("""
+               (SELECT ST_RemoveRepeatedPoints(ST_MakeLine(pt))
+                 FROM (SELECT (d).geom AS pt
+                       FROM (SELECT unnest(s.nodes) AS nd,
+                                    ST_DumpPoints(s.geom) AS d) nn
+                             JOIN unnest(nds) WITH ORDINALITY AS ll(n,id)
+                             ON nn.nd = ll.n
+                             WHERE nds[id-1] = any(s.nodes) OR nds[id+1] = any(s.nodes)
+                             ORDER BY ll.id) zz)""",
+               type_=Geometry)
+
+        sel = select([waypaths.c.id.label('wayid'),
+                      s.c.id.label('segid'),
+                      geom.label('geom')])\
+                .where(array([waypaths.c.id]).op('&&')(s.c.ways))\
+                .order_by(waypaths.c.pospath)
 
         # as geometries may be returned multiple times, this can become
         # a large result, stream it in
         cur = self.thread.conn.execution_options(stream_results=True).execute(sel)
 
         curway = None
-        cursegs = []
         geom = RouteGeometry()
         for res in cur:
             if curway != res['wayid']:
@@ -602,12 +629,8 @@ class Routes(TagSubTable):
 
                 # set up for the next way
                 curway = res['wayid']
-                prevsegs = cursegs
-                cursegs = []
 
-            cursegs.append(res['segid'])
-            if res['segid'] not in prevsegs:
-                geom.append(to_shape(res['geom']))
+            geom.append(to_shape(res['geom']))
 
         geom.process_segment()
 

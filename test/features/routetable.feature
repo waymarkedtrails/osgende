@@ -99,6 +99,33 @@ Feature: Route table from RouteSegments
         | 2  | x    | 0.0001 0.0001, 0.0 0.0001 |
 
 
+    Scenario: Round route with many ways and with parallel route
+      Given a 0.0001 node grid
+        | 1 | 2 | 3 | 4 | 5 | 6 |
+        | 7 |   |   |   |   | 8 |
+        | 9 |   |   |   |   | 10|
+        | 11|   |   |   |   | 12|
+        | 13| 14| 15| 16| 17| 18|
+      And the osm data
+        | id | data       | tags |
+        | W1 | 1,2,3      | |
+        | W2 | 5,4,3      | |
+        | W3 | 5,6        | |
+        | W4 | 6,8,10,12  | |
+        | W5 | 16,17,18,12| |
+        | W6 | 15,16      | |
+        | W7 | 15,14,13   | |
+        | W8 | 1,7,9,11,13| |
+        | R1 | W2,W3      | HIKING |
+        | R2 | W1,W2,W3,W4,W5,W6,W7,W8 | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+        | id | name | geom |
+        | 1  | x    | 0.0002 0.0, 0.0003 0.0, 0.0004 0.0, 0.0005 0.0 |
+        | 2  | x    | 0.0 0.0, 0.0001 0.0, 0.0002 0.0, 0.0003 0.0, 0.0004 0.0, 0.0005 0.0, 0.0005 0.0001, 0.0005 0.0002, 0.0005 0.0003, 0.0005 0.0004, 0.0004 0.0004, 0.0003 0.0004, 0.0002 0.0004, 0.0001 0.0004, 0.0 0.0004, 0.0 0.0003, 0.0 0.0002, 0.0 0.0001, 0.0 0.0 |
+
+
     Scenario: Remove relation
       Given a 0.0001 node grid
         | 1 | 2 | 3 |   |   |
