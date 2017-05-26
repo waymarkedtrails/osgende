@@ -32,7 +32,7 @@ class RelationHierarchy(object):
     def __init__(self, meta, name, osmdata, subset=None):
 
         self.data = Table(name, meta,
-                          Column('parent', BigInteger),
+                          Column('parent', BigInteger, index=True),
                           Column('child', BigInteger, index=True),
                           Column('depth', Integer)
                          )
