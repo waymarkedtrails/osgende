@@ -33,7 +33,7 @@ class RelationHierarchy(object):
 
         self.data = Table(name, meta,
                           Column('parent', BigInteger),
-                          Column('child', BigInteger),
+                          Column('child', BigInteger, index=True),
                           Column('depth', Integer)
                          )
 
