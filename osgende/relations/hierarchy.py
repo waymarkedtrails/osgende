@@ -56,40 +56,34 @@ class RelationHierarchy(object):
         with engine.begin() as conn:
             self.truncate(conn)
 
-            # Initial step of the recursive query: all relations themselves.
-            # path is a temporary array with all relations between parent and
-            # child and is used to detect cycles.
+            # Initially add all relations themselves.
             s = self.subset.alias()
-            recurse = select([s.c.id.label('parent'), s.c.id.label('child'),
-                              literal_column('1').label('depth'),
-                              array([s.c.id]).label('path')])
-
-
-            # temporary select with direct parent-child relations between relations
-            sm = self.osmdata.member.data.alias()
-            subs = select([sm.c.relation_id.label('up'),
-                           sm.c.member_id.label('down')])\
-                     .where(sm.c.member_type == 'R')\
-                     .where(sm.c.relation_id.in_(self.subset.alias()))\
-                     .alias('subs')
-
-            # iterative step of recursion query: add next level of depth
-            recurse = recurse.cte(recursive=True)
-            iterstep = select([recurse.c.parent, subs.c.down,
-                               recurse.c.depth + 1,
-                               recurse.c.path.op('||')(subs.c.down)])\
-                         .where(subs.c.up == recurse.c.child)\
-                         .where(not_(recurse.c.path.any(subs.c.down)))\
-                         .where(subs.c.down.in_(self.subset.alias()))
-
-            # and union them all together
-            recurse = recurse.union_all(iterstep)
-
-            # insert the endresult in out hierarchy table
             conn.execute(self.data.insert()
-                          .from_select(self.data.c,
-                                       select([recurse.c.parent, recurse.c.child,
-                                               recurse.c.depth])))
+                           .from_select(self.data.c,
+                                        select([s.c.id.label('parent'), s.c.id.label('child'), 1])))
+
+            # Insert the direct children
+            subset = select([self.data.c.parent.label('id')]).where(self.data.c.depth == 1)
+            sm = self.osmdata.member.data.alias()
+            children = select([sm.c.relation_id, sm.c.member_id, 2])\
+                        .where(sm.c.relation_id.in_(subset.alias()))\
+                        .where(sm.c.member_id.in_(subset.alias()))\
+                        .where(sm.c.member_type == 'R')
+            res = conn.execute(self.data.insert().from_select(self.data.c, children))
+
+            level = 3
+            while res.rowcount > 0 and level < 6:
+                pd = self.data.alias()
+                prev = select([pd.c.parent, pd.c.child]).where(pd.c.depth == (level - 1)).alias()
+                nd = self.data.alias()
+                newly = select([nd.c.parent, nd.c.child]).where(nd.c.depth == 2).alias()
+                old = self.data.alias()
+                subs = select([prev.c.parent, newly.c.child, level])\
+                        .where(prev.c.child == newly.c.parent)\
+                        .except_(select([old.c.parent, old.c.child, level]))
+
+                res = conn.execute(self.data.insert().from_select(self.data.c, subs))
+                level = level + 1
 
     def update(self, engine):
         """Update the table.
