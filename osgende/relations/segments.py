@@ -522,6 +522,24 @@ class Routes(TagSubTable):
                              segments.osmtables.relation,
                              subset=segments.subset)
 
+    def construct(self, engine):
+        """ Fill the table in order of hierarchy in which they
+            appear in the hierarchy table, if applicable.
+
+            This means that we can rely on all subrelations already
+            being computed.
+        """
+        self.truncate(engine)
+        if self.hierarchy_table is None:
+            self.insert_objects(engine, self.src.select_all(self.subset))
+        else:
+            h = self.hierarchy_table.data
+            subtab = select([h.c.child, sqlf.max(h.c.depth).label("lvl")])\
+                       .group_by(h.c.child).alias()
+            for level in range(6, 0, -1):
+                subset = self.src.data.select().where(subtab.c.lvl == level).where(self.src.data.c.id == subtab.c.child)
+                self.insert_objects(engine, subset)
+
 
     def update(self, engine):
         firstid = self.segment_table.first_new_id
@@ -577,7 +595,7 @@ class Routes(TagSubTable):
                             recurse.c.path.op('||')(m.c.member_id),
                             recurse.c.pospath.op('||')(m.c.sequence_id)])
                       .where(recurse.c.id == m.c.relation_id)
-                      .where(recurse.c.tp != 'W')
+                      .where(recurse.c.tp == 'R')
                       .where(or_(m.c.member_type != 'R',
                              not_(recurse.c.path.any(m.c.member_id))))
                   )
