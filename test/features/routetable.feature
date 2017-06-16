@@ -125,6 +125,21 @@ Feature: Route table from RouteSegments
         | 1  | x    | 0.0002 0.0, 0.0003 0.0, 0.0004 0.0, 0.0005 0.0 |
         | 2  | x    | 0.0 0.0, 0.0001 0.0, 0.0002 0.0, 0.0003 0.0, 0.0004 0.0, 0.0005 0.0, 0.0005 0.0001, 0.0005 0.0002, 0.0005 0.0003, 0.0005 0.0004, 0.0004 0.0004, 0.0003 0.0004, 0.0002 0.0004, 0.0001 0.0004, 0.0 0.0004, 0.0 0.0003, 0.0 0.0002, 0.0 0.0001, 0.0 0.0 |
 
+    Scenario: Self-contained route
+      Given a 0.0001 node grid
+          | 1 | 2 | 3 |
+      And the osm data
+          | id | data   | tags |
+          | W1 | 1,2,3  | |
+          | R1 | W1, R2 | HIKING |
+          | R2 | R1     | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+          | id | name | geom |
+          | 1  | x    | 0.0 0.0, 0.0001 0.0, 0.0002 0.0 |
+          | 2  | x    | 0.0 0.0, 0.0001 0.0, 0.0002 0.0 |
+
 
     Scenario: Remove relation
       Given a 0.0001 node grid
