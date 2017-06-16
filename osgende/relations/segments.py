@@ -546,18 +546,26 @@ class Routes(TagSubTable):
 
         with engine.begin() as conn:
             # delete any objects that might have been deleted
-            # (Note: a relation also might get deleted from this table
-            # because it lost its relevant tags
+            # Note: a relation also might get deleted from this table
+            # because it lost its relevant tags.
             conn.execute(self.data.delete().where(self.id_column.in_
                                             (self.src.select_modify_delete())))
             # Collect all changed relations in a temporary table
-            sel = select([sqlf.func.unnest(self.segment_table.data.c.rels)], distinct=True)\
+            sel = select([sqlf.func.unnest(self.segment_table.data.c.rels).label("id")],
+                         distinct=True)\
                        .where(self.segment_table.data.c.id >= firstid)
 
             if self.hierarchy_table is not None:
                 sel = select([self.hierarchy_table.data.c.parent], distinct=True)\
                        .where(self.hierarchy_table.data.c.child.in_(
-                                sel.union(self.src.select_add_modify())))
+                                sel.union(self.src.select_add_modify()))).alias()
+
+                hmax = self.hierarchy_table.data.alias()
+                crosstab = select([hmax.c.child, sqlf.max(hmax.c.depth).label("lvl")])\
+                             .group_by(hmax.c.child).alias()
+
+                sel = select([sel.c.parent.label("id"), crosstab.c.lvl])\
+                        .where(sel.c.parent == crosstab.c.child)
 
             conn.execute(CreateTableAs('__tmp_osgende_routes_updaterels', sel,
                          temporary=False))
@@ -565,11 +573,17 @@ class Routes(TagSubTable):
                              MetaData(), autoload_with=conn)
 
             conn.execute(self.data.delete()\
-                           .where(self.id_column.in_(tmp_rels.select())))
+                           .where(self.id_column.in_(select([tmp_rels.c.id]))))
 
         # reinsert those that are not deleted
-        inssel = self.src.select_all(self.src.data.c.id.in_(tmp_rels.select()))
-        self.insert_objects(engine, inssel)
+        if self.hierarchy_table is None:
+            inssel = self.src.select_all(self.src.data.c.id.in_(tmp_rels.select()))
+            self.insert_objects(engine, inssel)
+        else:
+            for level in range(6, 0, -1):
+                where = self.src.data.c.id.in_(select([tmp_rels.c.id])
+                                                 .where(tmp_rels.c.lvl == level))
+                self.insert_objects(engine, self.src.select_all(where))
         # drop the temporary table
         tmp_rels.drop(engine)
 
