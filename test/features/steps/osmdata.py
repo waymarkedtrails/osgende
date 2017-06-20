@@ -78,15 +78,15 @@ def step_impl(context, dist):
     context.nodegrid = {}
 
     # the headings become row 0
-    x = 0
+    x = 0.0
     for h in context.table.headings:
         if h.isdigit():
-            context.nodegrid[int(h)] = (x, 0)
+            context.nodegrid[int(h)] = (x, 0.0)
         x += dist
     # the rest becomes 
     y = dist
     for row in context.table:
-        x = 0
+        x = 0.0
         for cell in row:
             if cell.isdigit():
                 context.nodegrid[int(cell)] = (x, y)
@@ -99,7 +99,7 @@ def step_impl(context):
     meta = MetaData()
     context.osmdata = OsmSourceTables(meta, nodestore=context.nodestore_file)
     meta.create_all(context.engine)
-    grid = context.nodegrid if 'nodegrid' in context else None
+    grid = dict(context.nodegrid) if 'nodegrid' in context else None
     with context.engine.begin() as conn:
         for row in context.table:
             _insert_element(row, context.osmdata, conn, grid, context.tagsets)

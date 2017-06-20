@@ -1,4 +1,5 @@
 import logging
+import re
 from behave import *
 from nose.tools import *
 from geoalchemy2.elements import WKBElement
@@ -31,11 +32,29 @@ def table_row_to_tuple(row, headings):
             out.append(str(row[col]))
     return tuple(out)
 
+def expected_row_to_value(heading, val, context):
+    if val == '~~~':
+        return None
+
+    if heading == "geom" and 'nodegrid' in context:
+        def pt(m):
+            v = m.group(0).strip()
+            if v.isdigit() and int(v) in context.nodegrid:
+                if m.group(0).startswith(' '):
+                  return " %s %s" % context.nodegrid[int(v)]
+                else:
+                  return "%s %s" % context.nodegrid[int(v)]
+            return m.group(0)
+
+        return re.sub('[0-9. +-]+', pt, val)
+
+    return val
+
 @then("table {name} consists of")
 def step_impl(context, name):
     exp = set()
     for r in context.table:
-        exp.add(tuple([None if r[k] == '~~~' else r[k] for k in context.table.headings]))
+        exp.add(tuple([expected_row_to_value(k, r[k], context) for k in context.table.headings]))
     with context.engine.begin() as conn:
         res = conn.execute(context.tables[name].data.select())
         for r in res:
@@ -49,7 +68,7 @@ def step_impl(context, name):
 def step_impl(context, name):
     exp = set()
     for r in context.table:
-        exp.add(tuple([None if r[k] == '~~~' else r[k] for k in context.table.headings]))
+        exp.add(tuple([expected_row_to_value(k, r[k], context) for k in context.table.headings]))
     with context.engine.begin() as conn:
         res = conn.execute(context.tables[name].data.select())
         for r in res:
