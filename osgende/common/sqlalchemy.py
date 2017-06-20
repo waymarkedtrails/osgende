@@ -19,6 +19,9 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.expression import ClauseElement, Executable
 from sqlalchemy.schema import DDLElement
 
+from geoalchemy2 import Geometry
+from geoalchemy2.functions import GenericFunction as GeoAlchemyFunction
+
 
 class CreateTableAs(Executable, ClauseElement):
     """ Creates a table from a select query.
@@ -67,3 +70,8 @@ def _analyse(element, compiler, **kw):
     else:
         schema = ''
     return "DROP INDEX IF EXISTS %s%s" % (schema, element.index.name)
+
+
+class ST_MakeLine(GeoAlchemyFunction):
+    name = 'ST_MakeLine'
+    type = Geometry
