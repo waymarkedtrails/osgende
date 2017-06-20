@@ -6,7 +6,7 @@ Feature: Route table from RouteSegments
        | HIKING | 'type' : 'route', 'route' : 'hiking', 'name' : 'x' |
 
     Scenario: Simple ways
-      Given a 0.0001 node grid
+      Given a 0.001 node grid
         | 1 | 2 | 3 |   |   |
         | 4 | 5 | 6 | 7 | 8 |
         |   | 9 | 10| 11| 12|
@@ -24,12 +24,12 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | foo  | 0.0 0.0, 0.0001 0.0, 0.0002 0.0 |
-        | 2  | bar  | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001 |
-        | 3  | bazz | (0.0003 0.0001, 0.0004 0.0001), (0.0004 0.0002, 0.0003 0.0002, 0.0002 0.0002, 0.0001 0.0002)  |
+        | 1  | foo  | 1, 2, 3 |
+        | 2  | bar  | 4, 5, 6 |
+        | 3  | bazz | (7, 8), (12, 11, 10, 9)  |
 
     Scenario: Route with roundabout
-      Given a 0.0001 node grid
+      Given a 0.001 node grid
         |   |   | 3 |   |   |
         | 1 | 2 |   | 4 | 5 |
         |   |   | 6 |   |   |
@@ -43,10 +43,10 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x    | (0.0 0.0001, 0.0001 0.0001, 0.0002 0.0, 0.0003 0.0001, 0.0002 0.0002, 0.0001 0.0001), (0.0003 0.0001, 0.0004 0.0001) |
+        | 1  | x    | (1, 2, 3, 4, 6, 2), (4, 5) |
 
     Scenario: Segmented route
-      Given a 0.0001 node grid
+      Given a 0.001 node grid
         |   |   | 1 |   |   |
         | 2 | 3 | 4 | 5 | 6 |
       And the osm data
@@ -60,11 +60,11 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x    | 0.0 0.0001, 0.0001 0.0001, 0.0002 0.0001, 0.0002 0.0 |
-        | 2  | x    | 0.0002 0.0, 0.0002 0.0001, 0.0003 0.0001, 0.0004 0.0001 |
+        | 1  | x    | 2, 3, 4, 1 |
+        | 2  | x    | 1, 4, 5, 6 |
 
     Scenario: Balloon route with duplicate
-      Given a 0.0001 node grid
+      Given a 0.001 node grid
         |   | 2 |   |   |
         | 1 |   | 4 | 5 |
         |   | 3 |   |   |
@@ -78,10 +78,10 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x    | 0.0003 0.0001, 0.0002 0.0001, 0.0001 0.0, 0.0 0.0001, 0.0001 0.0002, 0.0002 0.0001, 0.0003 0.0001 |
+        | 1  | x    | 5, 4, 2, 1, 3, 4, 5 |
 
     Scenario: Balloon route with side track
-      Given a 0.0001 node grid
+      Given a 0.001 node grid
         |   |   | 2 |   |   |
         | 6 | 1 |   | 4 | 5 |
         |   |   | 3 |   |   |
@@ -95,12 +95,12 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x    | 0.0003 0.0001, 0.0002 0.0, 0.0001 0.0001, 0.0002 0.0002, 0.0003 0.0001, 0.0004 0.0001 |
-        | 2  | x    | 0.0001 0.0001, 0.0 0.0001 |
+        | 1  | x    | 5, 4, 3, 1, 2, 4 |
+        | 2  | x    | 1, 6 |
 
 
     Scenario: Round route with many ways and with parallel route
-      Given a 0.0001 node grid
+      Given a 0.001 node grid
         | 1 | 2 | 3 | 4 | 5 | 6 |
         | 7 |   |   |   |   | 8 |
         | 9 |   |   |   |   | 10|
@@ -122,8 +122,28 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x    | 0.0002 0.0, 0.0003 0.0, 0.0004 0.0, 0.0005 0.0 |
-        | 2  | x    | 0.0 0.0, 0.0001 0.0, 0.0002 0.0, 0.0003 0.0, 0.0004 0.0, 0.0005 0.0, 0.0005 0.0001, 0.0005 0.0002, 0.0005 0.0003, 0.0005 0.0004, 0.0004 0.0004, 0.0003 0.0004, 0.0002 0.0004, 0.0001 0.0004, 0.0 0.0004, 0.0 0.0003, 0.0 0.0002, 0.0 0.0001, 0.0 0.0 |
+        | 1  | x    | 3, 4, 5, 6 |
+        | 2  | x    | 1, 2, 3, 4, 5, 6, 8, 10, 12, 18, 17, 16, 15, 14, 13, 11, 9, 7, 1 |
+
+    Scenario: Subrelations
+      Given a 0.001 node grid
+          | 1 | 2 | 3 | 4 |
+          |   |   |   |   |
+          |   |   | 6 | 5 |
+      And the osm data
+          | id | data  | tags |
+          | W1 | 1,2,3 | |
+          | W2 | 6,5,4 | |
+          | R1 | W1    | HIKING |
+          | R2 | W2    | HIKING |
+          | R9 | R2,R1 | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+          | id | name | geom    |
+          | 1  | x    | 1, 2, 3 |
+          | 2  | x    | 6, 5, 4 |
+          | 9  | x    | (6, 5, 4), (3, 2, 1) |
 
     Scenario: Self-contained route
       Given a 0.0001 node grid
