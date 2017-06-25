@@ -648,7 +648,9 @@ class Routes(TagSubTable):
         if cur.rowcount == 0:
             return None
 
-        return to_shape(cur.fetchone()['geom'])
+        geom = cur.fetchone()['geom']
+
+        return None if geom is None else to_shape(geom)
 
 
 class RouteGeometry(object):
