@@ -618,7 +618,7 @@ class Routes(TagSubTable):
         s = self.segment_table.data
         ptgeom = select([sqlf.func.unnest(s.c.nodes).label('node'),
                          literal_column('(ST_DumpPoints(geom)).geom').label('pt')])\
-                    .where(s.c.ways.any(osmid)).alias('ptgeom')
+                    .where(s.c.ways.op('&&')(cast([osmid], ARRAY(BigInteger)))).alias('ptgeom')
         # get the nodes involved in the way from the way table
         w = self.segment_table.osmtables.way.data
         nodelist = select([sqlf.func.unnest(w.c.nodes).label('node'),
