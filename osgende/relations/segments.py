@@ -567,6 +567,7 @@ class Routes(TagSubTable):
                 sel = select([sel.c.parent.label("id"), crosstab.c.lvl])\
                         .where(sel.c.parent == crosstab.c.child)
 
+            conn.execute('DROP TABLE IF EXISTS __tmp_osgende_routes_updaterels')
             conn.execute(CreateTableAs('__tmp_osgende_routes_updaterels', sel,
                          temporary=False))
             tmp_rels = Table('__tmp_osgende_routes_updaterels',
@@ -636,7 +637,9 @@ class Routes(TagSubTable):
         if cur.rowcount == 0:
             return None
 
-        return to_shape(cur.fetchone()[0])
+        geom = cur.fetchone()[0]
+
+        return None if geom is None else to_shape(geom)
 
     def get_relation_geometry(self, osmid):
         t = self.data
