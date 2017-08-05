@@ -28,6 +28,25 @@ Feature: Route table from RouteSegments
         | 2  | bar  | 4, 5, 6 |
         | 3  | bazz | (7, 8), (12, 11, 10, 9)  |
 
+    Scenario: non-continuous route
+      Given a 0.001 node grid
+        | 1 | 2 | 3 | 4 |
+        |   | 5 |   | 6 |
+        |   | 7 | 8 |   |
+      And the osm data
+        | id | data       | tags |
+        | W1 | 1,2        | |
+        | W2 | 2,3,4      | |
+        | W3 | 2,5        | |
+        | W4 | 5,7,8      | |
+        | W5 | 6,4        | |
+        | R1 | W1,W2,W5,W3,W4  | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+        | id | name | geom |
+        | 1  | x  | (1, 2, 3, 4, 6), (2, 5, 7, 8) |
+
     Scenario: Route with roundabout
       Given a 0.001 node grid
         |   |   | 3 |   |   |
