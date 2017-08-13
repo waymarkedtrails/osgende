@@ -28,7 +28,7 @@ Feature: Route table from RouteSegments
         | 2  | bar  | 4, 5, 6 |
         | 3  | bazz | (7, 8), (12, 11, 10, 9)  |
 
-    Scenario: non-continuous route
+    Scenario: Fitting at the end takes precedence over close fit at beginning
       Given a 0.001 node grid
         | 1 | 2 | 3 | 4 |
         |   | 5 |   | 6 |
@@ -45,7 +45,29 @@ Feature: Route table from RouteSegments
       And constructing a Routes table 'HikingRoutes' from 'Hiking'
       Then table HikingRoutes consists of
         | id | name | geom |
-        | 1  | x  | (1, 2, 3, 4, 6), (2, 5, 7, 8) |
+        | 1  | x    | (1, 2, 3, 4, 6), (2, 5, 7, 8) |
+
+    @wip
+    Scenario: Fitting at the end takes precedence over close fit at beginning for subroutes
+      Given a 0.001 node grid
+        | 1 | 2 | 3 | 4 |
+        |   |   |   | 5 |
+        | 9 | 8 | 7 | 6 |
+      And the osm data
+        | id | data       | tags |
+        | W1 | 1,2        | |
+        | W2 | 2,3,4      | |
+        | W3 | 9,8        | |
+        | W4 | 8,7        | |
+        | W5 | 7,6,5      | |
+        | R1 | W1,W2,R2,W3 | HIKING |
+        | R2 | W4,W5       | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      Then table HikingRoutes consists of
+        | id | name | geom |
+        | 1  | x    | (1, 2, 3, 4), (5, 6, 7, 8, 9) |
+        | 2  | x    | (8, 7, 6, 5) |
 
     Scenario: Route with roundabout
       Given a 0.001 node grid
