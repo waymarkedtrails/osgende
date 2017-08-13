@@ -657,8 +657,7 @@ class RouteGeometry(object):
 
     def __init__(self):
         self.geom = None
-        self.started_first_segment = False
-        self.started_next_segment = False
+        self.pending = None
 
     def _reverse_geom(self, geom):
         return [sgeom.LineString(reversed(g.coords)) for g in reversed(geom)]
@@ -672,57 +671,53 @@ class RouteGeometry(object):
         else:
             segment = [segment]
 
-        if self.geom is None:
-            # first one gets simply appended
-            self.geom = segment
-            self.started_first_segment = True
+        if self.geom is None and self.pending is None:
+            # first one may need to get turned
+            self.pending = segment
             return
 
-        if self.started_first_segment:
-            # turn the existing and new geomtry so that they match best
-            dist, x, y = min([(sgeom.Point(self.geom[-x].coords[-x])
+        # handle single segment that awaits turning
+        if self.pending is not None:
+            dist, x, y = min([(sgeom.Point(self.pending[-x].coords[-x])
                                 .distance(sgeom.Point(segment[-y].coords[-y])), x, y)
                                           for x in (0, 1) for y in (0, 1)])
 
-            if x == 0:
-                self.geom = self._reverse_geom(self.geom)
-            if y == 1:
-                segment = self._reverse_geom(segment)
-            self.started_first_segment = False
-        elif self.started_next_segment:
-            # turn the latest and new geomtry so that they match best
-            dist, x, y = min([(sgeom.Point(self.geom[-1].coords[-x])
-                                .distance(sgeom.Point(segment[-y].coords[-y])), x, y)
-                                          for x in (0, 1) for y in (0, 1)])
+            # turn only when it is the first segment
+            # or when the geometries would connect
+            if x == 0 and (self.geom is None or dist < 0.00001):
+                self.pending = self._reverse_geom(self.pending)
 
-            if x == 0:
-                self.geom[-1:] = self._reverse_geom(self.geom[-1:])
-            if y == 1:
-                segment = self._reverse_geom(segment)
-            self.started_next_segment = False
-        else:
-            # just append the segment
-            lastpt = sgeom.Point(self.geom[-1].coords[-1])
-            dist, x = min([(lastpt.distance(sgeom.Point(segment[-x].coords[-x])), x) for x in (0, 1)])
-            if x == 1:
-                segment = self._reverse_geom(segment)
+            if self.geom is None:
+                self.geom = self.pending
+            else:
+                self.geom.extend(self.pending)
+
+            self.pending = None
+
+        # Now add the new segment
+        lastpt = sgeom.Point(self.geom[-1].coords[-1])
+        dist, x = min([(lastpt.distance(sgeom.Point(segment[-x].coords[-x])), x)
+                         for x in (0, 1)])
+        if x == 1:
+            segment = self._reverse_geom(segment)
 
         if dist < 0.000001:
             # touching lines, append
             self.geom[-1] = sgeom.LineString(self.geom[-1].coords[:]
                                               + segment[0].coords[1:])
             self.geom.extend(segment[1:])
-        elif len(segment) == 1:
-            # non-touching LineString => enable reverse-check when next segment is added
-            self.geom.extend(segment)
-            self.started_next_segment = True
         else:
-            # non-touching multilinestring
-            self.geom.extend(segment)
+            # wait for next segment to turn the segment correctly
+            self.pending = segment
 
 
     def geometry(self):
-        if self.geom is None:
+        if self.pending is not None:
+            if self.geom is None:
+                self.geom = self.pending
+            else:
+                self.geom.extend(self.pending)
+        elif self.geom is None:
             return None
 
         if len(self.geom) == 1:

@@ -47,7 +47,6 @@ Feature: Route table from RouteSegments
         | id | name | geom |
         | 1  | x    | (1, 2, 3, 4, 6), (2, 5, 7, 8) |
 
-    @wip
     Scenario: Fitting at the end takes precedence over close fit at beginning for subroutes
       Given a 0.001 node grid
         | 1 | 2 | 3 | 4 |
@@ -63,11 +62,12 @@ Feature: Route table from RouteSegments
         | R1 | W1,W2,R2,W3 | HIKING |
         | R2 | W4,W5       | HIKING |
       When constructing a RouteSegments table 'Hiking'
-      And constructing a Routes table 'HikingRoutes' from 'Hiking'
+      And constructing a RelationHierarchy 'routehier' with subset: tags->'type' = 'route' AND tags->'route' = 'hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking' and 'routehier'
       Then table HikingRoutes consists of
         | id | name | geom |
         | 1  | x    | (1, 2, 3, 4), (5, 6, 7, 8, 9) |
-        | 2  | x    | (8, 7, 6, 5) |
+        | 2  | x    | 8, 7, 6, 5 |
 
     Scenario: Route with roundabout
       Given a 0.001 node grid
@@ -185,6 +185,25 @@ Feature: Route table from RouteSegments
           | 1  | x    | 1, 2, 3 |
           | 2  | x    | 6, 5, 4 |
           | 9  | x    | (6, 5, 4), (3, 2, 1) |
+
+    Scenario: Relation with mixed members
+      Given a 0.0001 node grid
+          | 1 |   |   |
+          | 2 | 3 | 4 |
+      And the osm data
+          | id | data   | tags |
+          | W1 | 1,2    | |
+          | W2 | 2,3    | |
+          | W3 | 3,4    | |
+          | R1 | W1,R2,W3 | HIKING |
+          | R2 | W2       | HIKING |
+      When constructing a RouteSegments table 'Hiking'
+      And constructing a RelationHierarchy 'routehier' with subset: tags->'type' = 'route' AND tags->'route' = 'hiking'
+      And constructing a Routes table 'HikingRoutes' from 'Hiking' and 'routehier'
+      Then table HikingRoutes consists of
+          | id | name | geom |
+          | 1  | x    | 1, 2, 3, 4 |
+          | 2  | x    | 2, 3       |
 
     Scenario: Self-contained route
       Given a 0.0001 node grid
