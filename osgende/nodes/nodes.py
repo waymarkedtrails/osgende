@@ -49,15 +49,9 @@ class NodeSubTable(TagSubTable):
         # add an additional transform to the insert statement if the srid changes
         params = {}
         for c in self.data.c:
-            if c == self.column_geom:
-                # XXX This ugly from_shape hack is here to be able to inject
-                # the geometry into the compiled expression later. This can't 
-                # be the right way to go about this. Better ideas welcome.
-                if self.src.data.c.geom.type.srid != srid:
-                    params[c.name] = ST_Transform(from_shape(Point(0, 0), srid=0),
-                                              self.column_geom.type.srid)
-                else:
-                    params[c.name] = from_shape(Point(0, 0), srid=0)
+            if c == self.column_geom and self.src.data.c.geom.type.srid != srid:
+                geomparam = bindparam(c.name, type_=self.column_geom.type)
+                params[c.name] = ST_Transform(geomparam, self.column_geom.type.srid)
             else:
                 params[c.name] = bindparam(c.name)
         self.stm_insert = self.stm_insert.values(params)
@@ -85,6 +79,6 @@ class NodeSubTable(TagSubTable):
 
         if tags is not None:
             tags[self.id_column.name] = obj['id']
-            tags.update(obj['geom'].compile().params)
+            tags['geom'] = str(obj['geom'])
             self.thread.compiled_insert.execute(tags)
 

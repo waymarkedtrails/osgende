@@ -1,5 +1,6 @@
 Feature: NodeSubTable
 
+    @wip
     Scenario: Simple import
         Given the osm data
           | id  | tags                      | data |
