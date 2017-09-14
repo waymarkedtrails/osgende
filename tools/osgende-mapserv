@@ -245,6 +245,8 @@ class TileServer(object):
 
     @cherrypy.expose
     @cherrypy.tools.response_headers(headers=[('Content-Type', 'image/png')])
+    @cherrypy.tools.etags(autotags=True)
+    @cherrypy.tools.expires(secs=10800, force=True)
     def index(self, zoom, x, y):
         tile_desc = self.renderer.split_url(zoom, x, y)
         if tile_desc is None:
