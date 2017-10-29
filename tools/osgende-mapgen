@@ -192,31 +192,21 @@ class TileWriterPSQL:
         # read while the db is updated
         self.db.autocommit = True
 
-        # prepare out queries
+        # prepare our queries
         cur = self.db.cursor()
         # try to create the table
-        try:
-            cur.execute("CREATE TABLE %s (id bigint PRIMARY KEY, pixbuf bytea)" % tablename)
-            truncate = True
-        except psycopg2.ProgrammingError:
-            # assume that the table already exists
-            if truncate:
-                cur.execute("TRUNCATE TABLE %s" % tablename)
-            pass
+        cur.execute("CREATE TABLE IF NOT EXISTS %s (id bigint PRIMARY KEY, pixbuf bytea)" % tablename)
+        if truncate:
+            cur.execute("TRUNCATE TABLE %s" % tablename)
+
         cur.execute("""PREPARE delete_tile(bigint) AS 
                 DELETE FROM %s WHERE id=$1"""
                 % tablename)
-        cur.execute("""PREPARE update_tile(bigint, bytea) AS
-                UPDATE %s SET pixbuf=$2 WHERE id=$1"""
-                % tablename)
         cur.execute("""PREPARE insert_tile(bigint, bytea) AS
-                INSERT INTO %s (id, pixbuf) VALUES($1,$2)"""
+                INSERT INTO %s (id, pixbuf) VALUES ($1,$2)
+                ON CONFLICT (id) DO UPDATE SET pixbuf = EXCLUDED.pixbuf"""
                 % tablename)
         cur.execute("SET synchronous_commit TO OFF")
-        if truncate:
-            self.add_tile = self._insert_tile
-        else:
-            self.add_tile = self._replace_tile
 
 
     def setup(self):
@@ -232,12 +222,7 @@ class TileWriterPSQL:
         binary = psycopg2.Binary(image.tostring('png256'))
         self.add_tile(binary, mk_tileid(zoom, x, y))
 
-    def _replace_tile(self, binary, tileid):
-        self.cursor.execute("EXECUTE update_tile(%s, %s)", (tileid, binary))
-        if self.cursor.rowcount < 1:
-            self.cursor.execute("EXECUTE insert_tile(%s, %s)", (tileid, binary))
-
-    def _insert_tile(self, binary, tileid):
+    def add_tile(self, binary, tileid):
         self.cursor.execute("EXECUTE insert_tile(%s, %s)", (tileid, binary))
 
     def reserve_tile(self, zoom, x, y):

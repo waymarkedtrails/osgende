@@ -12,6 +12,10 @@ Requirements
 
 Osgende requires Python3. Python2 might work but is not officially supported.
 
+- PostgreSQL >= 9.5   https://www.postgresql.org
+
+   Postgres database.
+
 - psycopg >= 2.5.0    http://initd.org/psycopg/
 
     Python bindings for PostgreSQL.
