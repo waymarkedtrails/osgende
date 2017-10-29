@@ -643,7 +643,7 @@ class Routes(TagSubTable):
             if pt in points:
                 line.append(points[pt])
 
-        return None if len(line) == 0 else sgeom.LineString(line)
+        return None if len(line) < 2 else sgeom.LineString(line)
 
     def get_relation_geometry(self, osmid):
         t = self.data
