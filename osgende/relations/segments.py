@@ -589,14 +589,12 @@ class Routes(TagSubTable):
         tmp_rels.drop(engine)
 
     def build_geometry(self, osmid):
-        """ Assemble the geometry in the order of the members of the
-            relations.
-
-            Returns a tuple of geometry and country code.
+        """ Assemble the geometry in the same order as the members of the
+            relation.
         """
 
         geom = RouteGeometry()
-        country = set()
+        points = self._get_relation_points(osmid)
 
         t = self.segment_table.osmtables.member.data
         cur = self.thread.conn.execute(t.select().where(t.c.relation_id == osmid)
@@ -605,41 +603,45 @@ class Routes(TagSubTable):
         # XXX should we check for roles?
         for member in cur:
             if member['member_type'] == 'W':
-                geom.add(self.get_way_geometry(member['member_id']))
+                geom.add(self.get_way_geometry(member['member_id'], points))
             elif member['member_type'] == 'R':
                 geom.add(self.get_relation_geometry(member['member_id']))
 
         g = geom.geometry()
         return g
 
-    def get_way_geometry(self, osmid):
-        # get the geometries for all points involved in the way from
-        # the segment table by unnesting node array and geometry.
+    def _get_relation_points(self, osmid):
+
+        t = self.segment_table.osmtables.member.data
         s = self.segment_table.data
-        ptgeom = select([sqlf.func.unnest(s.c.nodes).label('node'),
-                         literal_column('(ST_DumpPoints(geom)).geom').label('pt')])\
-                    .where(s.c.ways.op('&&')(cast([osmid], ARRAY(BigInteger)))).alias('ptgeom')
-        # get the nodes involved in the way from the way table
+
+        sql = select([s.c.nodes, s.c.geom], distinct=True)\
+                .where(s.c.ways.any(t.c.member_id))\
+                .where(t.c.member_type == 'W')\
+                .where(t.c.relation_id == osmid)
+
+        points = {}
+
+        for res in self.thread.conn.execute(sql):
+            for ptid, coords in zip(res[0], to_shape(res[1]).coords):
+                points[ptid] = coords
+
+        return points
+
+    def get_way_geometry(self, osmid, points):
         w = self.segment_table.osmtables.way.data
-        nodelist = select([sqlf.func.unnest(w.c.nodes).label('node'),
-                           sqlf.func.generate_subscripts(w.c.nodes, 1).label('id')])\
-                     .where(w.c.id == osmid).alias("nodelist")
-        # join them appropriately
-        sel = join(nodelist, ptgeom,
-                   nodelist.c.node == ptgeom.c.node,
-                   isouter=True)
+        wayids = self.thread.conn.execute(select([w.c.nodes]).where(w.c.id == osmid))
 
-        sel = select([ptgeom.c.pt, nodelist.c.id], distinct=True)\
-                .select_from(sel).order_by(nodelist.c.id).alias()
-
-        cur = self.thread.conn.execute(select([ST_MakeLine(sel.c.pt)]))
-
-        if cur.rowcount == 0:
+        if wayids.rowcount == 0:
             return None
 
-        geom = cur.fetchone()[0]
+        line = []
 
-        return None if geom is None else to_shape(geom)
+        for pt in wayids.fetchone()[0]:
+            if pt in points:
+                line.append(points[pt])
+
+        return None if len(line) == 0 else sgeom.LineString(line)
 
     def get_relation_geometry(self, osmid):
         t = self.data
