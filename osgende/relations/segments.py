@@ -615,10 +615,12 @@ class Routes(TagSubTable):
         t = self.segment_table.osmtables.member.data
         s = self.segment_table.data
 
-        sql = select([s.c.nodes, s.c.geom], distinct=True)\
-                .where(s.c.ways.any(t.c.member_id))\
+        waymembers = select([t.c.member_id])\
                 .where(t.c.member_type == 'W')\
                 .where(t.c.relation_id == osmid)
+
+        sql = select([s.c.nodes, s.c.geom])\
+                .where(s.c.ways.op('&& ARRAY')(waymembers))
 
         points = {}
 
