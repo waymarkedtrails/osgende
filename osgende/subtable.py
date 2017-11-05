@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from sqlalchemy import Table, Column, BigInteger, select, and_
-from osgende.tags import TagStore
+from osgende.common.tags import TagStore
 from osgende.common.connectors import TableSource
 from osgende.common.threads import ThreadableDBObject
 
