@@ -15,8 +15,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select, func
-from sqlalchemy.dialects.postgresql import HSTORE, ARRAY
+from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.connectors import TableSource
 from osgende.common.nodestore import NodeStore, NodeStorePoint
@@ -29,13 +29,13 @@ class OsmSourceTables(object):
         # node table is special as we have a larger change table
         data = Table('nodes', meta,
                      Column('id', BigInteger),
-                     Column('tags', HSTORE),
+                     Column('tags', JSONB),
                      Column('geom', Geometry('POINT', srid=4326, spatial_index=False))
                     )
         change = Table('node_changeset', meta,
                        Column('id', BigInteger),
                        Column('action', String(1)),
-                       Column('tags', HSTORE),
+                       Column('tags', JSONB),
                        Column('geom', Geometry('POINT', srid=4326))
                       )
         self.node = TableSource(data, change)
@@ -43,23 +43,14 @@ class OsmSourceTables(object):
         # way and relation get a standard change table
         self.way = TableSource(Table('ways', meta,
                                      Column('id', BigInteger),
-                                     Column('tags', HSTORE),
+                                     Column('tags', JSONB),
                                      Column('nodes', ARRAY(BigInteger))
                                ), change_table='way_changeset')
         self.relation = TableSource(Table('relations', meta,
                                           Column('id', BigInteger),
-                                          Column('tags', HSTORE)
+                                          Column('tags', JSONB),
+                                          Column('members', JSONB),
                                     ), change_table='relation_changeset')
-
-        # the secondary member table has no changes at all
-        data = Table('relation_members', meta,
-                     Column('relation_id', BigInteger),
-                     Column('member_id', BigInteger),
-                     Column('member_type', String(1)),
-                     Column('member_role', String),
-                     Column('sequence_id', Integer)
-                    )
-        self.member = TableSource(data, id_column=data.c.relation_id)
 
         if nodestore is None:
             self.get_points = self.__table_get_points

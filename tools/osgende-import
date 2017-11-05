@@ -32,6 +32,7 @@ import os.path as ospath
 import os
 import threading
 import codecs
+import json
 import struct
 import tempfile
 from binascii import hexlify
@@ -128,12 +129,7 @@ class DbWriter:
 DbWriterSet = namedtuple('DbWriterSet', 'node way relation')
 
 class OSMImporter(osmium.SimpleHandler):
-    sqltrans = { ord(u'"'): u'\\\\"',
-                     ord(u'\r') : u' ', ord(u'\b'): None, ord(u'\f') : None,
-                     ord(u'\n') : u' ',
-                     ord(u'\t') : u' ',
-                     ord(u'\\') : u'\\\\\\\\'
-               }
+    sqltrans = { ord(u'\\') : u'\\\\' }
 
 
     def __init__(self, options):
@@ -196,7 +192,6 @@ class OSMImporter(osmium.SimpleHandler):
                       node=DbWriter(self.engine, self.tables.node.data),
                       way=DbWriter(self.engine, self.tables.way.data),
                       relation=DbWriter(self.engine, self.tables.relation.data))
-        self.member = DbWriter(self.engine, self.tables.member.data)
         if self.is_change_file:
             self.change = DbWriterSet(
                            node=DbWriter(self.engine, self.tables.node.change),
@@ -231,7 +226,6 @@ class OSMImporter(osmium.SimpleHandler):
 
         for tab in self.data:
             tab.close()
-        self.member.close()
         if self.is_change_file:
             for tab in self.change:
                 tab.close()
@@ -251,12 +245,6 @@ class OSMImporter(osmium.SimpleHandler):
                     i = sqla.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
                     i.create(conn)
 
-                i = sqla.Index('pk_relation_members',
-                          self.tables.member.data.c.relation_id,
-                          self.tables.member.data.c.sequence_id,
-                          unique=True)
-                i.create(conn)
-
     def prepare_changeset(self):
         with self.engine.begin() as conn:
             for n in ('node', 'way', 'relation'):
@@ -265,16 +253,17 @@ class OSMImporter(osmium.SimpleHandler):
 
     def node(self, node):
         if not self.nodestore or len(node.tags) > 0:
-            tagstr = self.to_tagstr(node.tags)
+            tagstr = self.to_tagstr(mkdict(node.tags))
             self.data.node.write(id=node.id, tags=tagstr, geom=loc2wkb(node.location))
         if self.nodestore:
             self.nodestore.set_from_node(node)
 
     def node_change(self, node):
-        tagstr = self.to_tagstr(node.tags)
+        tagdict = mkdict(node.tags)
+        tagstr = self.to_tagstr(tagdict)
         geom = loc2wkb(node.location)
         self.change.node.write(id=node.id, action=obj2action(node),
-                                      tags=tagstr, geom=geom)
+                               tags=tagstr, geom=geom)
 
         if node.deleted:
             self.data.node.delete(node.id)
@@ -284,14 +273,14 @@ class OSMImporter(osmium.SimpleHandler):
                 if len(node.tags) == 0:
                     self.data.node.delete(node.id)
                     return
-            if self.data.node.update(id=node.id, oid=node.id, tags=mkdict(node.tags), geom=geom):
+            if self.data.node.update(id=node.id, oid=node.id, tags=tagdict, geom=geom):
                 return
 
             self.data.node.write(id=node.id, tags=tagstr, geom=geom)
 
     def way(self, way):
         nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
-        self.data.way.write(id=way.id, tags=self.to_tagstr(way.tags),
+        self.data.way.write(id=way.id, tags=self.to_tagstr(mkdict(way.tags)),
                                    nodes=nodes)
 
     def way_change(self, way):
@@ -301,49 +290,41 @@ class OSMImporter(osmium.SimpleHandler):
             self.data.way.delete(way.id)
         else:
             nodes = [int(x.ref) for x in way.nodes]
-            if self.data.way.update(id=way.id, oid=way.id, tags=mkdict(way.tags), nodes=nodes):
+            tagdict = mkdict(way.tags)
+            if self.data.way.update(id=way.id, oid=way.id, tags=tagdict, nodes=nodes):
                 return
 
             nodes = u'{%s}' % (','.join([str(n.ref) for n in way.nodes]))
-            self.data.way.write(id=way.id, tags=self.to_tagstr(way.tags),
+            self.data.way.write(id=way.id, tags=self.to_tagstr(tagdict),
                                        nodes=nodes)
 
     def relation(self, rel):
-        self.data.relation.write(id=rel.id, tags=self.to_tagstr(rel.tags))
-        seq = 1
-        for m in rel.members:
-            self.member.write(relation_id=rel.id,
-                              member_id=m.ref,
-                              member_type=m.type.upper(),
-                              member_role=self.sqlstr(m.role),
-                              sequence_id=seq)
-            seq += 1
+        members = [ { 'type' : m.type.upper(),
+                      'id' : m.ref,
+                      'role' : m.role } for m in rel.members ]
+        self.data.relation.write(id=rel.id, tags=self.to_tagstr(mkdict(rel.tags)),
+                                 members=self.sqlstr(json.dumps(members)))
 
     def relation_change(self, rel):
         self.change.relation.write(id=rel.id, action=obj2action(rel))
-        self.member.delete(rel.id)
 
         if rel.deleted:
             self.data.relation.delete(rel.id)
         else:
-            seq = 1
-            for m in rel.members:
-                self.member.update(relation_id=rel.id,
-                                               member_id=m.ref,
-                                               member_type=m.type.upper(),
-                                               member_role=m.role,
-                                               sequence_id=seq)
-                seq += 1
+            members = [ { 'type' : m.type.upper(),
+                          'id' : m.ref,
+                          'role' : m.role } for m in rel.members ]
+            tagdict = mkdict(rel.tags)
 
-            if self.data.relation.update(id=rel.id, oid=rel.id, tags=mkdict(rel.tags)):
+            if self.data.relation.update(id=rel.id, oid=rel.id, tags=tagdict,
+                                         members=members):
                 return
 
-            self.data.relation.write(id=rel.id,
-                                            tags=self.to_tagstr(rel.tags))
+            self.data.relation.write(id=rel.id, tags=self.to_tagstr(tagdict),
+                                     members=self.sqlstr(json.dumps(members)))
 
-    def to_tagstr(self, tags):
-        return u','.join(['"%s"=>"%s"' % (self.sqlstr(t.k), self.sqlstr(t.v))
-                            for  t in tags])
+    def to_tagstr(self, tagdict):
+        return self.sqlstr(json.dumps(tagdict))
 
     if sys.version_info[0] < 3:
         def sqlstr(self, s):
