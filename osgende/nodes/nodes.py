@@ -19,7 +19,7 @@ Tables for nodes
 """
 
 from osgende.subtable import TagSubTable
-from osgende.tags import TagStore
+from osgende.common.tags import TagStore
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape
 from geoalchemy2.functions import ST_Transform

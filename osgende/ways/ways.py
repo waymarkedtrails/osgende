@@ -23,7 +23,7 @@ from sqlalchemy import Column, bindparam, select, text
 from geoalchemy2 import Geometry
 from geoalchemy2.functions import ST_Transform
 from osgende.subtable import TagSubTable
-from osgende.tags import TagStore
+from osgende.common.tags import TagStore
 from shapely.geometry import Point, LineString
 from geoalchemy2.shape import from_shape
 
