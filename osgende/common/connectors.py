@@ -24,8 +24,9 @@ class TableSource:
     """ Describes a source for another table.
     """
 
-    def __init__(self, data_table, change_table=None,
-                 id_column=None):
+    view_only = False
+
+    def __init__(self, data_table, change_table=None, id_column=None):
         """ Create a new table source. `data_table` must be an SQLAlchemy table
             with the data, The optional `change_table` may either be an
             SQLAlchemy table with id and action column or it may be a string

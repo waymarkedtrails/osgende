@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 class MapDB:
     """Basic class for creation and modification of a complete database.
 
-       Subclass this for each route map and supply the create_table_objects()
+       Subclass this for each database and supply the create_tables()
        function.
 
        `options` may be extended with arbitrary attributes by subclasses. MapDB

@@ -1,0 +1,1 @@
+from .filtered import FilteredTable

@@ -1,0 +1,84 @@
+# This file is part of Osgende
+# Copyright (C) 2017 Sarah Hoffmann
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
+from osgende.common.connectors import TableSource
+from sqlalchemy.dialects.postgresql import insert
+import sqlalchemy as sqla
+from osgende.common.sqlalchemy import DropIndexIfExists
+
+class FilteredTable(TableSource):
+    """ Table that provides a filtered view of another table according
+        to a given subquery.
+    """
+
+    def __init__(self, meta, name, source, subset):
+        table = source.data.tometadata(meta, name=name)
+        TableSource.__init__(self, table, source.change,
+                             id_column=table.c[source.id_column.name])
+
+        self.subset = subset
+        self.src = source
+
+
+    def truncate(self, conn):
+        if not self.view_only:
+            conn.execute(self.data.delete())
+
+
+    def construct(self, engine):
+        if self.view_only:
+            return
+
+        idx = sqla.Index("idx_%s_%s" % (self.data.name, self.id_column.name),
+                          self.id_column, unique=True)
+
+        with engine.begin() as conn:
+            conn.execute(DropIndexIfExists(idx))
+            self.truncate(conn)
+            sql = self.data.insert().from_select(
+                    self.src.data.c, self.src.select_all(self.subset))
+            conn.execute(sql)
+            idx.create(conn)
+
+
+    def update(self, engine):
+        if self.view_only:
+            return
+
+        if self.src.change is None:
+            self.construct(engine)
+            return
+
+        with engine.begin() as conn:
+            delsql = self.data.delete()\
+                        .where(self.id_column.in_(self.select_delete()))
+            conn.execute(delsql)
+            # columns we want to update when column exists
+            upsertdict = dict([(c.name, 'EXCLUDED.' + c.name)
+                                for c in self.data.columns if c != self.id_column])
+            # now upsert data
+            inssql = insert(self.data)\
+                        .from_select(self.src.data.c,
+                                     self.src.data.select()
+                                       .where(self.src.id_column.in_(
+                                         self.select_add_modify())))\
+                        .on_conflict_do_update(index_elements=[self.id_column],
+                                               set_=upsertdict)
+            conn.execute(inssql)
+
+
+
