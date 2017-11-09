@@ -64,9 +64,15 @@ class FilteredTable(TableSource):
             return
 
         with engine.begin() as conn:
+            # delete deleted relations
             delsql = self.data.delete()\
                         .where(self.id_column.in_(self.select_delete()))
             conn.execute(delsql)
+            # delete relations that have lost the filter properties
+            todelete = sqla.select([self.src.data.c.id])\
+                           .where(self.src.data.c.id.in_(self.select_add_modify()))\
+                           .where(sqla.not_(self.subset))
+            conn.execute(self.data.delete().where(self.id_column.in_(todelete)))
             # columns we want to update when column exists
             upsertdict = dict([(c.name, 'EXCLUDED.' + c.name)
                                 for c in self.data.columns if c != self.id_column])
@@ -75,7 +81,8 @@ class FilteredTable(TableSource):
                         .from_select(self.src.data.c,
                                      self.src.data.select()
                                        .where(self.src.id_column.in_(
-                                         self.select_add_modify())))\
+                                         self.select_add_modify()))
+                                       .where(self.subset))\
                         .on_conflict_do_update(index_elements=[self.id_column],
                                                set_=upsertdict)
             conn.execute(inssql)

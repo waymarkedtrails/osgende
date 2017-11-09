@@ -174,7 +174,10 @@ class OSMImporter(osmium.SimpleHandler):
             self.is_change_file = True
         else:
             self.reader = osmium.io.Reader(options.inputfile)
-            self.is_change_file = self.reader.header().has_multiple_object_versions
+            if options.change_file:
+                self.is_change_file = True
+            else:
+                self.is_change_file = self.reader.header().has_multiple_object_versions
             if options.replication is not None:
                 ts = osmium.replication.newest_change_from_file(options.inputfile)
                 diffinfo = self.repserver.get_state_info(self.repserver.timestamp_to_sequence(ts))
@@ -351,6 +354,8 @@ if __name__ == '__main__':
                        help='File containing the node store')
     parser.add_argument('-r', action='store', dest='replication', default=None,
                        help='URL to replication service')
+    parser.add_argument('-C', action='store_true', dest='change_file', default=False,
+                       help='Input file is a change file')
     parser.add_argument('-S', action='store', dest='change_size', default=50*1024,
                        type=int,
                        help='Maxium size in kB for changes to download at once')
