@@ -67,16 +67,16 @@ class MapDB:
         schema = self.get_option('schema')
         rouser = self.get_option('ro_user')
 
-        if schema is not None:
-            with self.engine.begin() as conn:
+        with self.engine.begin() as conn:
+            if schema is not None:
                 conn.execute(CreateSchema(schema))
                 if rouser is not None:
                     conn.execute('GRANT USAGE ON SCHEMA %s TO "%s"' % (schema, rouser))
 
-        self.metadata.create_all(bind=self.engine)
+            for t in self.tables:
+                t.create(conn)
 
-        if rouser is not None:
-            with self.engine.begin() as conn:
+            if rouser is not None:
                 for t in self.tables:
                     if schema:
                         tname = '%s.%s' % (schema, str(t.data.name))
