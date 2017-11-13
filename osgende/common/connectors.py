@@ -19,6 +19,7 @@ Various classes that provide connections between processed tables.
 """
 
 from sqlalchemy import String, Table, Column, select, and_, text
+from osgende.common.sqlalchemy import Truncate
 
 class TableSource:
     """ Describes a source for another table.
@@ -50,6 +51,21 @@ class TableSource:
                                )
         else:
             self.change = change_table
+
+    def create(self, engine):
+        if self.view_only and hasattr(self, 'create_view'):
+            self.create_view(engine)
+        elif hasattr(self, 'create_table'):
+            self.create_table(engine)
+        else:
+            self.data.create(bind=engine, checkfirst=True)
+            if self.change is not None:
+                self.change.create(bind=engine, checkfirst=True)
+
+
+    def truncate(self, conn):
+        if not self.view_only:
+            conn.execute(Truncate(self.data))
 
     def change_id_column(self):
         return self.change.c[self.id_column.name]

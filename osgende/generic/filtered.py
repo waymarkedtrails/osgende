@@ -34,11 +34,6 @@ class FilteredTable(TableSource):
         self.src = source
 
 
-    def truncate(self, conn):
-        if not self.view_only:
-            conn.execute(self.data.delete())
-
-
     def construct(self, engine):
         if self.view_only:
             return
