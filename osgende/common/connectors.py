@@ -19,6 +19,7 @@ Various classes that provide connections between processed tables.
 """
 
 from sqlalchemy import String, Table, Column, select, and_, text
+from sqlalchemy.dialects.postgresql import insert
 from osgende.common.sqlalchemy import Truncate
 
 class TableSource:
@@ -75,6 +76,20 @@ class TableSource:
             The changes are derived from an SQL select() statement.
         """
         return self.change.insert().from_select([self.change], selstm)
+
+    def upsert_data(self):
+        """ Return an Upsert statement.
+
+            Corresponds to Postgresql SQL
+              INSERT  ... ON CONFLICT DO UPDATE <all columns except id>
+
+            Add the actual inserted values or query to complete the query.
+        """
+        upsertdict = dict([(c.name, text('EXCLUDED.' + c.name))
+                                for c in self.data.columns if c != self.id_column])
+        return insert(self.data)\
+                .on_conflict_do_update(index_elements=[self.id_column],
+                                       set_=upsertdict)
 
     def select_all(self, subset=None):
         """ Return an SQLAlchemy select statement which will return all

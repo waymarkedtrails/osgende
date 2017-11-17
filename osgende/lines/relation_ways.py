@@ -22,7 +22,7 @@ from geoalchemy2.shape import from_shape
 import shapely.geometry as sgeom
 
 from osgende.common.connectors import TableSource
-from osgende.common.sqlalchemy import CreateView, jsonb_array_elements
+from osgende.common.sqlalchemy import CreateView, jsonb_array_elements, DropIndexIfExists, Truncate
 from osgende.common.threads import ThreadableDBObject
 
 
@@ -78,6 +78,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
     def create_table(self, engine):
         self.data.create(bind=engine, checkfirst=True)
+        self.change.create(bind=engine, checkfirst=True)
 
         rels = self.relation_src.data.alias('r')
         members = jsonb_array_elements(rels.c.members).lateral()
@@ -91,6 +92,16 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
     def construct(self, engine):
         self.truncate(engine)
+
+        # manual indexes
+        relidx = sa.Index(self.data.name + "_rels_idx",
+                          self.data.c.rels, postgresql_using='gin')
+        ndsidx = sa.Index(self.data.name + "_nodes_idx",
+                          self.data.c.nodes, postgresql_using='gin')
+        # drop indexes if any
+        engine.execute(DropIndexIfExists(relidx))
+        engine.execute(DropIndexIfExists(ndsidx))
+
 
         w = self.way_src.data
         r = self.relway_view
@@ -110,6 +121,77 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             workers.add_task(obj)
 
         workers.finish()
+
+        # need reverse lookup indexes for rels and nodes
+        relidx.create(engine)
+        ndsidx.create(engine)
+
+    def update(self, engine):
+        with_tags = hasattr(self, 'tag_transform')
+        with_geom = self.nodes is not None
+
+        # remember changed ways for changeset table
+        changeset = {}
+
+        # first pass: handle changed ways
+        d = self.data
+        w = self.way_src.data
+        wheresql = [d.c.id.in_(self.way_src.select_add_modify())]
+        if self.nodes is not None:
+            wheresql.append(d.c.nodes.op('&& ARRAY')(self.nodes.node.select_add_modify()))
+
+        cols = [d, w.c.nodes.label('new_nodes')]
+        if with_tags:
+            cols.append(w.c.tags.label('new_tags'))
+        sql = sa.select(cols).where(d.c.id == w.c.id).where(sa.or_(*wheresql))
+
+        inserts = []
+        deletes = []
+        for obj in engine.execute(sql):
+            oid = obj['id']
+            changed = False
+            if with_tags:
+                cols = self.transform_tags(oid, TagStore(obj['tags']))
+                if cols is None:
+                    deletes.append(oid)
+                    continue
+                # check if there are actual tag changes
+                for k, v in cols.items():
+                    if str(obj[k]) != str(v):
+                        changed = True
+                        break
+            else:
+                cols = {}
+
+            # TODO with_geom requires to check if a node is still affected
+            if obj['nodes'] != obj['new_nodes']:
+                changed = True
+                if with_geom:
+                    # TODO only look up new/changed nodes
+                    points = self.nodes.get_points(obj['nodes'])
+                    if len(points) <= 1:
+                        deletes.append(oid)
+                        continue
+                    cols['geom'] = from_shape(sgeom.LineString(points))
+            elif changed and with_geom:
+                cols['geom'] = obj['geom']
+
+            if changed:
+                cols['nodes'] = obj['new_nodes']
+                cols[self.id_column.name] = oid
+                cols['rels'] = obj['rels']
+                inserts.append(cols)
+                changeset[oid] = 'M'
+
+        if len(inserts):
+            engine.execute(self.upsert_data().values(inserts))
+
+        # finally fill the changeset table
+        engine.execute(Truncate(self.change))
+        if len(changeset):
+            engine.execute(self.change.insert().values([{'id': k, 'action' : v}
+                                                         for k, v in changeset.items()]))
+
 
     def _process_construct_next(self, obj):
         if hasattr(self, 'transform_tags'):
