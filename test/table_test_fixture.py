@@ -99,30 +99,37 @@ class TableTestFixture(unittest.TestCase):
 
     def table_equals(self, tablename, content):
         table = self.db.metadata.tables[tablename]
-        res = self.db.engine.execute(table.select())
-
-        assert_equal(len(content), res.rowcount)
 
         badrow = None
-        for c in res:
-            for exp in list(content):
-                for k,v in exp.items():
-                    if k not in c:
-                        badrow = str(c)
+        with self.db.engine.begin() as conn:
+            res = conn.execute(table.select())
+
+            assert_equal(len(content), res.rowcount)
+
+            for c in res:
+                for exp in list(content):
+                    for k,v in exp.items():
+                        if k not in c:
+                            badrow = str(c)
+                            break
+                        if not _deep_compare(c[k], v):
+                            break
+                    else:
+                        content.remove(exp)
                         break
-                    if not _deep_compare(c[k], v):
+                    if badrow is not None:
                         break
                 else:
-                    content.remove(exp)
-                    break
-                if badrow is not None:
-                    break
-            else:
-                badrow = str(c)
+                    badrow = str(c)
 
         assert_is_none(badrow, "unexpected row in database")
 
         assert_false(content, "missing rows in database")
+
+    def has_changes(self, tablename, content):
+        as_array = [ { 'action' : l[0], 'id' : int(l[1:]) } for l in content ]
+        return self.table_equals(tablename, as_array)
+
 
     def tearDown(self):
         self.db.engine.dispose()

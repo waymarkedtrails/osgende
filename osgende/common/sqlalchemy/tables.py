@@ -80,7 +80,11 @@ class DropIndexIfExists(Executable, ClauseElement):
 
 @compiles(DropIndexIfExists, "postgresql")
 def _analyse(element, compiler, **kw):
-    return "DROP INDEX IF EXISTS %s" % element.key
+    if element.index.table is not None and element.index.table.schema:
+        schema = "%s." % (element.index.table.schema)
+    else:
+        schema = ''
+    return "DROP INDEX IF EXISTS %s%s" % (schema, element.index.name)
 
 
 class Truncate(Executable, ClauseElement):
