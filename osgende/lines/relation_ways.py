@@ -127,13 +127,22 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         ndsidx.create(engine)
 
     def update(self, engine):
+
+        # first pass: handle changed ways
+        changeset = self._update_handle_changed_ways(engine)
+        # second pass: handle changed relations
+        changeset.update(self._update_handle_changed_rels(engine))
+
+        # finally fill the changeset table
+        engine.execute(Truncate(self.change))
+        if len(changeset):
+            engine.execute(self.change.insert().values([{'id': k, 'action' : v}
+                                                         for k, v in changeset.items()]))
+
+    def _update_handle_changed_ways(self, engine):
         with_tags = hasattr(self, 'tag_transform')
         with_geom = self.nodes is not None
 
-        # remember changed ways for changeset table
-        changeset = {}
-
-        # first pass: handle changed ways
         d = self.data
         w = self.way_src.data
         wheresql = [d.c.id.in_(self.way_src.select_add_modify())]
@@ -186,11 +195,9 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         if len(inserts):
             engine.execute(self.upsert_data().values(inserts))
 
-        # finally fill the changeset table
-        engine.execute(Truncate(self.change))
-        if len(changeset):
-            engine.execute(self.change.insert().values([{'id': k, 'action' : v}
-                                                         for k, v in changeset.items()]))
+
+    def _update_handle_changed_rels(self, engine):
+        pass
 
 
     def _process_construct_next(self, obj):
