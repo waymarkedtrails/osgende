@@ -15,7 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime
+from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select, func
 from sqlalchemy.dialects.postgresql import HSTORE, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.connectors import TableSource
@@ -81,13 +81,27 @@ class OsmSourceTables(object):
     def __getitem__(self, key):
         return getattr(self, key)
 
-    def __nodestore_get_points(self, nodes):
+    def __nodestore_get_points(self, nodes, engine=None):
+        return self.__mkpointlist_points(nodes, self.nodestore)
+
+    def __table_get_points(self, nodes, conn):
+        t = self.node.data
+        sql = select([t.c.id, t.c.geom.ST_X().label('x'),
+                      t.c.geom.ST_Y().label('y')]).where(t.c.id.in_(nodes))
+
+        geoms = {}
+        for res in conn.execute(sql):
+            geoms[res['id']] = NodeStorePoint(res['x'], res['y'])
+
+        return self.__mkpointlist_points(nodes, geoms)
+
+    def __mkpointlist_points(self, nodes, store):
         ret = []
         prev = None
         for n in nodes:
             if n is not None:
                 try:
-                    coord = self.nodestore[n]
+                    coord = store[n]
                     if coord == prev:
                         coord = NodeStorePoint(coord.x + 0.00000001, coord.y)
                     prev = coord
@@ -96,6 +110,3 @@ class OsmSourceTables(object):
                     pass
 
         return ret
-
-    def __table_get_points(self, nodes):
-        raise Error("Not implemented")

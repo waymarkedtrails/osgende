@@ -421,7 +421,7 @@ class _WayCollector(ThreadableDBObject):
         countries = {}
         prevpoints = (0,0)
 
-        points = self.src.osmtables.get_points(way.nodes)
+        points = self.src.osmtables.get_points(way.nodes, self.thread.conn)
 
         # ignore ways where the node geometries are missing
         if len(points) > 1:

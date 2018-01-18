@@ -85,7 +85,7 @@ class Ways(TagSubTable):
         tags = self.transform_tags(obj['id'], TagStore(obj['tags']))
 
         if tags is not None:
-            points = self.osmtables.get_points(obj['nodes'])
+            points = self.osmtables.get_points(obj['nodes'], self.thread.conn)
 
             # ignore ways where the node geometries are missing
             if len(points) > 1:
