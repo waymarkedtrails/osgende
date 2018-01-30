@@ -197,10 +197,10 @@ class TestSimpleRelationWaysUpdateSimpleRelationChanges(TableTestFixture):
         self.update_data("r2 v2 Mw1@foo,w2@bar")
         self.is_unchanged()
 
-    def test_update_add_node(self):
+    def test_update_add_node_member(self):
         self.update_data("r2 v2 Mw1@,w2@,n2@")
         self.is_unchanged()
 
-    def test_update_add_relation(self):
+    def test_update_add_relation_member(self):
         self.update_data("r2 v2 Mr3@,w1@,w2@")
         self.is_unchanged()

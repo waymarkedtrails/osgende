@@ -23,6 +23,7 @@ import shapely.geometry as sgeom
 
 from osgende.common.connectors import TableSource
 from osgende.common.sqlalchemy import CreateView, jsonb_array_elements, DropIndexIfExists, Truncate
+from osgende.common.tags import TagStore
 from osgende.common.threads import ThreadableDBObject
 
 
@@ -144,7 +145,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
     def _update_handle_changed_ways(self, engine):
         """ Handle changes to way tags, added and removed nodes and moved nodes.
         """
-        with_tags = hasattr(self, 'tag_transform')
+        with_tags = hasattr(self, 'transform_tags')
         with_geom = self.osmdata is not None
 
         # Get old rows where nodes and tags have changed and
@@ -167,9 +168,10 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             oid = obj['id']
             changed = False
             if with_tags:
-                cols = self.transform_tags(oid, TagStore(obj['tags']))
+                cols = self.transform_tags(oid, TagStore(obj['new_tags']))
                 if cols is None:
-                    deletes.append(oid)
+                    deletes.append({'oid' : oid})
+                    changeset[oid] = 'D'
                     continue
                 # check if there are actual tag changes
                 for k, v in cols.items():
@@ -205,7 +207,9 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         if len(inserts):
             engine.execute(self.upsert_data().values(inserts))
         if len(deletes):
-            engine.execute(self.delete().values(deletes))
+            engine.execute(self.data.delete()
+                            .where(self.data.c.id == sa.bindparam('oid')),
+                           deletes)
 
         return changeset
 
@@ -234,7 +238,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             rels = sorted(obj['new_rels'])
             # If the new set is empty, the way has been removed from the set.
             if len(rels) == 0:
-                deletes.append(oid)
+                deletes.append({'oid' : oid})
                 changeset[oid] = 'D'
             # If the relation set differs, there was a relevant change.
             # (Only update the way set here. geometry and tag changes have
@@ -249,7 +253,9 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                              .values(rels=sa.bindparam('rels')), inserts)
 
         if len(deletes):
-            engine.execute(self.delete().values(deletes))
+            engine.execute(self.data.delete()
+                            .where(self.data.c.id == sa.bindparam('oid')),
+                           deletes)
 
         return changeset
 
@@ -268,22 +274,31 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
         sql = sa.select(cols).where(w.c.id == sub.c.way_id)
 
-        res = engine.execution_options(stream_results=True).execute(sql)
-        workers = self.create_worker_queue(engine, self._process_construct_next)
         changeset = {}
-        for obj in res:
-            changeset[obj['way_id']] = 'A'
-            workers.add_task(obj)
+        inserts = []
+        for obj in engine.execute(sql):
+            cols = self._construct_row(obj)
+            if cols is not None:
+                changeset[obj['way_id']] = 'A'
+                inserts.append(cols)
 
-        workers.finish()
+        if len(inserts):
+            engine.execute(self.data.insert().values(inserts))
 
         return changeset
 
     def _process_construct_next(self, obj):
+        cols = self._construct_row(obj)
+
+        if cols is not None:
+            self.thread.conn.execute(self.data.insert().values(cols))
+
+
+    def _construct_row(self, obj):
         if hasattr(self, 'transform_tags'):
             cols = self.transform_tags(obj['way_id'], TagStore(obj['tags']))
             if cols is None:
-                return
+                return None
         else:
             cols = {}
 
@@ -297,4 +312,4 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         cols['rels'] = sorted(obj['rels'])
         cols['nodes'] = obj['nodes']
 
-        self.thread.conn.execute(self.data.insert().values(cols))
+        return cols
