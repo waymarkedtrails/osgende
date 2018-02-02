@@ -15,6 +15,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+from geoalchemy2.elements import _SpatialElement as GeoElement
+from geoalchemy2.shape import to_shape
 from collections import namedtuple, OrderedDict
 import os
 import subprocess
@@ -25,30 +27,7 @@ from textwrap import dedent
 
 
 from osgende import MapDB
-
-def _deep_compare(a, b):
-    if type(a) != type(b):
-        return False
-
-    if isinstance(a, str):
-        return a == b
-
-    if isinstance(a, dict) and isinstance(b, dict):
-        if len(a) != len(b):
-            return False
-
-        for k,v in a.items():
-            if k not in b or not _deep_compare(v, b[k]):
-                return False
-
-    try:
-        for suba, subb in zip(iter(a), iter(b)):
-            if not _deep_compare(suba, subb):
-                return False
-    except TypeError:
-        pass
-
-    return a == b
+import db_compare as dbc
 
 class TableTestFixture(unittest.TestCase):
 
@@ -112,7 +91,7 @@ class TableTestFixture(unittest.TestCase):
                         if k not in c:
                             badrow = str(c)
                             break
-                        if not _deep_compare(c[k], v):
+                        if not dbc.DBCompareValue.compare(c[k], v):
                             break
                     else:
                         content.remove(exp)

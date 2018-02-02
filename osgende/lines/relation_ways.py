@@ -62,7 +62,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                           )
 
         if osmdata is not None:
-            sa.Column('geom', Geometry('LINESTRING', srid=srid))
+            table.append_column(
+                    sa.Column('geom', Geometry('LINESTRING', srid=srid)))
 
         if hasattr(self, 'add_columns'):
             self.add_columns(table)
@@ -185,7 +186,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             # moved.
             if with_geom:
                 # TODO only look up new/changed nodes
-                points = self.osmdata.get_points(obj['nodes'])
+                points = self.osmdata.get_points(obj['nodes'], engine)
                 if len(points) <= 1:
                     deletes.append(oid)
                     changeset[oid] = 'D'
@@ -277,7 +278,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         changeset = {}
         inserts = []
         for obj in engine.execute(sql):
-            cols = self._construct_row(obj)
+            cols = self._construct_row(obj, engine)
             if cols is not None:
                 changeset[obj['way_id']] = 'A'
                 inserts.append(cols)
@@ -288,13 +289,13 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         return changeset
 
     def _process_construct_next(self, obj):
-        cols = self._construct_row(obj)
+        cols = self._construct_row(obj, self.thread.conn)
 
         if cols is not None:
             self.thread.conn.execute(self.data.insert().values(cols))
 
 
-    def _construct_row(self, obj):
+    def _construct_row(self, obj, conn):
         if hasattr(self, 'transform_tags'):
             cols = self.transform_tags(obj['way_id'], TagStore(obj['tags']))
             if cols is None:
@@ -303,10 +304,11 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             cols = {}
 
         if self.osmdata is not None:
-            points = self.osmdata.get_points(obj['nodes'])
+            points = self.osmdata.get_points(obj['nodes'], conn)
             if len(points) <= 1:
                 return
-            cols['geom'] = from_shape(sgeom.LineString(points))
+            cols['geom'] = from_shape(sgeom.LineString(points),
+                                      srid=self.data.c.geom.type.srid)
 
         cols[self.id_column.name] = obj['way_id']
         cols['rels'] = sorted(obj['rels'])
