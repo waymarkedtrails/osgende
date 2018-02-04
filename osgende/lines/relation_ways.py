@@ -18,7 +18,7 @@
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY, array_agg
 from geoalchemy2 import Geometry
-from geoalchemy2.shape import from_shape
+from geoalchemy2.shape import from_shape, to_shape
 import shapely.geometry as sgeom
 
 from osgende.common.connectors import TableSource
@@ -186,17 +186,16 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             # moved.
             if with_geom:
                 # TODO only look up new/changed nodes
-                points = self.osmdata.get_points(obj['nodes'], engine)
+                points = self.osmdata.get_points(obj['new_nodes'], engine)
                 if len(points) <= 1:
-                    deletes.append(oid)
+                    deletes.append({'oid' : oid})
                     changeset[oid] = 'D'
                     continue
-                cols['geom'] = from_shape(sgeom.LineString(points))
-                changed = changed or (cols['geom'] != obj['geom'])
+                new_geom = sgeom.LineString(points)
+                cols['geom'] = from_shape(new_geom, srid=self.data.c.geom.type.srid)
+                changed = changed or (new_geom != to_shape(obj['geom']))
             elif obj['nodes'] != obj['new_nodes']:
                 changed = True
-            elif changed and with_geom:
-                cols['geom'] = obj['geom']
 
             if changed:
                 cols['nodes'] = obj['new_nodes']

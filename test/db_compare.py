@@ -22,11 +22,15 @@ Provide special compare classes for complex database values.
 from geoalchemy2.elements import _SpatialElement as GeoElement
 from geoalchemy2.shape import to_shape
 import shapely.geometry as sgeom
+from nose.tools import *
 
 class DBCompareValue(object):
     """ Generic DB value comparator. Inherit from this class for more
         specific comparators and implement the compare() function.
     """
+
+    # Cache locations for nodes here.
+    nodestore = {}
 
     @classmethod
     def compare(cls, a, b):
@@ -64,7 +68,11 @@ class Line(DBCompareValue):
         self.points = []
 
         for a in args:
-            assert(len(a) == 2)
+            if isinstance(a, int):
+                assert_in(a, DBCompareValue.nodestore)
+                a = DBCompareValue.nodestore[a]
+
+            assert_equal(2, len(a), "not a point: " + str(a))
             self.points.append(a)
 
     def compare(self, o):
@@ -78,10 +86,12 @@ class Line(DBCompareValue):
             return False
 
         for a, e in zip(self.points, o.coords):
-            if abs(a[0] - e[0]) > 0.0001:
+            if abs(a[0] - e[0]) > 0.00000001:
                 return False
-            if abs(a[1] - e[1]) > 0.0001:
+            if abs(a[1] - e[1]) > 0.00000001:
                 return False
+
+        assert_true(o.is_valid)
 
         return True
 
