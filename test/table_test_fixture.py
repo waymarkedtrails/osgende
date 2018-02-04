@@ -27,7 +27,7 @@ from textwrap import dedent
 
 
 from osgende import MapDB
-import db_compare as dbc
+from db_compare import DBCompareValue
 
 class TableTestFixture(unittest.TestCase):
 
@@ -52,10 +52,16 @@ class TableTestFixture(unittest.TestCase):
             return _RouteTables(**tables)
 
 
-    def import_data(self, data):
+    def import_data(self, data, nodes={}):
         assert_equal(0, os.system('dropdb --if-exists ' + self.Options.database))
+        osm_data = ""
+        for k, v in nodes.items():
+            osm_data += "n%d x%f y%f\n" % (k, v[0], v[1])
+            DBCompareValue.nodestore[k] = v
+        osm_data += dedent(data)
+
         with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), suffix='.opl') as fd:
-            fd.write(dedent(data).encode('utf-8'))
+            fd.write(osm_data.encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
             cmd = ['../tools/osgende-import', '-c', '-d', self.Options.database, fd.name]
@@ -91,7 +97,7 @@ class TableTestFixture(unittest.TestCase):
                         if k not in c:
                             badrow = str(c)
                             break
-                        if not dbc.DBCompareValue.compare(c[k], v):
+                        if not DBCompareValue.compare(c[k], v):
                             break
                     else:
                         content.remove(exp)
