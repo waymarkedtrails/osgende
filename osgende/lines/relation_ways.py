@@ -235,17 +235,18 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         changeset = {}
         for obj in engine.execute(sql):
             oid = obj['id']
-            rels = sorted(obj['new_rels'])
             # If the new set is empty, the way has been removed from the set.
-            if len(rels) == 0:
+            if obj['new_rels'] is None:
                 deletes.append({'oid' : oid})
                 changeset[oid] = 'D'
             # If the relation set differs, there was a relevant change.
             # (Only update the way set here. geometry and tag changes have
             #  already been done during the first pass.)
-            elif rels != obj['rels']:
-                inserts.append({'oid' : oid, 'rels' : rels})
-                changeset[oid] = 'M'
+            else:
+                rels = sorted(obj['new_rels'])
+                if rels != obj['rels']:
+                    inserts.append({'oid' : oid, 'rels' : rels})
+                    changeset[oid] = 'M'
 
         if len(inserts):
             engine.execute(self.data.update()
