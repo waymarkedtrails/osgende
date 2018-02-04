@@ -188,6 +188,12 @@ class TestSimpleRelationWaysUpdateSimpleRelationChanges(TableTestFixture):
             { 'id' : 1, 'nodes' : [1, 2, 3], 'rels' : [1] },
             { 'id' : 2, 'nodes' : [3, 4, 5], 'rels' : [1, 2] }
             ])
+    def test_update_remove_all_ways(self):
+        self.update_data("r2 v2 Mw2@\nr1 v2 Mw2@")
+        self.has_changes("test_changeset", ['D1'])
+        self.table_equals("test", [
+            { 'id' : 2, 'nodes' : [3, 4, 5], 'rels' : [1, 2] }
+            ])
 
     def test_update_relation_tags(self):
         self.update_data("r2 v2 Tname=foo Mw1@,w2@")

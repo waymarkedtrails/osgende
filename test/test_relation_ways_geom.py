@@ -46,6 +46,16 @@ class TestSimpleRelationWaysImport: #(TableTestFixture):
             { 'id' : 2, 'nodes' : [3, 5], 'rels' : [1], 'geom' : Line(3, 5) }
             ])
 
+    def test_create_one_point_way(self):
+        self.import_data("""\
+            w1 Nn1,n3
+            w2 Nn5,n5
+            r1 Mw1@,w2@
+            """, self.nodes)
+        self.table_equals("test", [
+            { 'id' : 1, 'nodes' : [1, 3], 'rels' : [1], 'geom' : Line(1, 3) }
+            ])
+
     def test_create_overlapping_rels(self):
         self.import_data("""\
             w1 Nn1,n2,n3
