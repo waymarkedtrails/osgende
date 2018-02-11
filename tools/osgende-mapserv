@@ -176,9 +176,8 @@ class MapnikRenderer(object):
         self.mproj = mapnik.Projection(m.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
-        cherrypy.engine.subscribe('start_thread', self.thread_map)
-
     def get_map(self):
+        self.thead_map()
         return cherrypy.thread_data.mapnik_map[self.name]
 
     def thread_map(self):
