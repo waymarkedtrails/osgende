@@ -149,14 +149,16 @@ class PostgresCache(object):
 
 
 class MapnikRenderer(object):
-    config = { 'formats' : [ 'png' ],
-               'tile_size' : (256, 256),
-               'max_zoom' : 18
-             }
-    stylecfg = {}
 
     def __init__(self, name, config, styleconfig):
         self.name = name
+        # defaults
+        self.config = { 'formats' : [ 'png' ],
+                        'tile_size' : (256, 256),
+                        'max_zoom' : 18
+                      }
+        self.stylecfg = {}
+        # local configuration
         if config is not None:
             self.config.update(config)
         if styleconfig is not None:
@@ -168,9 +170,10 @@ class MapnikRenderer(object):
             self.python_map =__import__(self.config['source'])
             self.create_map = self._create_map_python
 
-        self.thread_map()
+        m = mapnik.Map(*self.config['tile_size'])
+        self.create_map(m)
 
-        self.mproj = mapnik.Projection(self.get_map().srs)
+        self.mproj = mapnik.Projection(m.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
         cherrypy.engine.subscribe('start_thread', self.thread_map)
@@ -232,9 +235,9 @@ class MapnikRenderer(object):
 
 @cherrypy.popargs('zoom', 'x', 'y')
 class TileServer(object):
-    cachecfg = { 'type' : 'DummyCache'}
 
     def __init__(self, style, script_name):
+        self.cachecfg = { 'type' : 'DummyCache'}
         self.style_name = style
         self.script_name = script_name
 
