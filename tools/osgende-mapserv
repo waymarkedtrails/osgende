@@ -21,6 +21,7 @@
 
 import os
 import sys
+from threading import Lock
 from math import pi,exp,atan
 
 import cherrypy
@@ -37,10 +38,8 @@ DEFAULT_TESTMAP="""\
     <div id="map" style="position: absolute; width: 99%%; height: 97%%"></div>
 
     <script src="%(leaflet_path)s/leaflet.js"></script>
-    <script src="%(leaflet_path)s/leaflet-hash.js"></script>
     <script>
         var map = L.map('map').setView([47.3317, 8.5017], 13);
-        var hash = new L.Hash(map);
 
         L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 18,
@@ -161,28 +160,22 @@ class MapnikRenderer(object):
         if styleconfig is not None:
             self.stylecfg.update(styleconfig)
 
+        self.map = mapnik.Map(*self.config['tile_size'])
         if self.config['source_type'] == 'xml':
-            self.create_map = self._create_map_xml
+            src = os.path.join(self.config['source'])
+            mapnik.load_map(self.map, src)
         if self.config['source_type'] == 'python':
-            self.python_map =__import__(self.config['source'])
-            self.create_map = self._create_map_python
-
-        self.mproj = mapnik.Projection(self.get_map().srs)
+            __import__(self.config['source'])
+            sys.modules[self.config['source']].construct_map(self.map, self.stylecfg)
+            print(mapnik.save_map_to_string(self.map))
+        self.mproj = mapnik.Projection(self.map.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
-    def get_map(self):
-        if not hasattr(cherrypy.thread_data, 'mapnik_map'):
-            cherrypy.thread_data.mapnik_map = mapnik.Map(*self.config['tile_size'])
-            self.create_map(cherrypy.thread_data.mapnik_map)
-
-        return cherrypy.thread_data.mapnik_map
-
-    def _create_map_xml(self, mapnik_map):
-        src = os.path.join(self.config['source'])
-        mapnik.load_map(mapnik_map, src)
-
-    def _create_map_python(self, mapnik_map):
-        self.python_map.construct_map(mapnik_map, self.stylecfg)
+        if needs_locking:
+            self.map_lock = Lock()
+            self.render_image = self._render_with_lock
+        else:
+            self.render_image = self._render_without_lock
 
     def split_url(self, zoom, x, y):
         ypt = y.find('.')
@@ -213,11 +206,18 @@ class MapnikRenderer(object):
         bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
         im = mapnik.Image(256, 256)
 
-        m = self.get_map()
-        m.zoom_to_box(bbox)
-        mapnik.render(m, im)
+        self.render_image(bbox, im)
 
         return im.tostring('png256')
+
+    def _render_with_lock(self, bbox, im):
+        with self.map_lock:
+            self.map.zoom_to_box(bbox)
+            mapnik.render(self.map, im)
+
+    def _render_without_lock(self, bbox, im):
+        self.map.zoom_to_box(bbox)
+        mapnik.render(self.map, im)
 
 
 @cherrypy.popargs('zoom', 'x', 'y')
