@@ -105,7 +105,7 @@ class PostgresCache(object):
     """
 
     def __init__(self, config):
-        self.empty = {}
+        self.empty = dict()
         for fmt, fname in config['empty_tile'].items():
             with open(fname, 'rb') as myfile:
                 self.empty[fmt] = myfile.read()
@@ -153,11 +153,11 @@ class MapnikRenderer(object):
     def __init__(self, name, config, styleconfig):
         self.name = name
         # defaults
-        self.config = { 'formats' : [ 'png' ],
+        self.config = dict({ 'formats' : [ 'png' ],
                         'tile_size' : (256, 256),
                         'max_zoom' : 18
-                      }
-        self.stylecfg = {}
+                      })
+        self.stylecfg = dict()
         # local configuration
         if config is not None:
             self.config.update(config)
@@ -177,12 +177,12 @@ class MapnikRenderer(object):
         self.gproj = TileProjection(self.config['max_zoom'])
 
     def get_map(self):
-        self.thead_map()
+        self.thread_map()
         return cherrypy.thread_data.mapnik_map[self.name]
 
     def thread_map(self):
         if not hasattr(cherrypy.thread_data, 'mapnik_map'):
-            cherrypy.thread_data.mapnik_map = {}
+            cherrypy.thread_data.mapnik_map = dict()
 
         if not self.name in cherrypy.thread_data.mapnik_map:
             m = mapnik.Map(*self.config['tile_size'])
@@ -236,7 +236,7 @@ class MapnikRenderer(object):
 class TileServer(object):
 
     def __init__(self, style, script_name):
-        self.cachecfg = { 'type' : 'DummyCache'}
+        self.cachecfg = dict({ 'type' : 'DummyCache'})
         self.style_name = style
         self.script_name = script_name
 
@@ -283,7 +283,7 @@ def setup_sites(sites, script_name=''):
             print("Missing config for site '%s'. Skipping." % site)
             continue
 
-        site_cfg = {}
+        site_cfg = dict()
         for var in dir(sys.modules[site]):
             site_cfg[var] = getattr(sys.modules[site], var)
 
