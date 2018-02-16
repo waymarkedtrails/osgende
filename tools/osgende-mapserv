@@ -112,31 +112,32 @@ class PostgresCache(object):
 
         self.max_zoom = config.get('max_zoom', 100)
         self.pg = __import__('psycopg2')
-        self.db = self.pg.connect(config['dba'])
-        # set into autocommit mode so that tiles still can be
-        # read while the db is updated
-        self.db.autocommit = True
+        self.dba = config['dba']
 
-        c = self.db.cursor()
-        c.execute("SET synchronous_commit TO OFF")
-        c.execute("PREPARE get_tile(bigint) AS SELECT pixbuf FROM %s WHERE id=$1"
-                  % config['table'])
-        c.execute("PREPARE has_tile(bigint) AS SELECT count(*) FROM %s WHERE id=$1"
-                  % config['table'])
-        c.execute("""PREPARE set_tile(bigint, bytea) AS
-                     UPDATE %s SET pixbuf=$2 WHERE id=$1 AND pixbuf is Null"""
-                  % config['table'])
+        self.cmd_get = "SELECT pixbuf FROM %s WHERE id=%%s" % config['table']
+        self.cmd_check = "SELECT count(*) FROM %s WHERE id=%%s" % config['table']
+        self.cmd_set = "UPDATE %s SET pixbuf=%%s WHERE id=%%s AND pixbuf is Null" % config['table']
+
+    def get_db(self):
+        if not hasattr(cherrypy.thread_data, 'db'):
+            cherrypy.thread_data.cache_db = self.pg.connect(self.dba)
+            # set into autocommit mode so that tiles still can be
+            # read while the db is updated
+            cherrypy.thread_data.cache_db.autocommit = True
+            cherrypy.thread_data.cache_db.cursor().execute("SET synchronous_commit TO OFF")
+
+        return cherrypy.thread_data.cache_db
 
     def get(self, zoom, x, y, fmt):
-        c = self.db.cursor()
+        c = self.get_db().cursor()
         if zoom > self.max_zoom:
             shift = zoom - self.max_zoom
-            c.execute("EXECUTE has_tile(%s)",
+            c.execute(self.cmd_check,
                       (mk_tileid(self.max_zoom, x >> shift, y >> shift), ))
             if c.fetchone()[0]:
                 return None
         else:
-            c.execute("EXECUTE get_tile(%s)", (mk_tileid(zoom, x, y), ))
+            c.execute(self.cmd_get, (mk_tileid(zoom, x, y), ))
             if c.rowcount > 0:
                 return c.fetchone()[0]
 
@@ -144,8 +145,8 @@ class PostgresCache(object):
 
     def set(self, zoom, x, y, fmt, image=None):
         if zoom <= self.max_zoom:
-            c = self.db.cursor()
-            c.execute("EXECUTE set_tile(%s, %s)", (mk_tileid(zoom, x, y), image))
+            c = self.get_db().cursor()
+            c.execute(self.cmd_set, (image, mk_tileid(zoom, x, y)))
 
 
 class MapnikRenderer(object):
