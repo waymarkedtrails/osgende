@@ -21,6 +21,7 @@
 
 import os
 import sys
+from threading import Lock
 from math import pi,exp,atan
 
 import cherrypy
@@ -295,16 +296,21 @@ def setup_sites(sites, script_name=''):
     # now disable trailing slash
     cherrypy.config.update({'tools.trailing_slash.on': False })
 
+_setup_lock = Lock()
+_setup_done = False
 
 def application(environ, start_response):
     """ Handler for WSGI appications.
         Must NOT be run with threading enabled."""
-    setup_sites(environ['TILE_SITES'].split(','),
-                script_name=environ['SCRIPT_NAME'])
-    cherrypy.config.update({'log.wsgi' : True,
-                            'log.screen' : False,
-                            'error_page.default': error_page})
-    globals()['application'] = cherrypy.tree
+    with _setup_lock:
+        if not globals()['_setup_done']:
+            setup_sites(environ['TILE_SITES'].split(','),
+                        script_name=environ['SCRIPT_NAME'])
+            cherrypy.config.update({'log.wsgi' : True,
+                                    'log.screen' : False,
+                                    'error_page.default': error_page})
+            globals()['application'] = cherrypy.tree
+            globals()['_setup_done'] = True
     return cherrypy.tree(environ, start_response)
 
 if __name__ == '__main__':
