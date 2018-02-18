@@ -315,5 +315,9 @@ def application(environ, start_response):
 
 if __name__ == '__main__':
     setup_sites(os.environ['TILE_SITES'].split(','))
+    if 'MAPSERV_LISTEN' in os.environ:
+        cherrypy.config.update({'server.socket_host' : os.environ['MAPSERV_LISTEN']})
+    if 'MAPSERV_PORT' in os.environ:
+        cherrypy.config.update({'server.socket_port' : int(os.environ['MAPSERV_PORT'])})
     cherrypy.engine.start()
     cherrypy.engine.block()
