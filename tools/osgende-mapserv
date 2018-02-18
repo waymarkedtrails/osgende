@@ -38,8 +38,10 @@ DEFAULT_TESTMAP="""\
     <div id="map" style="position: absolute; width: 99%%; height: 97%%"></div>
 
     <script src="%(leaflet_path)s/leaflet.js"></script>
+    <script src="%(leaflet_path)s/leaflet-hash.js"></script>
     <script>
         var map = L.map('map').setView([47.3317, 8.5017], 13);
+        var hash = new L.Hash(map);
 
         L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 18,
@@ -104,38 +106,39 @@ class PostgresCache(object):
     """
 
     def __init__(self, config):
-        self.empty = {}
+        self.empty = dict()
         for fmt, fname in config['empty_tile'].items():
             with open(fname, 'rb') as myfile:
                 self.empty[fmt] = myfile.read()
 
         self.max_zoom = config.get('max_zoom', 100)
         self.pg = __import__('psycopg2')
-        self.db = self.pg.connect(config['dba'])
-        # set into autocommit mode so that tiles still can be
-        # read while the db is updated
-        self.db.autocommit = True
+        self.dba = config['dba']
 
-        c = self.db.cursor()
-        c.execute("SET synchronous_commit TO OFF")
-        c.execute("PREPARE get_tile(bigint) AS SELECT pixbuf FROM %s WHERE id=$1"
-                  % config['table'])
-        c.execute("PREPARE has_tile(bigint) AS SELECT count(*) FROM %s WHERE id=$1"
-                  % config['table'])
-        c.execute("""PREPARE set_tile(bigint, bytea) AS
-                     UPDATE %s SET pixbuf=$2 WHERE id=$1 AND pixbuf is Null"""
-                  % config['table'])
+        self.cmd_get = "SELECT pixbuf FROM %s WHERE id=%%s" % config['table']
+        self.cmd_check = "SELECT count(*) FROM %s WHERE id=%%s" % config['table']
+        self.cmd_set = "UPDATE %s SET pixbuf=%%s WHERE id=%%s AND pixbuf is Null" % config['table']
+
+    def get_db(self):
+        if not hasattr(cherrypy.thread_data, 'db'):
+            cherrypy.thread_data.cache_db = self.pg.connect(self.dba)
+            # set into autocommit mode so that tiles still can be
+            # read while the db is updated
+            cherrypy.thread_data.cache_db.autocommit = True
+            cherrypy.thread_data.cache_db.cursor().execute("SET synchronous_commit TO OFF")
+
+        return cherrypy.thread_data.cache_db
 
     def get(self, zoom, x, y, fmt):
-        c = self.db.cursor()
+        c = self.get_db().cursor()
         if zoom > self.max_zoom:
             shift = zoom - self.max_zoom
-            c.execute("EXECUTE has_tile(%s)",
+            c.execute(self.cmd_check,
                       (mk_tileid(self.max_zoom, x >> shift, y >> shift), ))
             if c.fetchone()[0]:
                 return None
         else:
-            c.execute("EXECUTE get_tile(%s)", (mk_tileid(zoom, x, y), ))
+            c.execute(self.cmd_get, (mk_tileid(zoom, x, y), ))
             if c.rowcount > 0:
                 return c.fetchone()[0]
 
@@ -143,39 +146,57 @@ class PostgresCache(object):
 
     def set(self, zoom, x, y, fmt, image=None):
         if zoom <= self.max_zoom:
-            c = self.db.cursor()
-            c.execute("EXECUTE set_tile(%s, %s)", (mk_tileid(zoom, x, y), image))
+            c = self.get_db().cursor()
+            c.execute(self.cmd_set, (image, mk_tileid(zoom, x, y)))
 
 
 class MapnikRenderer(object):
-    config = { 'formats' : [ 'png' ],
-               'tile_size' : (256, 256),
-               'max_zoom' : 18
-             }
-    stylecfg = {}
 
-    def __init__(self, config, styleconfig, needs_locking=False):
+    def __init__(self, name, config, styleconfig):
+        self.name = name
+        # defaults
+        self.config = dict({ 'formats' : [ 'png' ],
+                        'tile_size' : (256, 256),
+                        'max_zoom' : 18
+                      })
+        self.stylecfg = dict()
+        # local configuration
         if config is not None:
             self.config.update(config)
         if styleconfig is not None:
             self.stylecfg.update(styleconfig)
 
-        self.map = mapnik.Map(*self.config['tile_size'])
         if self.config['source_type'] == 'xml':
-            src = os.path.join(self.config['source'])
-            mapnik.load_map(self.map, src)
+            self.create_map = self._create_map_xml
         if self.config['source_type'] == 'python':
-            __import__(self.config['source'])
-            sys.modules[self.config['source']].construct_map(self.map, self.stylecfg)
-            print(mapnik.save_map_to_string(self.map))
-        self.mproj = mapnik.Projection(self.map.srs)
+            self.python_map =__import__(self.config['source'])
+            self.create_map = self._create_map_python
+
+        m = mapnik.Map(*self.config['tile_size'])
+        self.create_map(m)
+
+        self.mproj = mapnik.Projection(m.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
 
-        if needs_locking:
-            self.map_lock = Lock()
-            self.render_image = self._render_with_lock
-        else:
-            self.render_image = self._render_without_lock
+    def get_map(self):
+        self.thread_map()
+        return cherrypy.thread_data.mapnik_map[self.name]
+
+    def thread_map(self):
+        if not hasattr(cherrypy.thread_data, 'mapnik_map'):
+            cherrypy.thread_data.mapnik_map = dict()
+
+        if not self.name in cherrypy.thread_data.mapnik_map:
+            m = mapnik.Map(*self.config['tile_size'])
+            self.create_map(m)
+            cherrypy.thread_data.mapnik_map[self.name] = m
+
+    def _create_map_xml(self, mapnik_map):
+        src = os.path.join(self.config['source'])
+        mapnik.load_map(mapnik_map, src)
+
+    def _create_map_python(self, mapnik_map):
+        self.python_map.construct_map(mapnik_map, self.stylecfg)
 
     def split_url(self, zoom, x, y):
         ypt = y.find('.')
@@ -206,36 +227,29 @@ class MapnikRenderer(object):
         bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
         im = mapnik.Image(256, 256)
 
-        self.render_image(bbox, im)
+        m = self.get_map()
+        m.zoom_to_box(bbox)
+        mapnik.render(m, im)
 
         return im.tostring('png256')
-
-    def _render_with_lock(self, bbox, im):
-        with self.map_lock:
-            self.map.zoom_to_box(bbox)
-            mapnik.render(self.map, im)
-
-    def _render_without_lock(self, bbox, im):
-        self.map.zoom_to_box(bbox)
-        mapnik.render(self.map, im)
 
 
 @cherrypy.popargs('zoom', 'x', 'y')
 class TileServer(object):
-    cachecfg = { 'type' : 'DummyCache'}
 
     def __init__(self, style, script_name):
+        self.cachecfg = dict({ 'type' : 'DummyCache'})
         self.style_name = style
         self.script_name = script_name
 
-    def setup(self, app, config, needs_lock):
+    def setup(self, app, config):
         if 'TILE_CACHE' in config:
             self.cachecfg.update(config['TILE_CACHE'])
         cacheclass = globals()[self.cachecfg['type']]
         self.cache = cacheclass(self.cachecfg)
-        self.renderer = MapnikRenderer(config.get('RENDERER'),
-                                       config.get('TILE_STYLE'),
-                                       needs_lock)
+        self.renderer = MapnikRenderer(self.style_name,
+                                       config.get('RENDERER'),
+                                       config.get('TILE_STYLE'))
 
     @cherrypy.expose
     def test_map(self):
@@ -263,7 +277,7 @@ def error_page(status, message, traceback, version):
     cherrypy.response.headers['Content-Type'] = 'text/plain'
     return 'Error %s\n\n%s\n' % (status. message)
 
-def setup_sites(sites, needs_lock=False, script_name=''):
+def setup_sites(sites, script_name=''):
     for site in sites:
         try:
             __import__(site)
@@ -271,30 +285,35 @@ def setup_sites(sites, needs_lock=False, script_name=''):
             print("Missing config for site '%s'. Skipping." % site)
             continue
 
-        site_cfg = {}
+        site_cfg = dict()
         for var in dir(sys.modules[site]):
             site_cfg[var] = getattr(sys.modules[site], var)
 
         basename = site.split('.')[-1]
         server = TileServer(basename, script_name)
         app = cherrypy.tree.mount(server,  script_name + '/' + basename)
-        server.setup(app, site_cfg, needs_lock)
+        server.setup(app, site_cfg)
     # now disable trailing slash
     cherrypy.config.update({'tools.trailing_slash.on': False })
 
+_setup_lock = Lock()
+_setup_done = False
 
 def application(environ, start_response):
     """ Handler for WSGI appications.
         Must NOT be run with threading enabled."""
-    setup_sites(environ['TILE_SITES'].split(','),
-                script_name=environ['SCRIPT_NAME'])
-    cherrypy.config.update({'log.wsgi' : True,
-                            'log.screen' : False,
-                            'error_page.default': error_page})
-    globals()['application'] = cherrypy.tree
+    with _setup_lock:
+        if not globals()['_setup_done']:
+            setup_sites(environ['TILE_SITES'].split(','),
+                        script_name=environ['SCRIPT_NAME'])
+            cherrypy.config.update({'log.wsgi' : True,
+                                    'log.screen' : False,
+                                    'error_page.default': error_page})
+            globals()['application'] = cherrypy.tree
+            globals()['_setup_done'] = True
     return cherrypy.tree(environ, start_response)
 
 if __name__ == '__main__':
-    setup_sites(os.environ['TILE_SITES'].split(','), needs_lock=True)
+    setup_sites(os.environ['TILE_SITES'].split(','))
     cherrypy.engine.start()
     cherrypy.engine.block()
