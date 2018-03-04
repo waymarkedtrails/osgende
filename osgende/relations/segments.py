@@ -530,6 +530,11 @@ class Routes(TagSubTable):
             being computed.
         """
         self.truncate(engine)
+
+        w = self.segment_table.osmtables.way.data
+        self._stm_ways = select([w.c.nodes]).where(w.c.id == bindparam('id'))\
+                                .compile(engine)
+
         if self.hierarchy_table is None:
             self.insert_objects(engine, self.src.select_all(self.subset))
         else:
@@ -577,6 +582,11 @@ class Routes(TagSubTable):
                            .where(self.id_column.in_(select([tmp_rels.c.id]))))
 
         # reinsert those that are not deleted
+        w = self.segment_table.osmtables.way.data
+        self._stm_ways = select([w.c.nodes]).where(w.c.id == bindparam('id'))\
+                                .compile(engine)
+
+
         if self.hierarchy_table is None:
             inssel = self.src.select_all(self.src.data.c.id.in_(tmp_rels.select()))
             self.insert_objects(engine, inssel)
@@ -632,7 +642,7 @@ class Routes(TagSubTable):
 
     def get_way_geometry(self, osmid, points):
         w = self.segment_table.osmtables.way.data
-        wayids = self.thread.conn.execute(select([w.c.nodes]).where(w.c.id == osmid))
+        wayids = self.thread.conn.execute(self._stm_ways, { 'id' : osmid }
 
         if wayids.rowcount == 0:
             return None
@@ -664,16 +674,18 @@ class RouteGeometry(object):
         self.pending = None
 
     def _reverse_geom(self, geom):
-        return [sgeom.LineString(reversed(g.coords)) for g in reversed(geom)]
+        return [g[::-1] for g in reversed(geom)]
 
     def add(self, segment):
         if segment is None:
             return
 
-        if segment.geom_type == 'MultiLineString':
-            segment = list(segment.geoms)
-        else:
+        if isinstance(segment, list): # plain coordinate list = single way
             segment = [segment]
+        elif segment.geom_type == 'MultiLineString':
+            segment = [list(g.coords) for g in segment.geoms]
+        else:
+            segment = [list(segment.coords)]
 
         if self.geom is None and self.pending is None:
             # first one may need to get turned
@@ -682,8 +694,8 @@ class RouteGeometry(object):
 
         # handle single segment that awaits turning
         if self.pending is not None:
-            dist, x, y = min([(sgeom.Point(self.pending[-x].coords[-x])
-                                .distance(sgeom.Point(segment[-y].coords[-y])), x, y)
+            dist, x, y = min([(sgeom.Point(self.pending[-x][-x])
+                                .distance(sgeom.Point(segment[-y][-y])), x, y)
                                           for x in (0, 1) for y in (0, 1)])
 
             # turn only when it is the first segment
@@ -699,21 +711,19 @@ class RouteGeometry(object):
             self.pending = None
 
         # Now add the new segment
-        lastpt = sgeom.Point(self.geom[-1].coords[-1])
-        dist, x = min([(lastpt.distance(sgeom.Point(segment[-x].coords[-x])), x)
+        lastpt = sgeom.Point(self.geom[-1][-1])
+        dist, x = min([(lastpt.distance(sgeom.Point(segment[-x][-x])), x)
                          for x in (0, 1)])
         if x == 1:
             segment = self._reverse_geom(segment)
 
         if dist < 0.000001:
             # touching lines, append
-            self.geom[-1] = sgeom.LineString(self.geom[-1].coords[:]
-                                              + segment[0].coords[1:])
+            self.geom[-1] += segment[0][1:]
             self.geom.extend(segment[1:])
         else:
             # wait for next segment to turn the segment correctly
             self.pending = segment
-
 
     def geometry(self):
         if self.pending is not None:
@@ -725,6 +735,6 @@ class RouteGeometry(object):
             return None
 
         if len(self.geom) == 1:
-            return self.geom[0]
+            return sgeom.LineString(self.geom[0])
 
-        return sgeom.MultiLineString(self.geom)
+        return sgeom.MultiLineString([sgeom.LineString(coords) for coords in self.geom])
