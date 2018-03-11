@@ -24,7 +24,7 @@ from osgende.lines import RelationWayTable
 from table_test_fixture import TableTestFixture
 from db_compare import Line
 
-class TestSimpleRelationWaysImport: #(TableTestFixture):
+class TestSimpleRelationWaysImport(TableTestFixture):
 
     nodes = { 1: (1.0, 2.1), 2: (1.1, 2.0), 3: (1.15, 1.9),
               4: (1.2, 1.886), 5: (1.0, 1.7),
@@ -112,7 +112,7 @@ class TestSimpleRelationWaysImport: #(TableTestFixture):
             ])
 
 
-class TestSimpleRelationWaysUpdateSimpleWayChanges:#(TableTestFixture):
+class TestSimpleRelationWaysUpdateSimpleWayChanges(TableTestFixture):
 
     def create_tables(self, db):
         return [ RelationWayTable(db.metadata, "test", db.osmdata.way,
