@@ -89,10 +89,13 @@ class TableTestFixture(unittest.TestCase):
         with self.db.engine.begin() as conn:
             res = conn.execute(table.select())
 
-            assert_equal(len(content), res.rowcount)
+            assert_equal(len(content), res.rowcount,
+                         "Expected %d rows, got %d." % (len(content), res.rowcount))
 
+            todo = list(content)
             for c in res:
-                for exp in list(content):
+                for exp in content:
+                    assert_is_instance(exp, dict)
                     for k,v in exp.items():
                         if k not in c:
                             badrow = str(c)
@@ -100,7 +103,7 @@ class TableTestFixture(unittest.TestCase):
                         if not DBCompareValue.compare(c[k], v):
                             break
                     else:
-                        content.remove(exp)
+                        todo.remove(exp)
                         break
                     if badrow is not None:
                         break
@@ -109,7 +112,7 @@ class TableTestFixture(unittest.TestCase):
 
         assert_is_none(badrow, "unexpected row in database")
 
-        assert_false(content, "missing rows in database")
+        assert_false(todo, "missing rows in database")
 
     def has_changes(self, tablename, content):
         as_array = [ { 'action' : l[0], 'id' : int(l[1:]) } for l in content ]

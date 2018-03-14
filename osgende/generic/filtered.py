@@ -16,7 +16,6 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from osgende.common.connectors import TableSource
-from sqlalchemy.dialects.postgresql import insert
 import sqlalchemy as sqla
 from osgende.common.sqlalchemy import DropIndexIfExists
 

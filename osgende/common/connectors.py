@@ -68,6 +68,21 @@ class TableSource:
         if not self.view_only:
             conn.execute(Truncate(self.data))
 
+    def write_change_table(self, conn, changeset):
+        """ Truncates the attached change table and fills it with the
+            content from `changeset`. `changeset` must be a dict with ids
+            as keys and the appropriate action as value.
+        """
+        if self.change is None:
+            return
+
+        conn.execute(Truncate(self.change))
+        if len(changeset):
+            conn.execute(self.change.insert()
+                               .values([{'id': k, 'action': v}
+                                          for k, v in changeset.items()]))
+
+
     def change_id_column(self):
         return self.change.c[self.id_column.name]
 

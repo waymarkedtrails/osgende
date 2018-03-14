@@ -65,27 +65,32 @@ class Line(DBCompareValue):
     """ Compare with a GeoAlchemy or Shapely LineString. """
 
     def __init__(self, *args):
-        self.points = []
+        self.points = args
 
-        for a in args:
+    def get_points(self):
+        pt = []
+        for a in self.points:
             if isinstance(a, int):
                 assert_in(a, DBCompareValue.nodestore)
                 a = DBCompareValue.nodestore[a]
 
             assert_equal(2, len(a), "not a point: " + str(a))
-            self.points.append(a)
+            pt.append(a)
+
+        return pt
 
     def compare(self, o):
+        pts = self.get_points()
         if isinstance(o, GeoElement):
             o = to_shape(o)
 
         if not isinstance(o, sgeom.LineString):
             return False
 
-        if len(self.points) != len(o.coords):
+        if len(pts) != len(o.coords):
             return False
 
-        for a, e in zip(self.points, o.coords):
+        for a, e in zip(pts, o.coords):
             if abs(a[0] - e[0]) > 0.00000001:
                 return False
             if abs(a[1] - e[1]) > 0.00000001:

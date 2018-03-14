@@ -93,10 +93,6 @@ class PlainWayTable(ThreadableDBObject, TableSource):
             ndsidx.create(conn)
 
 
-    def update(self, engine):
-        pass
-
-
     def _process_construct_next(self, obj):
         cols = self._construct_row(obj, self.thread.conn)
 
@@ -131,3 +127,94 @@ class PlainWayTable(ThreadableDBObject, TableSource):
                 cols[c.name] = obj[c.name]
 
         return cols
+
+    def update(self, engine):
+        with engine.begin() as conn:
+            # remove all ways that have been deleted
+            changeset = self._update_handle_deleted_ways(conn)
+            # add new ways and update modified ones
+            changeset.update(self._update_handle_modified_ways(conn))
+            # finally fill the changeset table
+            self.write_change_table(conn, changeset)
+
+
+    def _update_handle_deleted_ways(self, conn):
+        delsql = self.data.delete()\
+                   .where(self.id_column.in_(self.src.select_delete()))
+
+        changes = {}
+        for row in conn.execute(delsql.returning(self.id_column)):
+            changes[row[self.id_column]] = 'D'
+
+        return changes
+
+
+    def _update_handle_modified_ways(self, conn):
+        d = self.data
+        s = self.src.data
+
+        cols = [s]
+        for c in d.columns:
+            if c.name not in (self.id_column.name, 'nodes'):
+                cols.append(c.label('old_' + c.name))
+
+        j = s.join(d, self.id_column == self.src.id_column, isouter=True)
+        sql = sa.select(cols).select_from(j)\
+                .where(sa.or_(
+                        self.src.id_column.in_(self.src.select_add_modify()),
+                        d.c.nodes.op('&& ARRAY')(self.osmdata.node.select_add_modify())
+                      ))
+
+        deleted = []
+        inserts = []
+        changeset = {}
+        for obj in conn.execute(sql):
+            oid = obj[self.src.id_column]
+            is_added = obj['old_geom'] is None
+            changed = False
+
+            cols = self.transform_tags(obj)
+            if cols is None:
+                # if there is no old obejct info, then the object wasn't
+                # there before and is not now
+                if not is_added:
+                    deleted.append(oid)
+                    changeset[oid] = 'D'
+                continue
+
+            changed = False
+            for k, v in cols.items():
+                if str(obj['old_' + k]) != str(v):
+                    changed = True
+                    break
+
+            points = self.osmdata.get_points(obj['nodes'], conn)
+            if len(points) <= 1:
+                if not is_added:
+                    deleted.append({'oid': oid})
+                    changeset[oid] = 'D'
+                continue
+
+            new_geom = LineString(points)
+            cols['geom'] = from_shape(new_geom, srid=self.data.c.geom.type.srid)
+            changed = changed or is_added or (new_geom != to_shape(obj['old_geom']))
+
+            if changed:
+                cols['nodes'] = obj['nodes']
+                cols[self.id_column.name] = oid
+                inserts.append(cols)
+                changeset[oid] = 'A' if is_added else 'M'
+
+        if len(inserts):
+            conn.execute(self.upsert_data().values(inserts))
+        if len(deleted):
+            conn.execute(self.data.delete()
+                            .where(self.data.c.id == sa.bindparam('oid')),
+                           deleted)
+
+        return changeset
+
+
+
+
+

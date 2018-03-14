@@ -128,20 +128,14 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         ndsidx.create(engine)
 
     def update(self, engine):
-
         # first pass: handle changed ways and nodes
         changeset = self._update_handle_changed_ways(engine)
         # second pass: handle changed relations
         changeset.update(self._update_handle_changed_rels(engine))
         # third pass: new ways added to set
         changeset.update(self._update_handle_new_ways(engine))
-
-
         # finally fill the changeset table
-        engine.execute(Truncate(self.change))
-        if len(changeset):
-            engine.execute(self.change.insert().values([{'id': k, 'action' : v}
-                                                         for k, v in changeset.items()]))
+        self.write_change_table(engine, changeset)
 
     def _update_handle_changed_ways(self, engine):
         """ Handle changes to way tags, added and removed nodes and moved nodes.
