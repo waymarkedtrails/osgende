@@ -52,12 +52,34 @@ class TableTestFixture(unittest.TestCase):
             return _RouteTables(**tables)
 
 
-    def import_data(self, data, nodes={}):
+    def import_data(self, data, nodes={}, grid=None):
         assert_equal(0, os.system('dropdb --if-exists ' + self.Options.database))
         osm_data = ""
         for k, v in nodes.items():
             osm_data += "n%d x%f y%f\n" % (k, v[0], v[1])
             DBCompareValue.nodestore[k] = v
+
+        if grid is not None:
+            x = 1
+            for l in grid.splitlines():
+                y = 1
+                for c in l:
+                    nid = None
+                    if c.isdigit():
+                        nid = int(c)
+                    elif c.islower():
+                        nid = 100 + (ord(c) - ord('a'))
+                    elif c.isupper():
+                        nid = 200 + (ord(c) - ord('A'))
+                    elif not c.isspace():
+                        raise RuntimeError("Unparsable character '%c' in node grid" % c)
+
+                    if nid is not None:
+                        osm_data += "n%d x%f y%f\n" % (nid, x, y)
+                        DBCompareValue.nodestore[nid] = (x, y)
+                    y += 0.0001
+                x += 0.0001
+
         osm_data += dedent(data)
 
         with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), suffix='.opl') as fd:
