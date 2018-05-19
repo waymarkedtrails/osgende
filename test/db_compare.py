@@ -24,6 +24,11 @@ from geoalchemy2.shape import to_shape
 import shapely.geometry as sgeom
 from nose.tools import *
 
+def make_db_line(oid, **kargs):
+    line = dict(kargs)
+    line['id'] = oid
+    return line
+
 class DBCompareValue(object):
     """ Generic DB value comparator. Inherit from this class for more
         specific comparators and implement the compare() function.
@@ -100,4 +105,19 @@ class Line(DBCompareValue):
 
         return True
 
+class Set(DBCompareValue):
+    def __init__(self, *args):
+        self.elems = set(args)
 
+    def compare(self, o):
+        if isinstance(o, list):
+            return len(o) == len(self.elems) and set(o) == self.elems
+        if isinstance(o, set):
+            return o == self.elems
+
+        return False
+
+class Any(DBCompareValue):
+
+    def compare(self, o):
+        return True
