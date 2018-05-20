@@ -15,6 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import logging
 from collections import Counter, defaultdict
 
 import sqlalchemy as sa
@@ -28,6 +29,8 @@ from shapely.geometry import LineString
 from osgende.common.threads import ThreadableDBObject
 from osgende.common.connectors import TableSource
 from osgende.common.sqlalchemy import DropIndexIfExists
+
+log = logging.getLogger(__name__)
 
 class SegmentsTable(ThreadableDBObject, TableSource):
     """A table that groups ways with identical properties into linear
@@ -109,24 +112,107 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
             res = conn.execution_options(stream_results=True).execute(sql)
             prev_prop = None
+            wayset = list()
             for w in res:
                 prop = dict(((x, w[x]) for x in self.prop_columns))
                 # process the next bit when we get to the next property column
                 if prev_prop is not None and prop != prev_prop:
-                    wayproc.process_segment(prev_prop)
+                    wayproc.process_ways(prev_prop, wayset)
+                    wayset = list()
 
-                wayproc.add_way(w['id'], w['nodes'], w['geom'])
-
+                wayset.append((w['id'], w['nodes'], list(to_shape(w['geom']).coords)))
                 prev_prop = prop
 
             if prev_prop is not None:
-                wayproc.process_segment(prev_prop)
+                wayproc.process_ways(prev_prop, wayset)
 
             wayproc.finish()
 
             # Finally (re)create indices needed for updates.
             wayidx.create(conn)
             ndsidx.create(conn)
+
+    def update(self, engine):
+        """ Update changed segments.
+        """
+        wayproc = _WayCollector(self, engine, creation_mode=False,
+                                numthreads=self.numthreads)
+        waysdone = set()
+
+        with engine.begin() as conn:
+            log.info("Collecting changed and new ways")
+            sql = self.src.data.select().where(self.src.data.c.id.in_(self.src.select_add_modify()))
+
+            for w in conn.execute(sql):
+                prop = dict(((x, w[x]) for x in self.prop_columns))
+                wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
+                waysdone.add(w['id'])
+
+            log.info("Collecting points effected by update")
+            # 1. nodes in added or changed ways
+            waychg = sa.select([saf.func.unnest(self.src.data.c.nodes)])\
+                       .where(self.src.data.c.id.in_(self.src.select_add_modify()))
+            # 2. nodes in segments where ways are changed
+            waysel = sa.select([self.src.change.c.id])
+            segchg = sa.select([saf.func.unnest(self.data.c.nodes)])\
+                       .where(self.data.c.ways.op('&& ARRAY')(waysel))
+            conn.execute(osa.CreateTableAs('temp_updated_nodes',
+                                           sa.union(segchg, waychg).alias('sub'),
+                                           temporary=False))
+            temp_nodes = sa.Table('temp_updated_nodes', sa.MetaData(),
+                                  autoload_with=conn)
+
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug("Nodes needing updating: ",
+                        [x for x in conn.execute(temp_nodes.select())])
+
+            deleted_ids = set()
+            # throw out all segments that have one of these points
+            log.info("Segments with bad intersections...")
+            # SQLAlchemy cannot produce DELETE FROM ... USING syntax
+            # Falling back to handwritten SQL instead.
+            q = """%s USING temp_updated_nodes
+                    WHERE nodes && ARRAY[temp_updated_nodes.id]
+                    RETURNING id, ways""" \
+                 % (str(self.data.delete()))
+
+            while True:
+                res = conn.execute(q)
+
+                additional_ways = set()
+                for c in res:
+                    for w in c['ways']:
+                        if w not in waysdone:
+                            additional_ways.add(w)
+                    deleted_ids.add(c['id'])
+
+                if not additional_ways:
+                    break
+
+                todonodes = set()
+                sql = self.src.data.select()\
+                        .where(self.src.data.c.id.in_(list(additional_ways)))
+                for w in conn.execute(sql):
+                    prop = dict(((x, w[x]) for x in self.prop_columns))
+                    wayproc_add_way(prop, w['id'], w['nodes'], w['geom'])
+                    waysdone.add(w['id'])
+                    todo_nodes.update(w['nodes'][1:-2])
+
+                q = self.data.delete().where(self.data.c.nodes.overlap(todonodes))
+
+            # done, add the result back to the table
+            log.info("Processing segments")
+            cur_id = conn.scalar(select([sqlf.max(self.data.c.id)]))
+            first_new_id = 0 if cur_id is None else cur_id + 1
+
+            wayproc.process_cached_ways()
+            wayproc.finish()
+
+            # add all newly created segments to the update table XXX
+            if self.geom_change is not None:
+                self.geom_change.add_from_select(conn,
+                      select([ text("'M'"), self.data.c.geom])
+                        .where(self.data.c.id >= self.first_new_id))
 
 
 class _WayCollector(ThreadableDBObject):
@@ -143,11 +229,16 @@ class _WayCollector(ThreadableDBObject):
         self.src = parent
         self.update_mode = not creation_mode
 
-        # precompute intersectons if necesary
-        self._get_intersections(engine)
+        if self.update_mode:
+            # cache of ways to process (only used 
+            self.way_cache = []
+            # When in update mode, the intersection points are collected on the
+            # fly from the ways to be updated
+            self.collected_nodes = Counter()
+        else:
+            # precompute intersections
+            self._get_intersections_from_db(engine)
 
-        # actual collection of fuasble ways
-        self.current_set = []
         # the worker threads
         self.set_num_threads(numthreads)
         self.workers = self.create_worker_queue(engine, self._process_next)
@@ -155,16 +246,10 @@ class _WayCollector(ThreadableDBObject):
     def _srid(self):
         return self.src.data.c.geom.type.srid
 
-    def _get_intersections(self, engine):
+    def _get_intersections_from_db(self, engine):
         """ Find all potetial mid-way intersections.
         """
         self.intersections = set()
-
-        # When in update mode, the intersection points are collected on the
-        # fly from the ways to be updated
-        if self.update_mode:
-            self.collected_nodes = Counter()
-            return
 
         # In creation mode, the potential intersections are precomputed
         # from the source table.
@@ -191,22 +276,44 @@ class _WayCollector(ThreadableDBObject):
         for ele in c:
             self.intersections.add(ele['nid'])
 
-    def process_segment(self, properties):
-        self.workers.add_task((properties, self.current_set))
-        self.current_set = []
+    def process_ways(self, properties, ways):
+        self.workers.add_task((properties, ways))
 
-    def add_way(self, osmid, nodes, geom):
+    def process_cached_ways(self):
+        # compute intersections from node counts
+        self.intersections = set((x for x, cnt in self.collected_nodes.items() if cnt > 2))
+
+        # sort ways by property in place
+        self.way_cache.sort(key=lambda w: w[0])
+
+        # now process ways in groups
+        prev_prop = None
+        wayset = list()
+        for prop, wayinfo in self.way_cache:
+            # process the next bit when we get to the next property column
+            if prev_prop is not None and prop != prev_prop:
+                self.process_ways(prev_prop, wayset)
+                wayset = list()
+
+            wayset.append(wayinfo)
+            prev_prop = prop
+
+        if prev_prop is not None:
+            self.process_ways(prev_prop, wayset)
+
+
+    def add_way(self, props, osmid, nodes, geom):
         """ Add another way to the current set of ways with similar properties.
         """
-        self.current_set.append((osmid, nodes, list(to_shape(geom).coords)))
+        assert(self.update_mode)
+        self.way_cache.append((props, (osmid, nodes, list(to_shape(geom).coords))))
 
         # update intersections
-        if self.update_mode:
-            self.collected_nodes[nodes[0]] += 1
-            if len(nodes) > 1:
-                for n in nodes[1:-1]:
-                    self.collected_nodes[n] += 2
-                self.collected_nodes[nodes[-1]] += 1
+        self.collected_nodes[nodes[0]] += 1
+        if len(nodes) > 1:
+            for n in nodes[1:-1]:
+                self.collected_nodes[n] += 2
+            self.collected_nodes[nodes[-1]] += 1
 
     def finish(self):
         self.workers.finish()

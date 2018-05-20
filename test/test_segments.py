@@ -25,11 +25,6 @@ from table_test_fixture import TableTestFixture
 from db_compare import Line, Any, Set
 from db_compare import make_db_line
 
-### Begin Test data
-
-
-### End test data
-
 def R(nodes, ways, **kargs):
     return make_db_line(Any(), nodes=nodes, ways=ways, geom=Line(*nodes), **kargs)
 
@@ -261,4 +256,30 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([2, 3], Set(1), tags={'ref': '1'}),
             R([4, 2], Set(2), tags={'ref': '2'}),
             R([2, 5], Set(2), tags={'ref': '2'}),
+        )
+
+class TestSimpleSegmentsUpdate(TableTestFixture):
+
+    def create_tables(self, db):
+        # need base table from which to derive the segments
+        plain = PlainWayTable(db.metadata, "base", db.osmdata.way, db.osmdata)
+        # actual test target
+        segments = SegmentsTable(db.metadata, "test", plain, [plain.data.c.tags])
+
+        return [ plain, segments ]
+
+    def _test(self, data, *args):
+        self.import_data(data, grid=self.nodegrid)
+        self.table_equals("test", args)
+
+    def test_move_node(self):
+        self.import_data("""\
+            n1 x23.0 y-3.0
+            n2 x23.001 y-3.43
+            w1 Tref=1 Nn1,n2
+            """)
+        self.update_data("n2 x23.002 y-3.43")
+        self.table_equals("test",
+            {'tags': {'ref': '1'}, 'nodes': [1, 2], 'ways': [1],
+             'geom': Line((23.0, -3.0), (23.002, -3.43))}
         )
