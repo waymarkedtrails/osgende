@@ -153,8 +153,8 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             waychg = sa.select([saf.func.unnest(self.src.data.c.nodes)])\
                        .where(self.src.data.c.id.in_(self.src.select_add_modify()))
             # 2. nodes in segments where ways are changed
-            waysel = sa.select([self.src.change.c.id])
-            segchg = sa.select([saf.func.unnest(self.data.c.nodes)])\
+            waysel = sa.select([self.src.change.c.id.label('tid')])
+            segchg = sa.select([saf.func.unnest(self.data.c.nodes).label('tid')])\
                        .where(self.data.c.ways.op('&& ARRAY')(waysel))
             conn.execute(osa.CreateTableAs('temp_updated_nodes',
                                            sa.union(segchg, waychg).alias('sub'),
@@ -166,53 +166,56 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                 log.debug("Nodes needing updating: ",
                         [x for x in conn.execute(temp_nodes.select())])
 
-            deleted_ids = set()
+            deleted_ids = {}
             # throw out all segments that have one of these points
             log.info("Segments with bad intersections...")
             # SQLAlchemy cannot produce DELETE FROM ... USING syntax
             # Falling back to handwritten SQL instead.
             q = """%s USING temp_updated_nodes
-                    WHERE nodes && ARRAY[temp_updated_nodes.id]
+                    WHERE nodes && ARRAY[temp_updated_nodes.tid]
                     RETURNING id, ways""" \
                  % (str(self.data.delete()))
 
             while True:
-                res = conn.execute(q)
-
                 additional_ways = set()
-                for c in res:
+                print(str(q))
+                for c in conn.execute(q):
                     for w in c['ways']:
                         if w not in waysdone:
                             additional_ways.add(w)
-                    deleted_ids.add(c['id'])
+                    deleted_ids[c['id']] = 'D'
 
                 if not additional_ways:
                     break
 
-                todonodes = set()
+                todo_nodes = set()
                 sql = self.src.data.select()\
                         .where(self.src.data.c.id.in_(list(additional_ways)))
                 for w in conn.execute(sql):
                     prop = dict(((x, w[x]) for x in self.prop_columns))
-                    wayproc_add_way(prop, w['id'], w['nodes'], w['geom'])
+                    wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
                     waysdone.add(w['id'])
                     todo_nodes.update(w['nodes'][1:-2])
 
-                q = self.data.delete().where(self.data.c.nodes.overlap(todonodes))
+                if not todo_nodes:
+                    break
+
+                q = self.data.delete().where(self.data.c.nodes.overlap(todo_nodes))
 
             # done, add the result back to the table
             log.info("Processing segments")
-            cur_id = conn.scalar(select([sqlf.max(self.data.c.id)]))
+            cur_id = conn.scalar(sa.select([saf.max(self.data.c.id)]))
             first_new_id = 0 if cur_id is None else cur_id + 1
 
             wayproc.process_cached_ways()
             wayproc.finish()
 
-            # add all newly created segments to the update table XXX
-            if self.geom_change is not None:
-                self.geom_change.add_from_select(conn,
-                      select([ text("'M'"), self.data.c.geom])
-                        .where(self.data.c.id >= self.first_new_id))
+            # add all newly created segments to the update table
+            if self.change is not None:
+                self.write_change_table(conn, deleted_ids)
+                conn.execute(self.change.insert().from_select(self.change.c,
+                  sa.select([self.data.c.id, sa.text("'A'")])
+                    .where(self.data.c.id >= first_new_id)))
 
 
 class _WayCollector(ThreadableDBObject):
@@ -230,7 +233,7 @@ class _WayCollector(ThreadableDBObject):
         self.update_mode = not creation_mode
 
         if self.update_mode:
-            # cache of ways to process (only used 
+            # cache of ways to process
             self.way_cache = []
             # When in update mode, the intersection points are collected on the
             # fly from the ways to be updated

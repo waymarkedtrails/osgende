@@ -260,6 +260,8 @@ class TestSimpleSegmentsImport(TableTestFixture):
 
 class TestSimpleSegmentsUpdate(TableTestFixture):
 
+    nodegrid = " 1 2 3 4 5 "
+
     def create_tables(self, db):
         # need base table from which to derive the segments
         plain = PlainWayTable(db.metadata, "base", db.osmdata.way, db.osmdata)
@@ -268,18 +270,74 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
 
         return [ plain, segments ]
 
-    def _test(self, data, *args):
-        self.import_data(data, grid=self.nodegrid)
+    def _test(self, import_data, update_data, *args):
+        self.import_data(import_data, grid=self.nodegrid)
+        self.update_data(update_data)
         self.table_equals("test", args)
 
-    def test_move_node(self):
+    def xtest_move_node(self):
         self.import_data("""\
             n1 x23.0 y-3.0
             n2 x23.001 y-3.43
             w1 Tref=1 Nn1,n2
             """)
         self.update_data("n2 x23.002 y-3.43")
+        self.has_changes("test_changeset", ['A2', 'D1'])
         self.table_equals("test",
-            {'tags': {'ref': '1'}, 'nodes': [1, 2], 'ways': [1],
-             'geom': Line((23.0, -3.0), (23.002, -3.43))}
+            ({'tags': {'ref': '1'}, 'nodes': [1, 2], 'ways': [1],
+             'geom': Line((23.0, -3.0), (23.002, -3.43))},)
+        )
+
+    def xtest_add_node_to_way(self):
+        self._test("""\
+            w1 Ta=a Nn1,n3
+            """,
+            # update
+            "w1 Ta=a Nn1,n2,n3",
+            # result
+            R([1, 2, 3], Set(1), tags={'a': 'a'})
+        )
+        self.has_changes("test_changeset", ['A2', 'D1'])
+
+    def xtest_remove_node_from_way(self):
+        self._test("""\
+            w1 Ta=a Nn1,n2,n3
+            """,
+            # update
+            "w1 Ta=a Nn1,n3",
+            # result
+            R([1, 3], Set(1), tags={'a': 'a'})
+        )
+        self.has_changes("test_changeset", ['A2', 'D1'])
+
+    def xtest_change_way_type(self):
+        self._test("""\
+            w1 Ta=a Nn1,n2,n3
+            """,
+            # update
+            "w1 Tfoo=bar Nn1,n2,n3",
+            # result
+            R([1, 2, 3], Set(1), tags={'foo': 'bar'})
+        )
+        self.has_changes("test_changeset", ['A2', 'D1'])
+
+    def xtest_add_unrelated_way(self):
+        self._test("""\
+            w1 Tref=1 Nn1,n2,n3
+            """,
+            # update
+            "w2 Tref=1 Nn4,n5",
+            # result
+            R([1, 2, 3], Set(1), tags={'ref': '1'}),
+            R([4, 5], Set(2), tags={'ref': '1'}),
+        )
+
+    def test_add_adjoining_way_same_type(self):
+        self._test("""\
+            w1 Tref=1 Nn1,n2,n3
+            """,
+            # update
+            "w2 Tref=1 Nn3,n4,n5",
+            # result
+            R([1, 2, 3, 4, 5], Set(1, 2), tags={'ref': '1'}),
         )
