@@ -47,7 +47,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
         self.import_data(data, grid=self.nodegrid)
         self.table_equals("test", args)
 
-    def xtest_create_independent_ways_same_type(self):
+    def test_create_independent_ways_same_type(self):
         self._test("""\
             w23 Tref=1 Nn1,n2,n3
             w32 Tref=1 Nn100,n101,n102
@@ -57,7 +57,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([100, 101, 102], Set(32), tags={'ref': '1'})
         )
 
-    def xtest_create_independent_ways_differeny_type(self):
+    def test_create_independent_ways_differeny_type(self):
         self._test("""\
             w23 Tref=1 Nn1,n2,n3
             w32 Tref=2 Nn100,n101,n102
@@ -67,7 +67,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([100, 101, 102], Set(32), tags={'ref': '2'})
         )
 
-    def xtest_create_joined_ways_same_type_match(self):
+    def test_create_joined_ways_same_type_match(self):
         self._test("""\
             w23 Tref=1 Nn1,n2,n3
             w32 Tref=1 Nn3,n4,n5,n6
@@ -76,7 +76,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 2, 3, 4, 5, 6], Set(23, 32), tags={'ref': '1'}),
         )
 
-    def xtest_create_joined_ways_same_type_left_turn(self):
+    def test_create_joined_ways_same_type_left_turn(self):
         self._test("""\
             w23 Tref=1 Nn3,n2,n1
             w32 Tref=1 Nn3,n4,n5,n6
@@ -85,7 +85,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 2, 3, 4, 5, 6], Set(23, 32), tags={'ref': '1'}),
         )
 
-    def xtest_create_joined_ways_same_type_right_turn(self):
+    def test_create_joined_ways_same_type_right_turn(self):
         self._test("""\
             w23 Tref=1 Nn1,n2,n3
             w32 Tref=1 Nn6,n5,n4,n3
@@ -94,7 +94,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 2, 3, 4, 5, 6], Set(23, 32), tags={'ref': '1'}),
         )
 
-    def xtest_create_joined_ways_same_type_both_turn(self):
+    def test_create_joined_ways_same_type_both_turn(self):
         self._test("""\
             w23 Tref=1 Nn3,n2,n1
             w32 Tref=1 Nn6,n5,n4,n3
@@ -103,7 +103,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 2, 3, 4, 5, 6], Set(23, 32), tags={'ref': '1'}),
         )
 
-    def xtest_create_joined_ways_differeny_type(self):
+    def test_create_joined_ways_differeny_type(self):
         self._test("""\
             w23 Tref=1 Nn1,n2,n3
             w32 Tref=2 Nn3,n4,n5
@@ -113,7 +113,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([3, 4, 5], Set(32), tags={'ref': '2'})
         )
 
-    def xtest_create_multiple_joined_same_type(self):
+    def test_create_multiple_joined_same_type(self):
         self._test("""\
             w1 Tfoo=bar Nn3,n4,n5
             w2 Tfoo=bar Nn1,n2,n3
@@ -123,7 +123,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 2, 3, 4, 5, 6], Set(1, 2, 3), tags={'foo': 'bar'}),
         )
 
-    def xtest_circular_ways(self):
+    def test_circular_ways(self):
         self.nodegrid = """\
              1    2
                   3
@@ -143,7 +143,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([4, 7, 3], Set(3), tags={'ref': '14'}),
         )
 
-    def xtest_circular_ways_unattached(self):
+    def test_circular_ways_unattached(self):
         self.nodegrid = """\
                  6      4
          2   1      8  5
@@ -161,7 +161,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 7, 8, 6, 1], Set(3), tags={'ref': 'A'})
         )
 
-    def xtest_circular_way_unattached_split(self):
+    def test_circular_way_unattached_split(self):
         self.nodegrid = """
               3   2
                   1
@@ -182,7 +182,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([5, 7, 1], Set(3), tags={'ref': 'c'}),
         )
 
-    def xtest_circle_with_multiple_segments(self):
+    def test_circle_with_multiple_segments(self):
         self.nodegrid = """
            1  2  3
            7     4
@@ -198,7 +198,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([5, 6, 7, 1, 2, 3, 4, 5], Set(1, 2, 3), tags={'ref': 'm'})
         )
 
-    def xtest_y_intersection_same_type(self):
+    def test_y_intersection_same_type(self):
         self.nodegrid = """
            3 2 1 4 5
                6
@@ -213,7 +213,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 6], Set(3), tags={'ref': '0'}),
         )
 
-    def xtest_crossing_y_intersection_same_type(self):
+    def test_crossing_y_intersection_same_type(self):
         self.nodegrid = """
            3 2 1 4 5
                6
@@ -227,7 +227,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 6], Set(3), tags={'ref': '0'}),
         )
 
-    def xtest_crossing_y_intersection_different_type(self):
+    def test_crossing_y_intersection_different_type(self):
         self.nodegrid = """
            3 2 1 4 5
                6
@@ -241,7 +241,7 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([1, 6], Set(3), tags={'ref': 'x'}),
         )
 
-    def xtest_crossing_intersection(self):
+    def test_crossing_intersection(self):
         self.nodegrid = """
                   1
                4  2  5
@@ -260,7 +260,11 @@ class TestSimpleSegmentsImport(TableTestFixture):
 
 class TestSimpleSegmentsUpdate(TableTestFixture):
 
-    nodegrid = " 1 2 3 4 5 "
+    nodegrid = """\
+            a
+        1 2 3 4 5
+            b
+    """
 
     def create_tables(self, db):
         # need base table from which to derive the segments
@@ -275,7 +279,7 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
         self.update_data(update_data)
         self.table_equals("test", args)
 
-    def xtest_move_node(self):
+    def test_move_node(self):
         self.import_data("""\
             n1 x23.0 y-3.0
             n2 x23.001 y-3.43
@@ -288,7 +292,7 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
              'geom': Line((23.0, -3.0), (23.002, -3.43))},)
         )
 
-    def xtest_add_node_to_way(self):
+    def test_add_node_to_way(self):
         self._test("""\
             w1 Ta=a Nn1,n3
             """,
@@ -299,7 +303,7 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
         )
         self.has_changes("test_changeset", ['A2', 'D1'])
 
-    def xtest_remove_node_from_way(self):
+    def test_remove_node_from_way(self):
         self._test("""\
             w1 Ta=a Nn1,n2,n3
             """,
@@ -310,7 +314,7 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
         )
         self.has_changes("test_changeset", ['A2', 'D1'])
 
-    def xtest_change_way_type(self):
+    def test_change_way_type(self):
         self._test("""\
             w1 Ta=a Nn1,n2,n3
             """,
@@ -321,7 +325,7 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
         )
         self.has_changes("test_changeset", ['A2', 'D1'])
 
-    def xtest_add_unrelated_way(self):
+    def test_add_unrelated_way(self):
         self._test("""\
             w1 Tref=1 Nn1,n2,n3
             """,
@@ -331,6 +335,7 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
             R([1, 2, 3], Set(1), tags={'ref': '1'}),
             R([4, 5], Set(2), tags={'ref': '1'}),
         )
+        self.has_changes("test_changeset", ['A2'])
 
     def test_add_adjoining_way_same_type(self):
         self._test("""\
@@ -339,5 +344,237 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
             # update
             "w2 Tref=1 Nn3,n4,n5",
             # result
-            R([1, 2, 3, 4, 5], Set(1, 2), tags={'ref': '1'}),
+            R([5, 4, 3, 2, 1], Set(1, 2), tags={'ref': '1'}),
+        )
+
+    def test_add_adjoining_way_different_type(self):
+        self._test("""\
+            w1 Tref=1 Nn1,n2,n3
+            """,
+            # update
+            "w2 Tref=2 Nn3,n4,n5",
+            # result
+            R([1, 2, 3], Set(1), tags={'ref': '1'}),
+            R([3, 4, 5], Set(2), tags={'ref': '2'}),
+        )
+
+    def test_add_touching_way_same_type(self):
+        self._test("""\
+            w1 Tref=w Nn2,n3,n4
+            """,
+            # update
+            "w2 Tref=w Nn100,n3",
+            # result
+            R([2, 3], Set(1), tags={'ref': 'w'}),
+            R([3, 4], Set(1), tags={'ref': 'w'}),
+            R([100, 3], Set(2), tags={'ref': 'w'}),
+        )
+
+
+    def test_add_touching_way_different_type(self):
+        self._test("""\
+            w1 Tref=w Nn2,n3,n4
+            """,
+            # update
+            "w2 Tref=z Nn100,n3",
+            # result
+            R([2, 3], Set(1), tags={'ref': 'w'}),
+            R([3, 4], Set(1), tags={'ref': 'w'}),
+            R([100, 3], Set(2), tags={'ref': 'z'}),
+        )
+
+    def test_add_touching_way_at_joint_same_type(self):
+        self._test("""\
+            w1 Tref=w Nn1,n2,n3
+            w2 Tref=w Nn3,n4,n5
+            """,
+            # update
+            "w10 Tref=w Nn100,n3",
+            # result
+            R([1, 2, 3], Set(1), tags={'ref': 'w'}),
+            R([3, 4, 5], Set(2), tags={'ref': 'w'}),
+            R([100, 3], Set(10), tags={'ref': 'w'}),
+        )
+
+    def test_add_touching_way_at_joint_different_type(self):
+        self._test("""\
+            w1 Tref=w Nn1,n2,n3
+            w2 Tref=w Nn3,n4,n5
+            """,
+            # update
+            "w10 Tfoo=w Nn100,n3",
+            # result
+            R([1, 2, 3], Set(1), tags={'ref': 'w'}),
+            R([3, 4, 5], Set(2), tags={'ref': 'w'}),
+            R([100, 3], Set(10), tags={'foo': 'w'}),
+        )
+
+    def test_add_crossing_way_same_type(self):
+        self._test("""\
+            w1 Tref=w Nn2,n3,n4
+            """,
+            # update
+            "w2 Tref=w Nn100,n3,n101",
+            # result
+            R([2, 3], Set(1), tags={'ref': 'w'}),
+            R([3, 4], Set(1), tags={'ref': 'w'}),
+            R([100, 3], Set(2), tags={'ref': 'w'}),
+            R([3, 101], Set(2), tags={'ref': 'w'}),
+        )
+
+
+    def test_add_crossing_way_different_type(self):
+        self._test("""\
+            w1 Tref=w Nn2,n3,n4
+            """,
+            # update
+            "w2 Tref=z Nn100,n3,n101",
+            # result
+            R([2, 3], Set(1), tags={'ref': 'w'}),
+            R([3, 4], Set(1), tags={'ref': 'w'}),
+            R([100, 3], Set(2), tags={'ref': 'z'}),
+            R([3, 101], Set(2), tags={'ref': 'z'}),
+        )
+
+    def test_add_way_to_y_intersection(self):
+        self.nodegrid = """
+           1 2 3 4 5
+             6   7
+        """
+
+        self._test("""\
+            w1 Trel=1 Nn1,n2,n3,n4,n5
+            w2 Trel=2 Nn2,n6
+            """,
+            # update
+            "w3 Trel=3 Nn4,n7",
+            # result
+            R([1, 2], Set(1), tags={'rel': '1'}),
+            R([2, 3, 4], Set(1), tags={'rel': '1'}),
+            R([4, 5], Set(1), tags={'rel': '1'}),
+            R([2, 6], Set(2), tags={'rel': '2'}),
+            R([4, 7], Set(3), tags={'rel': '3'})
+        )
+
+    def test_remove_touching_way_same_type(self):
+        self._test("""\
+            w1 Tref=4 Nn1,n2,n3
+            w2 Tref=4 Nn3,n4,n5
+            """,
+            # update
+            "w2 dD",
+            # result
+            R([1, 2, 3], Set(1), tags={'ref': '4'})
+        )
+
+    def test_change_touching_way_type_to_same(self):
+        self._test("""\
+            w1 Tref=4 Nn1,n2,n3
+            w2 Tref=3 Nn3,n4,n5
+            """,
+            # update
+            "w2 Tref=4 Nn3,n4,n5",
+            # result
+            R([5, 4, 3, 2, 1], Set(1, 2), tags={'ref': '4'})
+        )
+    def test_change_touching_way_type_to_different(self):
+        self._test("""\
+            w1 Tref=4 Nn1,n2,n3
+            w2 Tref=4 Nn3,n4,n5
+            """,
+            # update
+            "w2 Tref=2 Nn3,n4,n5",
+            # result
+            R([1, 2, 3], Set(1), tags={'ref': '4'}),
+            R([3, 4, 5], Set(2), tags={'ref': '2'})
+        )
+
+    def test_move_touching_point_along_way(self):
+        self._test("""\
+            w1 Tref=? Nn1,n2,n3,n4,n5
+            w2 Tref=other Nn100,n3
+            """,
+            # update
+            "w2 Tref=other Nn100,n4",
+            # result
+            R([1, 2, 3, 4], Set(1), tags={'ref': '?'}),
+            R([4, 5], Set(1), tags={'ref': '?'}),
+            R([100, 4], Set(2), tags={'ref': 'other'}),
+        )
+
+    def test_change_touching_way_type_to_same(self):
+        self._test("""\
+            w1 Tref=4 Nn1,n2,n3
+            w2 Tref=3 Nn3,n4,n5
+            """,
+            # update
+            "w2 Tref=4 Nn3,n4,n5",
+            # result
+            R([5, 4, 3, 2, 1], Set(1, 2), tags={'ref': '4'})
+        )
+
+
+    def test_disconnect_touching_way_same_type(self):
+        self._test("""\
+            w1 Tref=4 Nn1,n2,n3
+            w2 Tref=4 Nn3,n4,n5
+            """,
+            # update
+            "w2 Tref=4 Nn100,n4,n5",
+            # result
+            R([1, 2, 3], Set(1), tags={"ref": "4"}),
+            R([100, 4, 5], Set(2), tags={"ref": "4"})
+        )
+
+    def test_remove_crossing_wat_different_type(self):
+        self._test("""\
+            w1 Tref=A Nn2,n3,n4
+            w2 Tref=B Nn100,n3,n101
+            """,
+            # update
+            "w2 dD",
+            # result
+            R([2, 3, 4], Set(1), tags={"ref": "A"}),
+        )
+
+    def test_add_way_to_crossing_way_on_intersected_way(self):
+        self.nodegrid = """
+                    6
+              1 2 3 4 5
+                8   7
+        """
+
+        self._test("""\
+            w1 Trel=1 Nn1,n2,n3,n4,n5
+            w3 Trel=3 Nn2,n8
+            """,
+            # update
+            "w2 Trel=2 Nn6,n4,n7",
+            # result
+            R([1, 2], Set(1), tags={'rel': '1'}),
+            R([2, 3, 4], Set(1), tags={'rel': '1'}),
+            R([4, 5], Set(1), tags={'rel': '1'}),
+            R([6, 4], Set(2), tags={'rel': '2'}),
+            R([4, 7], Set(2), tags={'rel': '2'}),
+            R([2, 8], Set(3), tags={'rel': '3'}),
+        )
+
+
+    def test_add_way_at_end_of_intersected_way(self):
+        self.nodegrid = """
+          1 2 3 4 5
+          6     7
+        """
+
+        self._test("""\
+            w1 Trel=1 Nn1,n2,n3,n4,n5
+            w3 Trel=3 Nn4,n7
+            """,
+            # update
+            "w2 Trel=2 Nn1,n6",
+            # result
+            R([1, 2, 3, 4], Set(1), tags={'rel': '1'}),
+            R([4, 5], Set(1), tags={'rel': '1'}),
+            R([1, 6], Set(2), tags={'rel': '2'}),
+            R([4, 7], Set(3), tags={'rel': '3'}),
         )
