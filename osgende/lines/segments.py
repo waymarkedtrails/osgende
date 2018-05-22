@@ -23,6 +23,7 @@ import sqlalchemy.sql.functions as saf
 import osgende.common.sqlalchemy as osa
 from sqlalchemy.dialects.postgresql import ARRAY
 from geoalchemy2.shape import from_shape, to_shape
+from sqlalchemy.dialects import postgresql
 
 from shapely.geometry import LineString
 
@@ -114,7 +115,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             prev_prop = None
             wayset = list()
             for w in res:
-                prop = dict(((x, w[x]) for x in self.prop_columns))
+                prop = tuple((w[x] for x in self.prop_columns))
                 # process the next bit when we get to the next property column
                 if prev_prop is not None and prop != prev_prop:
                     wayproc.process_ways(prev_prop, wayset)
@@ -144,7 +145,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             sql = self.src.data.select().where(self.src.data.c.id.in_(self.src.select_add_modify()))
 
             for w in conn.execute(sql):
-                prop = dict(((x, w[x]) for x in self.prop_columns))
+                prop = tuple((w[x] for x in self.prop_columns))
                 wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
                 waysdone.add(w['id'])
 
@@ -178,7 +179,6 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
             while True:
                 additional_ways = set()
-                print(str(q))
                 for c in conn.execute(q):
                     for w in c['ways']:
                         if w not in waysdone:
@@ -192,15 +192,18 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                 sql = self.src.data.select()\
                         .where(self.src.data.c.id.in_(list(additional_ways)))
                 for w in conn.execute(sql):
-                    prop = dict(((x, w[x]) for x in self.prop_columns))
+                    prop = tuple((w[x] for x in self.prop_columns))
                     wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
                     waysdone.add(w['id'])
-                    todo_nodes.update(w['nodes'][1:-2])
+                    todo_nodes.update(w['nodes'][1:-1])
 
                 if not todo_nodes:
                     break
 
-                q = self.data.delete().where(self.data.c.nodes.overlap(todo_nodes))
+                q = self.data.delete()\
+                      .where(self.data.c.nodes.overlap(
+                         sa.cast(todo_nodes, type_=self.data.c.nodes.type)))\
+                      .returning(self.data.c.id, self.data.c.ways)
 
             # done, add the result back to the table
             log.info("Processing segments")
@@ -292,7 +295,7 @@ class _WayCollector(ThreadableDBObject):
         # now process ways in groups
         prev_prop = None
         wayset = list()
-        for prop, wayinfo in self.way_cache:
+        for pstr, prop, wayinfo in self.way_cache:
             # process the next bit when we get to the next property column
             if prev_prop is not None and prop != prev_prop:
                 self.process_ways(prev_prop, wayset)
@@ -304,12 +307,14 @@ class _WayCollector(ThreadableDBObject):
         if prev_prop is not None:
             self.process_ways(prev_prop, wayset)
 
+        self.way_cache = []
+
 
     def add_way(self, props, osmid, nodes, geom):
         """ Add another way to the current set of ways with similar properties.
         """
         assert(self.update_mode)
-        self.way_cache.append((props, (osmid, nodes, list(to_shape(geom).coords))))
+        self.way_cache.append((str(props), props, (osmid, nodes, list(to_shape(geom).coords))))
 
         # update intersections
         self.collected_nodes[nodes[0]] += 1
@@ -375,7 +380,7 @@ class _WayCollector(ThreadableDBObject):
         fields = { 'nodes' : segment.nodes,
                    'ways' : segment.osmids,
                    'geom' : from_shape(LineString(segment.geom), srid=self._srid()) }
-        fields.update(props)
+        fields.update(dict(zip(self.src.prop_columns, props)))
         self.thread.conn.execute(self.src.data.insert(fields))
 
 
