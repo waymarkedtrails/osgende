@@ -77,6 +77,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                                       sa.Column('relation_id', sa.BigInteger),
                                       sa.Column('way_id', sa.BigInteger))
 
+        self.set_num_threads(meta.info.get('num_threads', 1))
+
     @property
     def srid(self):
         return self.c.geom.type.srid
