@@ -15,7 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from osgende.common.connectors import TableSource
+from osgende.common.table import TableSource
 from sqlalchemy.dialects.postgresql import ARRAY
 import sqlalchemy as sa
 from geoalchemy2 import Geometry
@@ -43,18 +43,17 @@ class PlainWayTable(ThreadableDBObject, TableSource):
     """
 
     def __init__(self, meta, name, source, osmdata):
-        id_col = sa.Column(source.id_column.name, source.id_column.type,
-                           primary_key=True, autoincrement=False)
         srid = meta.info.get('srid', 4326)
         table = sa.Table(name, meta,
-                           id_col,
+                           sa.Column("id", source.c.id.type,
+                                     primary_key=True, autoincrement=False),
                            sa.Column('nodes', ARRAY(sa.BigInteger)),
                            sa.Column('geom', Geometry('LINESTRING', srid=srid))
                           )
 
         self.add_columns(table, source)
 
-        super().__init__(table, name + "_changeset", id_column=id_col)
+        super().__init__(table, name + "_changeset")
 
         self.osmdata = osmdata
         self.src = source
@@ -65,16 +64,13 @@ class PlainWayTable(ThreadableDBObject, TableSource):
             This default implementation adds all columns from src except
             the id and nodes column.
         """
-        to_ignore = ('nodes', src.id_column.name)
-
-        for c in src.data.columns:
-            if c.name not in to_ignore:
-                dest.append_column(sa.Column(c.name, c.type))
+        for c in filter(lambda x : x.name not in ('nodes', 'id'), src.c):
+            dest.append_column(sa.Column(c.name, c.type))
 
 
     def construct(self, engine):
         ndsidx = sa.Index(self.data.name + "_nodes_idx",
-                          self.data.c.nodes, postgresql_using='gin')
+                          self.c.nodes, postgresql_using='gin')
 
         with engine.begin() as conn:
             conn.execute(DropIndexIfExists(ndsidx))
@@ -110,23 +106,18 @@ class PlainWayTable(ThreadableDBObject, TableSource):
             return  None
 
         cols['geom'] = from_shape(LineString(points),
-                                  srid=self.data.c.geom.type.srid)
+                                  srid=self.c.geom.type.srid)
 
-        cols[self.id_column.name] = obj[self.id_column.name]
+        cols['id'] = obj['id']
         cols['nodes'] = obj['nodes']
 
         return cols
 
 
     def transform_tags(self, obj):
-        to_ignore = ('nodes', self.src.id_column.name)
+        return {c.name: obj[c.name]
+                  for c in self.src.c if c.name not in ('nodes', 'id')}
 
-        cols = {}
-        for c in self.src.data.columns:
-            if c.name not in to_ignore:
-                cols[c.name] = obj[c.name]
-
-        return cols
 
     def update(self, engine):
         with engine.begin() as conn:
@@ -140,11 +131,11 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
     def _update_handle_deleted_ways(self, conn):
         delsql = self.data.delete()\
-                   .where(self.id_column.in_(self.src.select_delete()))
+                   .where(self.c.id.in_(self.src.select_delete()))
 
         changes = {}
-        for row in conn.execute(delsql.returning(self.id_column)):
-            changes[row[self.id_column]] = 'D'
+        for row in conn.execute(delsql.returning(self.c.id)):
+            changes[row[0]] = 'D'
 
         return changes
 
@@ -155,13 +146,13 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
         cols = [s]
         for c in d.columns:
-            if c.name not in (self.id_column.name, 'nodes'):
+            if c.name not in ('id', 'nodes'):
                 cols.append(c.label('old_' + c.name))
 
-        j = s.join(d, self.id_column == self.src.id_column, isouter=True)
+        j = s.join(d, d.c.id == s.c.id, isouter=True)
         sql = sa.select(cols).select_from(j)\
                 .where(sa.or_(
-                        self.src.id_column.in_(self.src.select_add_modify()),
+                        self.src.c.id.in_(self.src.select_add_modify()),
                         d.c.nodes.op('&& ARRAY')(self.osmdata.node.select_add_modify())
                       ))
 
@@ -169,7 +160,7 @@ class PlainWayTable(ThreadableDBObject, TableSource):
         inserts = []
         changeset = {}
         for obj in conn.execute(sql):
-            oid = obj[self.src.id_column]
+            oid = obj['id']
             is_added = obj['old_geom'] is None
             changed = False
 
@@ -196,21 +187,20 @@ class PlainWayTable(ThreadableDBObject, TableSource):
                 continue
 
             new_geom = LineString(points)
-            cols['geom'] = from_shape(new_geom, srid=self.data.c.geom.type.srid)
+            cols['geom'] = from_shape(new_geom, srid=d.c.geom.type.srid)
             changed = changed or is_added or (new_geom != to_shape(obj['old_geom']))
 
             if changed:
                 cols['nodes'] = obj['nodes']
-                cols[self.id_column.name] = oid
+                cols['id'] = oid
                 inserts.append(cols)
                 changeset[oid] = 'A' if is_added else 'M'
 
         if len(inserts):
             conn.execute(self.upsert_data().values(inserts))
         if len(deleted):
-            conn.execute(self.data.delete()
-                            .where(self.data.c.id == sa.bindparam('oid')),
-                           deleted)
+            conn.execute(self.data.delete().where(d.c.id == sa.bindparam('oid')),
+                         deleted)
 
         return changeset
 

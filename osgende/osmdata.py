@@ -18,7 +18,7 @@
 from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from geoalchemy2 import Geometry
-from osgende.common.connectors import TableSource
+from osgende.common.table import TableSource
 from osgende.common.nodestore import NodeStore, NodeStorePoint
 
 class OsmSourceTables(object):
@@ -89,15 +89,14 @@ class OsmSourceTables(object):
     def __mkpointlist_points(self, nodes, store):
         ret = []
         prev = None
-        for n in nodes:
-            if n is not None:
-                try:
-                    coord = store[n]
-                    if coord == prev:
-                        coord = NodeStorePoint(coord.x + 0.00000001, coord.y)
-                    prev = coord
-                    ret.append(coord)
-                except KeyError:
-                    pass
+        for n in filter(None.__ne__, nodes):
+            try:
+                coord = store[n]
+                if coord == prev:
+                    coord = NodeStorePoint(coord.x + 0.00000001, coord.y)
+                prev = coord
+                ret.append(coord)
+            except KeyError:
+                pass
 
         return ret
