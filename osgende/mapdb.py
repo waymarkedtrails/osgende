@@ -91,8 +91,12 @@ class MapDB:
 
     def update(self):
         for tab in self.tables:
+            if hasattr(tab, 'before_update'):
+                tab.before_update()
             log.info("Updating %s..." % str(tab.data.name))
             tab.update(self.engine)
+            if hasattr(tab, 'after_update'):
+                tab.after_update()
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\
