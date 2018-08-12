@@ -28,7 +28,7 @@ from sqlalchemy.dialects import postgresql
 from shapely.geometry import LineString
 
 from osgende.common.threads import ThreadableDBObject
-from osgende.common.connectors import TableSource
+from osgende.common.table import TableSource
 from osgende.common.sqlalchemy import DropIndexIfExists
 
 log = logging.getLogger(__name__)
@@ -60,23 +60,23 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
     def __init__(self, meta, name, source, prop_cols):
         # Create a table with its own id column.
-        id_col = sa.Column('id', sa.BigInteger,
-                            primary_key=True, autoincrement=True)
-
-        table = sa.Table(name, meta, id_col)
-
-        super().__init__(table, name + "_changeset", id_column=id_col)
+        table = sa.Table(name, meta,
+                         sa.Column('id', sa.BigInteger,
+                                   primary_key=True, autoincrement=True)
+                        )
 
         # Copy all columns that are used to identify the way type.
         self.prop_columns = []
         for c in prop_cols:
-            table.append_column(sa.Column(c.key, c.type))
-            self.prop_columns.append(c.key)
+            table.append_column(sa.Column(c.name, c.type))
+            self.prop_columns.append(c.name)
 
         # Add our book-keeping columns.
         table.append_column(sa.Column('nodes', ARRAY(sa.BigInteger)))
-        table.append_column(sa.Column('ways', ARRAY(source.id_column.type)))
+        table.append_column(sa.Column('ways', ARRAY(source.c.id.type)))
         table.append_column(sa.Column('geom', source.data.c.geom.type))
+
+        super().__init__(table, name + "_changeset")
 
         self.src = source
 
@@ -84,10 +84,10 @@ class SegmentsTable(ThreadableDBObject, TableSource):
         self.numthreads = num
 
     def source_property_columns(self):
-        return (self.src.data.c[x] for x in self.prop_columns)
+        return (self.src.c[x] for x in self.prop_columns)
 
     def dest_property_columns(self):
-        return (self.data.c[x] for x in self.prop_columns)
+        return (self.c[x] for x in self.prop_columns)
 
     def construct(self, engine):
         """ Compute table content from scratch.
@@ -142,7 +142,8 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
         with engine.begin() as conn:
             log.info("Collecting changed and new ways")
-            sql = self.src.data.select().where(self.src.data.c.id.in_(self.src.select_add_modify()))
+            sql = self.src.data.select()\
+                    .where(self.src.c.id.in_(self.src.select_add_modify()))
 
             for w in conn.execute(sql):
                 prop = tuple((w[x] for x in self.prop_columns))
@@ -151,12 +152,12 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
             log.info("Collecting points effected by update")
             # 1. nodes in added or changed ways
-            waychg = sa.select([saf.func.unnest(self.src.data.c.nodes)])\
-                       .where(self.src.data.c.id.in_(self.src.select_add_modify()))
+            waychg = sa.select([saf.func.unnest(self.src.c.nodes)])\
+                       .where(self.src.c.id.in_(self.src.select_add_modify()))
             # 2. nodes in segments where ways are changed
-            waysel = sa.select([self.src.change.c.id.label('tid')])
-            segchg = sa.select([saf.func.unnest(self.data.c.nodes).label('tid')])\
-                       .where(self.data.c.ways.op('&& ARRAY')(waysel))
+            waysel = sa.select([self.src.cc.id.label('tid')])
+            segchg = sa.select([saf.func.unnest(self.c.nodes).label('tid')])\
+                       .where(self.c.ways.op('&& ARRAY')(waysel))
             conn.execute(osa.CreateTableAs('temp_updated_nodes',
                                            sa.union(segchg, waychg).alias('sub'),
                                            temporary=False))
@@ -190,7 +191,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
                 todo_nodes = set()
                 sql = self.src.data.select()\
-                        .where(self.src.data.c.id.in_(list(additional_ways)))
+                        .where(self.src.c.id.in_(list(additional_ways)))
                 for w in conn.execute(sql):
                     prop = tuple((w[x] for x in self.prop_columns))
                     wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
@@ -201,13 +202,13 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                     break
 
                 q = self.data.delete()\
-                      .where(self.data.c.nodes.overlap(
-                         sa.cast(todo_nodes, type_=self.data.c.nodes.type)))\
-                      .returning(self.data.c.id, self.data.c.ways)
+                      .where(self.c.nodes.overlap(
+                         sa.cast(todo_nodes, type_=self.c.nodes.type)))\
+                      .returning(self.c.id, self.c.ways)
 
             # done, add the result back to the table
             log.info("Processing segments")
-            cur_id = conn.scalar(sa.select([saf.max(self.data.c.id)]))
+            cur_id = conn.scalar(sa.select([saf.max(self.c.id)]))
             first_new_id = 0 if cur_id is None else cur_id + 1
 
             wayproc.process_cached_ways()
@@ -216,9 +217,9 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             # add all newly created segments to the update table
             if self.change is not None:
                 self.write_change_table(conn, deleted_ids)
-                conn.execute(self.change.insert().from_select(self.change.c,
-                  sa.select([self.data.c.id, sa.text("'A'")])
-                    .where(self.data.c.id >= first_new_id)))
+                conn.execute(self.change.insert().from_select(self.cc,
+                  sa.select([self.c.id, sa.text("'A'")])
+                    .where(self.c.id >= first_new_id)))
 
 
 class _WayCollector(ThreadableDBObject):
@@ -249,8 +250,9 @@ class _WayCollector(ThreadableDBObject):
         self.set_num_threads(numthreads)
         self.workers = self.create_worker_queue(engine, self._process_next)
 
-    def _srid(self):
-        return self.src.data.c.geom.type.srid
+    @property
+    def srid(self):
+        return self.src.c.geom.type.srid
 
     def _get_intersections_from_db(self, engine):
         """ Find all potetial mid-way intersections.
@@ -335,7 +337,6 @@ class _WayCollector(ThreadableDBObject):
 
         # add all ways to a temporary list and find potential fuse points
         for osmid, nodes, geom in inways:
-            print("For ways")
             nnodes = len(nodes)
             # find all nodes that are forced intersections inside the line
             splitidx = [x for x in range(1, nnodes - 1)
@@ -346,18 +347,16 @@ class _WayCollector(ThreadableDBObject):
                 f = splitidx[i]
                 t = splitidx[i+1] + 1
                 w = _Segment(osmid, nodes[f:t], geom[f:t])
-                if w.first() not in self.intersections:
-                    fuse_pts[w.first()].append(w)
-                if w.last() not in self.intersections:
-                    fuse_pts[w.last()].append(w)
+                if w.first not in self.intersections:
+                    fuse_pts[w.first].append(w)
+                if w.last not in self.intersections:
+                    fuse_pts[w.last].append(w)
                 segments.add(w)
-                print("AddFor ways")
 
         # Rejoin the ways on the fuse points
         for nid, ends in fuse_pts.items():
             if len(ends) != 2:
                 continue
-            print("Fuseing")
             w1, w2 = ends
             if w1 is w2:
                 continue # circular way found
@@ -373,13 +372,12 @@ class _WayCollector(ThreadableDBObject):
 
         # and write everything out
         for w in segments:
-            print("Print way")
             self._write_segment(properties, w)
 
     def _write_segment(self, props, segment):
-        fields = { 'nodes' : segment.nodes,
-                   'ways' : segment.osmids,
-                   'geom' : from_shape(LineString(segment.geom), srid=self._srid()) }
+        fields = {'nodes' : segment.nodes,
+                  'ways' : segment.osmids,
+                  'geom' : from_shape(LineString(segment.geom), srid=self.srid)}
         fields.update(dict(zip(self.src.prop_columns, props)))
         self.thread.conn.execute(self.src.data.insert(fields))
 
@@ -392,9 +390,11 @@ class _Segment(object):
         self.nodes = nodes
         self.geom = geom
 
+    @property
     def first(self):
         return self.nodes[0]
 
+    @property
     def last(self):
         return self.nodes[-1]
 

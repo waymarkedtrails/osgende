@@ -15,19 +15,21 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from osgende.common.connectors import TableSource
-import sqlalchemy as sqla
+from osgende.common.table import TableSource
+import sqlalchemy as sa
 from osgende.common.sqlalchemy import DropIndexIfExists
 
 class FilteredTable(TableSource):
     """ Table that provides a filtered view of another table according
         to a given subquery.
+
+        FilteredTable does not provide its own change table but exports
+        the one from the source.
     """
 
     def __init__(self, meta, name, source, subset):
         table = source.data.tometadata(meta, name=name)
-        TableSource.__init__(self, table, source.change,
-                             id_column=table.c[source.id_column.name])
+        TableSource.__init__(self, table, source.change)
 
         self.subset = subset
         self.src = source
@@ -37,15 +39,18 @@ class FilteredTable(TableSource):
         if self.view_only:
             return
 
-        idx = sqla.Index("idx_%s_%s" % (self.data.name, self.id_column.name),
-                          self.id_column, unique=True)
-
         with engine.begin() as conn:
+            idx = sa.Index("idx_%s_id" % self.data.name,
+                             self.c.id, unique=True)
+
             conn.execute(DropIndexIfExists(idx))
+
             self.truncate(conn)
-            sql = self.data.insert().from_select(
-                    self.src.data.c, self.src.select_all(self.subset))
+
+            src = self.src.data.select().where(self.subset)
+            sql = self.data.insert().from_select(self.src.data.c, src)
             conn.execute(sql)
+
             idx.create(conn)
 
 
@@ -58,23 +63,23 @@ class FilteredTable(TableSource):
             return
 
         with engine.begin() as conn:
-            # delete deleted relations
+            # delete deleted rows
             delsql = self.data.delete()\
-                        .where(self.id_column.in_(self.select_delete()))
+                        .where(self.c.id.in_(self.select_delete()))
             conn.execute(delsql)
-            # delete relations that have lost the filter properties
-            todelete = sqla.select([self.src.data.c.id])\
-                           .where(self.src.data.c.id.in_(self.select_add_modify()))\
-                           .where(sqla.not_(self.subset))
-            conn.execute(self.data.delete().where(self.id_column.in_(todelete)))
+            # delete rows that have lost the filter properties
+            conn.execute(self.delete(
+                        sa.select([self.src.c.id])\
+                           .where(self._src_id_changed())\
+                           .where(sa.not_(self.subset))))
             # now upsert data
             inssql = self.upsert_data()\
-                        .from_select(self.src.data.c,
+                        .from_select(self.src.c,
                                      self.src.data.select()
-                                       .where(self.src.id_column.in_(
-                                         self.select_add_modify()))
+                                       .where(self._src_id_changed())
                                        .where(self.subset))
             conn.execute(inssql)
 
-
+    def _src_id_changed(self):
+        return self.src.c.id.in_(self.select_add_modify())
 

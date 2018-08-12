@@ -21,7 +21,7 @@ from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape, to_shape
 import shapely.geometry as sgeom
 
-from osgende.common.connectors import TableSource
+from osgende.common.table import TableSource
 from osgende.common.sqlalchemy import CreateView, jsonb_array_elements, DropIndexIfExists, Truncate
 from osgende.common.tags import TagStore
 from osgende.common.threads import ThreadableDBObject
@@ -48,27 +48,26 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         ways that have been directly or indirectly modified.
 
         The table creates an additional view on the relation table
-        of the relation-way relation_ship."
+        of the relation-way relationship."
     """
 
     def __init__(self, meta, name, way_src, relation_src, osmdata=None):
-        id_col = sa.Column('id', sa.BigInteger,
-                             primary_key=True, autoincrement=False)
-        srid = meta.info.get('srid', 4326)
         table = sa.Table(name, meta,
-                           id_col,
+                           sa.Column('id', sa.BigInteger,
+                                     primary_key=True, autoincrement=False),
                            sa.Column('nodes', ARRAY(sa.BigInteger)),
                            sa.Column('rels', ARRAY(sa.BigInteger)),
                           )
 
         if osmdata is not None:
             table.append_column(
-                    sa.Column('geom', Geometry('LINESTRING', srid=srid)))
+                    sa.Column('geom', Geometry('LINESTRING',
+                              srid=meta.info.get('srid', 4326))))
 
         if hasattr(self, 'add_columns'):
             self.add_columns(table)
 
-        super().__init__(table, name + "_changeset", id_column=id_col)
+        super().__init__(table, name + "_changeset")
 
         self.osmdata = osmdata
         self.way_src = way_src
@@ -77,6 +76,10 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         self.relway_view = sa.Table(name + '_relation_way_view', meta,
                                       sa.Column('relation_id', sa.BigInteger),
                                       sa.Column('way_id', sa.BigInteger))
+
+    @property
+    def srid(self):
+        return self.c.geom.type.srid
 
     def create_table(self, engine):
         self.data.create(bind=engine, checkfirst=True)
@@ -186,14 +189,14 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                     changeset[oid] = 'D'
                     continue
                 new_geom = sgeom.LineString(points)
-                cols['geom'] = from_shape(new_geom, srid=self.data.c.geom.type.srid)
+                cols['geom'] = from_shape(new_geom, srid=self.srid)
                 changed = changed or (new_geom != to_shape(obj['geom']))
             elif obj['nodes'] != obj['new_nodes']:
                 changed = True
 
             if changed:
                 cols['nodes'] = obj['new_nodes']
-                cols[self.id_column.name] = oid
+                cols['id'] = oid
                 cols['rels'] = obj['rels']
                 inserts.append(cols)
                 changeset[oid] = 'M'
@@ -202,7 +205,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             engine.execute(self.upsert_data().values(inserts))
         if len(deletes):
             engine.execute(self.data.delete()
-                            .where(self.data.c.id == sa.bindparam('oid')),
+                            .where(self.c.id == sa.bindparam('oid')),
                            deletes)
 
         return changeset
@@ -221,7 +224,7 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                          sa.select([rs.c.way_id]).
                            where(rs.c.relation_id.in_(
                                self.relation_src.select_add_modify()))),
-                    w.c.rels.op('&& ARRAY')(sa.select([self.relation_src.change_id_column()]))
+                    w.c.rels.op('&& ARRAY')(sa.select([self.relation_src.cc.id]))
                            ))
 
         inserts = []
@@ -244,12 +247,12 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
         if len(inserts):
             engine.execute(self.data.update()
-                             .where(self.data.c.id == sa.bindparam('oid'))
+                             .where(self.c.id == sa.bindparam('oid'))
                              .values(rels=sa.bindparam('rels')), inserts)
 
         if len(deletes):
             engine.execute(self.data.delete()
-                            .where(self.data.c.id == sa.bindparam('oid')),
+                            .where(self.c.id == sa.bindparam('oid')),
                            deletes)
 
         return changeset
@@ -302,9 +305,9 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             if len(points) <= 1:
                 return
             cols['geom'] = from_shape(sgeom.LineString(points),
-                                      srid=self.data.c.geom.type.srid)
+                                      srid=self.srid)
 
-        cols[self.id_column.name] = obj['way_id']
+        cols['id'] = obj['way_id']
         cols['rels'] = sorted(obj['rels'])
         cols['nodes'] = obj['nodes']
 
