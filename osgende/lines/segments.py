@@ -79,6 +79,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
         super().__init__(table, name + "_changeset")
 
         self.src = source
+        self.set_num_threads(meta.info.get('num_threads', 1))
 
     def set_num_threads(self, num):
         self.numthreads = num

@@ -58,6 +58,8 @@ class PlainWayTable(ThreadableDBObject, TableSource):
         self.osmdata = osmdata
         self.src = source
 
+        self.set_num_threads(meta.info.get('num_threads', 1))
+
 
     def add_columns(self, dest, src):
         """ Add additional data columns.
