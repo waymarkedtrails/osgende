@@ -60,6 +60,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                           )
 
         if osmdata is not None:
+            if meta.info.get('srid', 4326) not in (4326, 3857):
+                raise RuntimeError("Can only handle SRID 4326 or 3857.")
             table.append_column(
                     sa.Column('geom', Geometry('LINESTRING',
                               srid=meta.info.get('srid', 4326))))
@@ -190,6 +192,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                     deletes.append({'oid' : oid})
                     changeset[oid] = 'D'
                     continue
+                if self.srid == 3857:
+                    points = [p.to_mercator() for p in points]
                 new_geom = sgeom.LineString(points)
                 cols['geom'] = from_shape(new_geom, srid=self.srid)
                 changed = changed or (new_geom != to_shape(obj['geom']))
@@ -306,6 +310,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             points = self.osmdata.get_points(obj['nodes'], conn)
             if len(points) <= 1:
                 return
+            if self.srid == 3857:
+                points = [p.to_mercator() for p in points]
             cols['geom'] = from_shape(sgeom.LineString(points),
                                       srid=self.srid)
 

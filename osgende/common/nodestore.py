@@ -24,6 +24,7 @@ from osmium import index, osm
 from binascii import hexlify
 from struct import pack
 from collections import namedtuple
+from osmium.geom import lonlat_to_mercator, Coordinates
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ class NodeStorePoint(namedtuple('NodeStorePoint', ['x', 'y'])):
         # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
         return hexlify(pack("=biidd", 1, 0x20000001, 4326,
                                    self.x, self.y)).decode()
+
+    def to_mercator(self):
+        c = lonlat_to_mercator(Coordinates(self.x, self.y))
+        return NodeStorePoint(c.x, c.y)
 
 class NodeStore(object):
     """Provides a map like persistent storage for node geometries.
