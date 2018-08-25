@@ -15,9 +15,9 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, BigInteger, Integer, select,\
-                       not_, column, literal_column, union_all, func
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import array
+from osgende.common.sqlalchemy import Truncate, jsonb_array_elements
 
 class RelationHierarchy(object):
     """Table describing the relation hierarchies of the OSM relations table.
@@ -29,61 +29,56 @@ class RelationHierarchy(object):
        is given all relations given in the subset will appear.
     """
 
-    def __init__(self, meta, name, osmdata, subset=None):
-
-        self.data = Table(name, meta,
-                          Column('parent', BigInteger, index=True),
-                          Column('child', BigInteger, index=True),
-                          Column('depth', Integer)
+    def __init__(self, meta, name, source):
+        self.data = sa.Table(name, meta,
+                          sa.Column('parent', sa.BigInteger, index=True),
+                          sa.Column('child', sa.BigInteger, index=True),
+                          sa.Column('depth', sa.Integer)
                          )
 
-        if subset is None:
-            m = osmdata.member.data.alias()
-            self.subset = select([func.unnest(array([m.c.relation_id,
-                                                     m.c.member_id])).label('id')],
-                                 distinct=True)\
-                            .where(m.c.member_type == 'R')
-        else:
-            self.subset = subset
-        self.osmdata = osmdata
+        self.src = source
 
     def truncate(self, conn):
-        conn.execute(self.data.delete())
+        conn.execute(Truncate(self.data))
+
+    def create(self, engine):
+        self.data.create(bind=engine, checkfirst=True)
 
     def construct(self, engine):
         """Fill the table from the current relation table.
         """
         with engine.begin() as conn:
             self.truncate(conn)
+            # Insert all direct children
+            rels = self.src.data.alias('r')
+            members = jsonb_array_elements(rels.c.members).lateral()
 
-            # Initially add all relations themselves.
-            s = self.subset.alias()
-            conn.execute(self.data.insert()
-                           .from_select(self.data.c,
-                                        select([s.c.id.label('parent'), s.c.id.label('child'), 1])))
-
-            # Insert the direct children
-            subset = select([self.data.c.parent.label('id')]).where(self.data.c.depth == 1)
-            sm = self.osmdata.member.data.alias()
-            children = select([sm.c.relation_id, sm.c.member_id, 2])\
-                        .where(sm.c.relation_id.in_(subset.alias()))\
-                        .where(sm.c.member_id.in_(subset.alias()))\
-                        .where(sm.c.member_type == 'R')
-            res = conn.execute(self.data.insert().from_select(self.data.c, children))
+            sql = sa.select([rels.c.id.label('parent'),
+                             members.c.value['id'].astext.cast(sa.BigInteger).label('child'), 2]
+                       ).select_from(rels.join(members, onclause=sa.text("True")))\
+                    .where(members.c.value['type'].astext == 'R')\
+                    .where(members.c.value['id'].astext.cast(sa.BigInteger) != rels.c.id.label('parent'))
+            res = conn.execute(self.data.insert().from_select(self.data.c, sql))
 
             level = 3
             while res.rowcount > 0 and level < 6:
                 pd = self.data.alias()
-                prev = select([pd.c.parent, pd.c.child]).where(pd.c.depth == (level - 1)).alias()
+                prev = sa.select([pd.c.parent, pd.c.child]).where(pd.c.depth == (level - 1)).alias()
                 nd = self.data.alias()
-                newly = select([nd.c.parent, nd.c.child]).where(nd.c.depth == 2).alias()
+                newly = sa.select([nd.c.parent, nd.c.child]).where(nd.c.depth == 2).alias()
                 old = self.data.alias()
-                subs = select([prev.c.parent, newly.c.child, level])\
+                subs = sa.select([prev.c.parent, newly.c.child, level])\
                         .where(prev.c.child == newly.c.parent)\
-                        .except_(select([old.c.parent, old.c.child, level]))
+                        .where(prev.c.parent != newly.c.child)\
+                        .except_(sa.select([old.c.parent, old.c.child, level]))
 
                 res = conn.execute(self.data.insert().from_select(self.data.c, subs))
                 level = level + 1
+
+            # Finally add all relations themselves.
+            s = self.src.data
+            conn.execute(self.data.insert().from_select(self.data.c,
+                sa.select([s.c.id.label('parent'), s.c.id.label('child'), 1])))
 
     def update(self, engine):
         """Update the table.
