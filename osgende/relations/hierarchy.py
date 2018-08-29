@@ -27,9 +27,12 @@ class RelationHierarchy(object):
        IDs that should be included. If no subset is given only relations
        that actually have sub- or super-relations are included. If subset
        is given all relations given in the subset will appear.
+
+       If `self_ref` is True, then each relation is added as its own child
+       with depth = 1.
     """
 
-    def __init__(self, meta, name, source):
+    def __init__(self, meta, name, source, self_ref=False):
         self.data = sa.Table(name, meta,
                           sa.Column('parent', sa.BigInteger, index=True),
                           sa.Column('child', sa.BigInteger, index=True),
@@ -37,6 +40,7 @@ class RelationHierarchy(object):
                          )
 
         self.src = source
+        self.self_reference = self_ref
 
     def truncate(self, conn):
         conn.execute(Truncate(self.data))
@@ -76,9 +80,10 @@ class RelationHierarchy(object):
                 level = level + 1
 
             # Finally add all relations themselves.
-            s = self.src.data
-            conn.execute(self.data.insert().from_select(self.data.c,
-                sa.select([s.c.id.label('parent'), s.c.id.label('child'), 1])))
+            if self.self_reference:
+                s = self.src.data
+                conn.execute(self.data.insert().from_select(self.data.c,
+                    sa.select([s.c.id.label('parent'), s.c.id.label('child'), 1])))
 
     def update(self, engine):
         """Update the table.
