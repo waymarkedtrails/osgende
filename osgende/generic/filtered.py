@@ -18,6 +18,7 @@
 from osgende.common.table import TableSource
 import sqlalchemy as sa
 from osgende.common.sqlalchemy import DropIndexIfExists
+from sqlalchemy_views import CreateView
 
 class FilteredTable(TableSource):
     """ Table that provides a filtered view of another table according
@@ -33,6 +34,10 @@ class FilteredTable(TableSource):
 
         self.subset = subset
         self.src = source
+
+    def create_view(self, engine):
+        sql = self.src.data.select().where(self.subset)
+        engine.execute(CreateView(self.data, sql, or_replace=True))
 
 
     def construct(self, engine):
