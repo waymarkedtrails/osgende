@@ -84,6 +84,10 @@ class SegmentsTable(ThreadableDBObject, TableSource):
     def set_num_threads(self, num):
         self.numthreads = num
 
+    @property
+    def srid(self):
+        return self.src.c.geom.type.srid
+
     def source_property_columns(self):
         return (self.src.c[x] for x in self.prop_columns)
 
