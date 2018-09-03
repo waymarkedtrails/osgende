@@ -85,3 +85,11 @@ class TestFilteredTable(TableTestFixture):
         self.update_data("r1 Tfooo=bar,name=house Mn23@,w4@forward")
         self.table_equals("test", [])
 
+
+class TestFilteredTableView(TestFilteredTable):
+
+    def create_tables(self, db):
+        t = FilteredTable(db.metadata, "test", db.osmdata.relation,
+                          sqla.text("tags ? 'foo'"))
+        t.view_only = True
+        return (t,)
