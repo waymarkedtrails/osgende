@@ -42,6 +42,13 @@ class RelationHierarchy(object):
         self.src = source
         self.self_reference = self_ref
 
+    @property
+    def c(self):
+        """ Return the columns of the data table.
+        """
+        return self.data.c
+
+
     def truncate(self, conn):
         conn.execute(Truncate(self.data))
 
