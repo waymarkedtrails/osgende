@@ -45,17 +45,19 @@ class TransformedTestTable(TransformedTable):
 
 class TestTransformedTable(TableTestFixture):
 
+    baseimport = """
+        n2 Tfoo=3,go=go x1 y2
+        n3 Tfoo=100,bar=4 x0 y0
+        n5 Tbar=49,FOO=4 x0 y0
+        n6 Tfoo=100,bar=4,ignore=1 x0 y0
+        n10 Txxx=zzz x0 y0
+        """
+
     def create_tables(self, db):
         return (TransformedTestTable(db),)
 
     def test_create(self):
-        self.import_data("""
-            n2 Tfoo=3,go=go x1 y2
-            n3 Tfoo=100,bar=4 x0 y0
-            n5 Tbar=49,FOO=4 x0 y0
-            n6 Tfoo=100,bar=4,ignore=1 x0 y0
-            n10 Txxx=zzz x0 y0
-            """)
+        self.import_data(self.baseimport)
         self.table_equals("test", [
                 {'id': 2, 'a': 3, 'b': 0},
                 {'id': 3, 'a': 100, 'b': 4},
@@ -63,4 +65,70 @@ class TestTransformedTable(TableTestFixture):
                 {'id': 10, 'a': None, 'b': 0},
                 ])
 
+    def test_delete_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n5 v2 dD x0 y0")
+        self.has_changes("test_changeset", ['D5'])
+        self.table_equals("test", [
+                {'id': 2, 'a': 3, 'b': 0},
+                {'id': 3, 'a': 100, 'b': 4},
+                {'id': 10, 'a': None, 'b': 0},
+                ])
+
+    def test_delete_unrelated_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n6 v2 dD x0 y0")
+        self.has_changes("test_changeset", [])
+        self.table_equals("test", [
+                {'id': 2, 'a': 3, 'b': 0},
+                {'id': 3, 'a': 100, 'b': 4},
+                {'id': 5, 'a': None, 'b': 49},
+                {'id': 10, 'a': None, 'b': 0},
+                ])
+
+    def test_unignore_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n6 v2 Tfoo=100,bar=4 x0 y0")
+        self.has_changes("test_changeset", ['A6'])
+        self.table_equals("test", [
+                {'id': 2, 'a': 3, 'b': 0},
+                {'id': 3, 'a': 100, 'b': 4},
+                {'id': 5, 'a': None, 'b': 49},
+                {'id': 6, 'a': 100, 'b': 4},
+                {'id': 10, 'a': None, 'b': 0},
+                ])
+
+    def test_delete_modify_relevant_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n3 Tfoo=99,bar=4 x0 y0")
+        self.has_changes("test_changeset", ['M3'])
+        self.table_equals("test", [
+                {'id': 2, 'a': 3, 'b': 0},
+                {'id': 3, 'a': 99, 'b': 4},
+                {'id': 5, 'a': None, 'b': 49},
+                {'id': 10, 'a': None, 'b': 0},
+                ])
+
+    def test_delete_modify_irrelevant_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n10 Txxx=zzz,kk=gg x0 y0")
+        self.has_changes("test_changeset", [])
+        self.table_equals("test", [
+                {'id': 2, 'a': 3, 'b': 0},
+                {'id': 3, 'a': 100, 'b': 4},
+                {'id': 5, 'a': None, 'b': 49},
+                {'id': 10, 'a': None, 'b': 0},
+                ])
+
+    def test_add_new_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n99 Tfoo=5,bar=5 x0 y0")
+        self.has_changes("test_changeset", ['A99'])
+        self.table_equals("test", [
+                {'id': 2, 'a': 3, 'b': 0},
+                {'id': 3, 'a': 100, 'b': 4},
+                {'id': 5, 'a': None, 'b': 49},
+                {'id': 10, 'a': None, 'b': 0},
+                {'id': 99, 'a': 5, 'b': 5},
+                ])
 
