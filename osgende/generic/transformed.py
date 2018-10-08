@@ -39,7 +39,7 @@ class TransformedTable(ThreadableDBObject, TableSource):
 
         self.add_columns(table, source)
 
-        super().__init__(table, source.change)
+        super().__init__(table, name + "_changeset")
 
         self.src = source
 
@@ -52,6 +52,64 @@ class TransformedTable(ThreadableDBObject, TableSource):
             workers.add_task(obj)
 
         workers.finish()
+
+    def update(self, engine):
+        changeset = {}
+        with engine.begin() as conn:
+            # delete any objects that are gone
+            delsql = self.data.delete()\
+                       .where(self.c.id.in_(self.src.select_delete()))
+            for row in conn.execute(delsql.returning(self.c.id)):
+                changeset[row[0]] = 'D'
+
+            # add/modify all other changed ways
+            self._update_handle_modified(conn, changeset)
+
+            # finally fill the changeset table
+            self.write_change_table(conn, changeset)
+
+    def _update_handle_modified(self, conn, changeset):
+        d = self.data
+        s = self.src.data
+
+        cols = [s]
+        for c in d.columns:
+            cols.append(c.label('old_' + c.name))
+
+        j = s.join(d, d.c.id == s.c.id, isouter = True)
+        sql = sa.select(cols).select_from(j)\
+                .where(self.src.c.id.in_(self.src.select_add_modify()))
+
+        deleted = []
+        inserts = []
+        for obj in conn.execute(sql):
+            oid = obj['id']
+            is_added = obj['old_id'] is None
+
+            cols = self.transform(obj)
+            if cols is None:
+                if not is_added:
+                    deleted.append(oid)
+                    changeset[oid] = 'D'
+                continue
+
+            changed = False
+            for k, v in cols.items():
+                if str(obj['old_' + k]) != str(v):
+                    changed = True
+                    break
+
+            if changed:
+                cols['id'] = oid
+                inserts.append(cols)
+                changeset[oid] = 'A' if is_added else 'M'
+
+        if len(inserts):
+            conn.execute(self.upsert_data().values(inserts))
+        if len(deleted):
+            conn.execute(self.data.delete().where(d.c.id == sa.bindparam('oid')),
+                         deleted)
+
 
     def _process_construct_next(self, obj):
         cols = self.transform(obj)
