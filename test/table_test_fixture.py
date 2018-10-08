@@ -107,7 +107,6 @@ class TableTestFixture(unittest.TestCase):
     def table_equals(self, tablename, content):
         table = self.db.metadata.tables[tablename]
 
-        badrow = None
         with self.db.engine.begin() as conn:
             res = conn.execute(table.select())
 
@@ -119,20 +118,14 @@ class TableTestFixture(unittest.TestCase):
                 for exp in content:
                     assert_is_instance(exp, dict)
                     for k,v in exp.items():
-                        if k not in c:
-                            badrow = str(c)
-                            break
+                        assert_in(k, c, "Column '%s' missing in row: %s" % (k, str(c)))
                         if not DBCompareValue.compare(c[k], v):
                             break
                     else:
                         todo.remove(exp)
                         break
-                    if badrow is not None:
-                        break
                 else:
-                    badrow = str(c)
-
-        assert_is_none(badrow, "unexpected row in database")
+                    assert_false(c, "Row not expected. Stil expected: %s" % str(todo))
 
         assert_false(todo, "missing rows in database")
 
