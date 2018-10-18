@@ -118,11 +118,10 @@ class GroupedWayTable(TableSource):
         properties = [obj[name] for name in self.rows]
         unchecked_ways = [base]
         all_adjacent_ways = [base[0]]
-        done_ways = set()
+        done_ways = set((base[0],))
 
         while unchecked_ways:
             wid, wnodes = unchecked_ways.pop()
-            done_ways.add(wid)
 
             s = self.src.data
             intersecting_ways = self._select_src()\
@@ -130,6 +129,7 @@ class GroupedWayTable(TableSource):
                                  .where(s.c.id.notin_(done_ways))
 
             for candidate in conn.execute(intersecting_ways):
+                done_ways.add(candidate['id'])
                 for k, v in zip(self.rows, properties):
                     if candidate[k] != v:
                         break
