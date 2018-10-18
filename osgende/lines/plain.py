@@ -43,12 +43,12 @@ class PlainWayTable(ThreadableDBObject, TableSource):
     """
 
     def __init__(self, meta, name, source, osmdata):
-        srid = meta.info.get('srid', 4326)
         table = sa.Table(name, meta,
                            sa.Column("id", source.c.id.type,
                                      primary_key=True, autoincrement=False),
                            sa.Column('nodes', ARRAY(sa.BigInteger)),
-                           sa.Column('geom', Geometry('LINESTRING', srid=srid))
+                           sa.Column('geom', Geometry('LINESTRING',
+                                     srid=meta.info.get('srid', 4326)))
                           )
 
         self.add_columns(table, source)
@@ -60,6 +60,9 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
         self.set_num_threads(meta.info.get('num_threads', 1))
 
+    @property
+    def srid(self):
+        return self.c.geom.type.srid
 
     def add_columns(self, dest, src):
         """ Add additional data columns.
@@ -105,10 +108,12 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
         points = self.osmdata.get_points(obj['nodes'], conn)
         if len(points) <= 1:
-            return  None
+            return None
 
-        cols['geom'] = from_shape(LineString(points),
-                                  srid=self.c.geom.type.srid)
+        if self.srid == 3857:
+            points = [p.to_mercator() for p in points]
+
+        cols['geom'] = from_shape(LineString(points), srid=self.srid)
 
         cols['id'] = obj['id']
         cols['nodes'] = obj['nodes']
@@ -188,8 +193,11 @@ class PlainWayTable(ThreadableDBObject, TableSource):
                     changeset[oid] = 'D'
                 continue
 
+            if self.srid == 3857:
+                points = [p.to_mercator() for p in points]
+
             new_geom = LineString(points)
-            cols['geom'] = from_shape(new_geom, srid=d.c.geom.type.srid)
+            cols['geom'] = from_shape(new_geom, srid=self.srid)
             changed = changed or is_added or (new_geom != to_shape(obj['old_geom']))
 
             if changed:
