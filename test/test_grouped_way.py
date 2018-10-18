@@ -12,6 +12,7 @@ def H(d):
 
     return res
 
+
 class TestFilteredTableImport(TableTestFixture):
 
     nodegrid = """\
@@ -30,6 +31,14 @@ class TestFilteredTableImport(TableTestFixture):
          w7 Ttype=foo Nn5,n6
         """)
         self.table_equals('test', H({6 : [6, 7]}))
+
+    def test_circular(self):
+        self.import_data("""
+         w5 Ttype=foo Nn1,n2,n3
+         w6 Ttype=foo Nn3,n4,n5
+         w7 Ttype=foo Nn5,n6,n1
+        """)
+        self.table_equals('test', H({5 : [5, 6, 7]}))
 
     def test_touching_with_different_tags(self):
         self.import_data("""
