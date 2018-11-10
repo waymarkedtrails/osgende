@@ -163,10 +163,11 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             waysel = sa.select([self.src.cc.id.label('tid')])
             segchg = sa.select([saf.func.unnest(self.c.nodes).label('tid')])\
                        .where(self.c.ways.op('&& ARRAY')(waysel))
-            conn.execute(osa.CreateTableAs('temp_updated_nodes',
+            conn.execute('DROP TABLE IF EXISTS __temp_updated_nodes')
+            conn.execute(osa.CreateTableAs('__temp_updated_nodes',
                                            sa.union(segchg, waychg).alias('sub'),
                                            temporary=False))
-            temp_nodes = sa.Table('temp_updated_nodes', sa.MetaData(),
+            temp_nodes = sa.Table('__temp_updated_nodes', sa.MetaData(),
                                   autoload_with=conn)
 
             if log.isEnabledFor(logging.DEBUG):
@@ -178,8 +179,8 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             log.info("Segments with bad intersections...")
             # SQLAlchemy cannot produce DELETE FROM ... USING syntax
             # Falling back to handwritten SQL instead.
-            q = """%s USING temp_updated_nodes
-                    WHERE nodes && ARRAY[temp_updated_nodes.tid]
+            q = """%s USING __temp_updated_nodes
+                    WHERE nodes && ARRAY[__temp_updated_nodes.tid]
                     RETURNING id, ways""" \
                  % (str(self.data.delete()))
 
@@ -215,6 +216,8 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             log.info("Processing segments")
             cur_id = conn.scalar(sa.select([saf.max(self.c.id)]))
             first_new_id = 0 if cur_id is None else cur_id + 1
+
+            temp_nodes.drop(conn)
 
             wayproc.process_cached_ways()
             wayproc.finish()
