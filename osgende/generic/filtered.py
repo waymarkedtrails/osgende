@@ -23,13 +23,23 @@ class FilteredTable(TableSource):
     """ Table that provides a filtered view of another table according
         to a given subquery.
 
-        FilteredTable does not provide its own change table but exports
-        the one from the source.
+        The table may be used in view-only mode. In this case, there is no
+        separate change table created but the change is inherited from the
+        source. Note that the change may not be completely correct then
+        with respect to rows that disappear because the filter criteria are
+        no longer met.
+
+        The change table for a full table currently does not distiguish
+        between 'add' and 'modified'. All new and changed rows appear as
+        'modified'.
     """
 
     def __init__(self, meta, name, source, subset):
         table = source.data.tometadata(meta, name=name)
-        TableSource.__init__(self, table, source.change)
+        if self.view_only:
+            TableSource.__init__(self, table, source.change)
+        else:
+            TableSource.__init__(self, table, name + "_changeset")
 
         self.subset = subset
         self.src = source
@@ -67,23 +77,33 @@ class FilteredTable(TableSource):
             return
 
         with engine.begin() as conn:
+            changeset = {}
+
             # delete deleted rows
             delsql = self.data.delete()\
-                        .where(self.c.id.in_(self.select_delete()))
-            conn.execute(delsql)
+                        .where(self.c.id.in_(self.src.select_delete()))
+            for row in conn.execute(delsql.returning(self.c.id)):
+                changeset[row[0]] = 'D'
             # delete rows that have lost the filter properties
-            conn.execute(self.delete(
+            delsql = self.delete(
                         sa.select([self.src.c.id])\
                            .where(self._src_id_changed())\
-                           .where(sa.not_(self.subset))))
+                           .where(sa.not_(self.subset)))
+            for row in conn.execute(delsql.returning(self.c.id)):
+                changeset[row[0]] = 'D'
             # now upsert data
             inssql = self.upsert_data()\
                         .from_select(self.src.c,
                                      self.src.data.select()
                                        .where(self._src_id_changed())
                                        .where(self.subset))
-            conn.execute(inssql)
+            for row in conn.execute(inssql.returning(self.c.id)):
+                changeset[row[0]] = 'M' # XXX 'A'?
+
+            # finally fill the changeset table
+            self.write_change_table(conn, changeset)
+
 
     def _src_id_changed(self):
-        return self.src.c.id.in_(self.select_add_modify())
+        return self.src.c.id.in_(self.src.select_add_modify())
 
