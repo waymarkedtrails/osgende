@@ -50,29 +50,22 @@ class TestFilteredTableImport(TableTestFixture):
 
     def test_crossing_ways(self):
         self.import_data("""
-         w1 Ttype=red Nn10,n12,n13
-         w2 Ttype=red Nn11,n12,n14
+         w1 Ttype=red Nn100,n102,n103
+         w2 Ttype=red Nn101,n102,n104
         """)
         self.table_equals('test', H({1 : [1, 2]}))
 
     def test_crossing_ways_with_different_tags(self):
         self.import_data("""
-         w1 Ttype=red Nn10,n12,n13
-         w2 Ttype=blue Nn11,n12,n14
+         w1 Ttype=red Nn100,n102,n103
+         w2 Ttype=blue Nn101,n102,n104
         """)
         self.table_equals('test', [])
 
-    def test_crossing_ways(self):
-        self.import_data("""
-         w1 Ttype=red Nn10,n12,n13
-         w2 Ttype=red Nn11,n12,n14
-        """)
-        self.table_equals('test', H({1 : [1, 2]}))
-
     def test_crossing_ways_without_touching(self):
         self.import_data("""
-         w1 Ttype=red Nn10,n13
-         w2 Ttype=red Nn11,n14
+         w1 Ttype=red Nn100,n103
+         w2 Ttype=red Nn101,n104
         """)
         self.table_equals('test', [])
 
@@ -155,10 +148,10 @@ class TestFilteredTableUpdate(TableTestFixture):
         self.import_data("""
          w6 Ttype=foo Nn4,n5,n6
          w7 Ttype=foo Nn3,n6
-         w10 Ttype=foo Nn10,n12
-         w11 Ttype=foo Nn11,n12
+         w10 Ttype=foo Nn100,n102
+         w11 Ttype=foo Nn101,n102
         """)
-        self.update_data("w5 Ttype=foo Nn5,n10")
+        self.update_data("w5 Ttype=foo Nn5,n100")
         self.has_changes("test_changeset", ['M6', 'D10'])
         self.table_equals('test', H({6 : [6, 7, 5, 10, 11]}))
 
