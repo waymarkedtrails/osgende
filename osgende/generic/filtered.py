@@ -34,7 +34,8 @@ class FilteredTable(TableSource):
         'modified'.
     """
 
-    def __init__(self, meta, name, source, subset):
+    def __init__(self, meta, name, source, subset, view_only=False):
+        self.view_only = view_only
         table = source.data.tometadata(meta, name=name)
         if self.view_only:
             TableSource.__init__(self, table, source.change)
