@@ -69,6 +69,27 @@ class OsmSourceTables(object):
                                 Column('sequence', Integer)
                                )
 
+    def get_status(self, conn, part='base'):
+        if not hasattr(self, 'status'):
+            return None
+
+        cur = conn.execute(self.status.select().where(status.c.part == part))
+
+        if cur is None:
+            return None
+
+        return cur['sequence']
+
+    def set_status_from(self, conn, part, src):
+        if not hasattr(self, 'status'):
+            return
+
+        data = self.status.select().where(self.status.c.part = src)
+
+        conn.execute(self.status.upsert().values([{part : part,
+                                                   date : data['date'],
+                                                   sequence : data['sequence']}])
+
     def __getitem__(self, key):
         return getattr(self, key)
 

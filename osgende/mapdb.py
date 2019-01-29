@@ -63,6 +63,9 @@ class MapDB:
         """
         return getattr(self.options, option, default)
 
+    def has_option(self, option):
+        return hasattr(self.options, option)
+
     def create(self):
         schema = self.get_option('schema')
         rouser = self.get_option('ro_user')
@@ -88,15 +91,32 @@ class MapDB:
         for tab in self.tables:
             log.info("Importing %s..." % str(tab.data.name))
             tab.construct(self.engine)
+            self.osmdata.set_status_from(self.engine, tname % tab, 'base')
 
     def update(self):
+        base_state = self.osmdata.get_status(self.engine)
+        schema = self.get_option('schema')
+
+        if self.has_option('schema'):
+            tname = '%s.%%s' % self.options.schema
+        else:
+            tname = '%s'
+
         for tab in self.tables:
+            if base_state is not None:
+                table_state = self.osmdata.get_status(self.engine, tname % tab)
+                if table_state is not None and table_state >= base_state:
+                    log.info("Table %s already up-to-date." % tab)
+                    continue
+
             if hasattr(tab, 'before_update'):
                 tab.before_update()
             log.info("Updating %s..." % str(tab.data.name))
             tab.update(self.engine)
             if hasattr(tab, 'after_update'):
                 tab.after_update()
+
+            self.osmdata.set_status_from(self.engine, tname % tab, 'base')
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\

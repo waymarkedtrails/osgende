@@ -156,7 +156,10 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         w = self.way_src.data
         wheresql = [d.c.id.in_(self.way_src.select_add_modify())]
         if with_geom:
-            wheresql.append(d.c.nodes.op('&& ARRAY')(self.osmdata.node.select_add_modify()))
+            #wheresql.append(d.c.nodes.op('&& ARRAY')(self.osmdata.node.select_add_modify()))
+            nc = self.osmdata.node.cc.id
+            wheresql.append(sa.exists(
+                sa.select([nc]).where(nc == d.c.nodes.any_())))
 
         cols = [d, w.c.nodes.label('new_nodes')]
         if with_tags:
