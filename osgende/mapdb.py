@@ -88,10 +88,15 @@ class MapDB:
                     conn.execute('GRANT SELECT ON TABLE %s TO "%s"' % (tname, rouser))
 
     def construct(self):
+        if self.has_option('schema'):
+            tname = '%s.%%s' % self.options.schema
+        else:
+            tname = '%s'
+
         for tab in self.tables:
             log.info("Importing %s..." % str(tab.data.name))
             tab.construct(self.engine)
-            self.osmdata.set_status_from(self.engine, tname % tab, 'base')
+            self.osmdata.set_status_from(self.engine, tname % str(tab.data.name), 'base')
 
     def update(self):
         base_state = self.osmdata.get_status(self.engine)
@@ -103,20 +108,21 @@ class MapDB:
             tname = '%s'
 
         for tab in self.tables:
+            status_name = tname % str(tab.data.name)
             if base_state is not None:
-                table_state = self.osmdata.get_status(self.engine, tname % tab)
+                table_state = self.osmdata.get_status(self.engine, status_name)
                 if table_state is not None and table_state >= base_state:
                     log.info("Table %s already up-to-date." % tab)
                     continue
 
             if hasattr(tab, 'before_update'):
-                tab.before_update()
+                tab.before_update(self.engine)
             log.info("Updating %s..." % str(tab.data.name))
             tab.update(self.engine)
             if hasattr(tab, 'after_update'):
-                tab.after_update()
+                tab.after_update(self.engine)
 
-            self.osmdata.set_status_from(self.engine, tname % tab, 'base')
+            self.osmdata.set_status_from(self.engine, status_name, 'base')
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\

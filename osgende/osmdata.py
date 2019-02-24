@@ -15,8 +15,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select, text
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, insert
 from geoalchemy2 import Geometry
 from osgende.common.table import TableSource
 from osgende.common.nodestore import NodeStore, NodeStorePoint
@@ -64,31 +64,31 @@ class OsmSourceTables(object):
 
         if status_table:
             self.status = Table('status', meta,
-                                Column('part', String),
+                                Column('part', String, primary_key=True),
                                 Column('date', DateTime(timezone=True)),
                                 Column('sequence', Integer)
                                )
 
     def get_status(self, conn, part='base'):
-        if not hasattr(self, 'status'):
-            return None
-
-        cur = conn.execute(self.status.select().where(status.c.part == part))
-
-        if cur is None:
-            return None
-
-        return cur['sequence']
+        if hasattr(self, 'status'):
+            return conn.scalar(select([self.status.c.sequence])
+                                .where(self.status.c.part == part))
 
     def set_status_from(self, conn, part, src):
         if not hasattr(self, 'status'):
             return
 
-        data = self.status.select().where(self.status.c.part = src)
+        data = conn.execute(self.status.select().where(self.status.c.part == src))
+        data = data.fetchone()
 
-        conn.execute(self.status.upsert().values([{part : part,
-                                                   date : data['date'],
-                                                   sequence : data['sequence']}])
+        upsert = insert(self.status).\
+                   on_conflict_do_update(index_elements=[self.status.c.part],
+                                         set_= { 'date' : text('EXCLUDED.date'),
+                                                 'sequence' : text('EXCLUDED.sequence')})
+
+        conn.execute(upsert.values([{'part' : part,
+                                     'date' : data['date'],
+                                     'sequence' : data['sequence']}]))
 
     def __getitem__(self, key):
         return getattr(self, key)

@@ -24,8 +24,7 @@ class TransformedTable(ThreadableDBObject, TableSource):
     """ Table that transforms column data from a single source.
 
         The table has one predefined column: id which takes the same
-        ids as its source. It also takes the change table directly
-        from source.
+        ids as its source.
 
         This is an incomplete table that needs to be subclassed. Define
         two functions: add_columns() and transform()
