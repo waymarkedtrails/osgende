@@ -35,6 +35,7 @@ class TableTestFixture(unittest.TestCase):
         database = 'osgende_test'
         username = None
         password = None
+        status = False
 
     class TestDB(MapDB):
 

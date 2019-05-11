@@ -258,6 +258,16 @@ class TestSimpleSegmentsImport(TableTestFixture):
             R([2, 5], Set(2), tags={'ref': '2'}),
         )
 
+    def test_one_node_way(self):
+        self.nodegrid = "1 2 3"
+
+        self._test("""\
+            w1 Tref=1 Nn1
+            w2 Tref=1 Nn2,n3
+            """,
+            R([2, 3], Set(2), tags={'ref': '1'}),
+        )
+
 class TestSimpleSegmentsUpdate(TableTestFixture):
 
     nodegrid = """\
@@ -577,4 +587,39 @@ class TestSimpleSegmentsUpdate(TableTestFixture):
             R([4, 5], Set(1), tags={'rel': '1'}),
             R([1, 6], Set(2), tags={'rel': '2'}),
             R([4, 7], Set(3), tags={'rel': '3'}),
+        )
+
+    def test_shorten_all_ways_around_intersection(self):
+        self.nodegrid = """\
+            3 2 1 5 6
+                7
+                8
+        """
+
+        self._test("""\
+            w1 Trel=1 Nn1,n2,n3
+            w2 Trel=1 Nn1,n5,n6
+            w3 Trel=1 Nn1,n7,n8
+            """,
+            # update
+            """\
+            w1 Trel=1 Nn1,n2
+            w2 Trel=1 Nn1,n5
+            w3 Trel=1 Nn1,n7
+            """,
+            #result
+            R([1, 2], Set(1), tags={'rel' : '1'}),
+            R([1, 5], Set(2), tags={'rel' : '1'}),
+            R([1, 7], Set(3), tags={'rel' : '1'}),
+        )
+
+    def test_add_single_node_way(self):
+        self.nodegrid = "1 2 3"
+
+        self._test(
+            "w1 Trel=1 Nn1,n2",
+            # update
+            "w2 Trel=1 Nn3",
+            # result
+            R([1, 2], Set(1), tags={'rel' : '1'}),
         )
