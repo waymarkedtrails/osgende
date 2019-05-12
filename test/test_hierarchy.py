@@ -37,8 +37,7 @@ class TestHierarchyTale(TableTestFixture):
             r2 Mw23@,w3@
             """)
         self.table_equals("test",
-                [ { 'parent' : 1, 'child' : 1, 'depth' : 1 },
-                  { 'parent' : 2, 'child' : 2, 'depth' : 1 }])
+                [ ])
 
     def test_simple_hierarchy(self):
         self.import_data("""
@@ -47,10 +46,7 @@ class TestHierarchyTale(TableTestFixture):
             r3 Mw3@
             """)
         self.table_equals("test",
-                [ { 'parent' : 1, 'child' : 1, 'depth' : 1 },
-                  { 'parent' : 2, 'child' : 2, 'depth' : 1 },
-                  { 'parent' : 3, 'child' : 3, 'depth' : 1 },
-                  { 'parent' : 1, 'child' : 2, 'depth' : 2 },
+                [ { 'parent' : 1, 'child' : 2, 'depth' : 2 },
                   { 'parent' : 1, 'child' : 3, 'depth' : 3 },
                   { 'parent' : 2, 'child' : 3, 'depth' : 2 },
                 ])
@@ -61,9 +57,7 @@ class TestHierarchyTale(TableTestFixture):
             r2 Mr1@
             """)
         self.table_equals("test",
-                [ { 'parent' : 1, 'child' : 1, 'depth' : 1 },
-                  { 'parent' : 2, 'child' : 2, 'depth' : 1 },
-                  { 'parent' : 1, 'child' : 2, 'depth' : 2 },
+                [ { 'parent' : 1, 'child' : 2, 'depth' : 2 },
                   { 'parent' : 2, 'child' : 1, 'depth' : 2 },
                 ])
 
@@ -73,8 +67,6 @@ class TestHierarchyTale(TableTestFixture):
             r2 Mw1@
             """)
         self.table_equals("test",
-                [ { 'parent' : 1, 'child' : 1, 'depth' : 1 },
-                  { 'parent' : 2, 'child' : 2, 'depth' : 1 },
-                  { 'parent' : 1, 'child' : 2, 'depth' : 2 },
+                [ { 'parent' : 1, 'child' : 2, 'depth' : 2 },
                 ])
 
