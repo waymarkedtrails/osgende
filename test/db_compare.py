@@ -56,10 +56,13 @@ class DBCompareValue(object):
                 if k not in b or not cls.compare(v, b[k]):
                     return False
 
+            return True
+
         try:
             for suba, subb in zip(iter(a), iter(b)):
                 if not cls.compare(suba, subb):
                     return False
+            return True
         except TypeError:
             pass
 
