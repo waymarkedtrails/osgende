@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import ARRAY, array_agg
+from sqlalchemy.dialects.postgresql import ARRAY, array_agg, array
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape, to_shape
 import shapely.geometry as sgeom
@@ -150,21 +150,31 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         with_tags = hasattr(self, 'transform_tags')
         with_geom = self.osmdata is not None
 
-        # Get old rows where nodes and tags have changed and
-        # new node set.
+        # Get old rows where nodes and tags have changed and new node set.
         d = self.data
         w = self.way_src.data
-        wheresql = [d.c.id.in_(self.way_src.select_add_modify())]
-        if with_geom:
-            #wheresql.append(d.c.nodes.op('&& ARRAY')(self.osmdata.node.select_add_modify()))
-            nc = self.osmdata.node.cc.id
-            wheresql.append(sa.exists(
-                sa.select([nc]).where(nc == d.c.nodes.any_())))
+        wc = self.way_src.change
 
-        cols = [d, w.c.nodes.label('new_nodes')]
+        # ids of ways that have changed directly
+        sql_idchg = sa.select([d.c.id])\
+                       .where(d.c.id == wc.c.id).where(wc.c.action != 'D')
+
+        # ids of ways where nodes have changed (only geometry mode)
+        if with_geom:
+            nc = self.osmdata.node.cc.id
+            sql_ndchg = sa.select([d.c.id])\
+                           .where(d.c.nodes.overlap(array([nc])))
+            sql_idchg = sa.union(sql_idchg, sql_ndchg)
+
+        sql_idchg = sql_idchg.alias('ids')
+
+        waynode_sql = sa.select([w.c.nodes]).where(w.c.id == d.c.id)
+
+        cols = [d, waynode_sql.as_scalar().label('new_nodes')]
         if with_tags:
-            cols.append(w.c.tags.label('new_tags'))
-        sql = sa.select(cols).where(d.c.id == w.c.id).where(sa.or_(*wheresql))
+            waytag_sql = sa.select([w.c.tags]).where(w.c.id == d.c.id)
+            cols.append(waytag_sql.as_scalar().label('new_tags'))
+        sql = sa.select(cols).where(sql_idchg.c.id == d.c.id)
 
         inserts = []
         deletes = []
