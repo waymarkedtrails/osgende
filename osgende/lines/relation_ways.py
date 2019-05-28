@@ -181,6 +181,10 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         changeset = {}
         for obj in engine.execute(sql):
             oid = obj['id']
+            if obj['new_nodes'] is None:
+                deletes.append({'oid' : oid})
+                changeset[oid] = 'D'
+                continue
             changed = False
             if with_tags:
                 cols = self.transform_tags(oid, TagStore(obj['new_tags']))
