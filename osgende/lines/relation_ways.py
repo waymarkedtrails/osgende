@@ -236,11 +236,14 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
     def _update_handle_changed_rels(self, engine):
         w = self.data
-        r = self.relway_view
+        r = self.relation_src.data
         rs = self.relway_view.alias('relsrc')
 
         # Recreate the relation set for all ways in changed relations.
-        sub = sa.select([array_agg(r.c.relation_id)]).where(w.c.id == r.c.way_id)
+        sub = sa.select([array_agg(r.c.id)])\
+                .where(r.c.members.contains(
+                         sa.func.jsonb_build_array(
+                           sa.func.jsonb_build_object('type', 'W', 'id', w.c.id))))
         sql = sa.select([w.c.id, w.c.rels, sub.label('new_rels')])\
                 .where(sa.or_(
                     w.c.id.in_(
