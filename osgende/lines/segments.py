@@ -29,7 +29,7 @@ from shapely.geometry import LineString
 
 from osgende.common.threads import ThreadableDBObject
 from osgende.common.table import TableSource
-from osgende.common.sqlalchemy import DropIndexIfExists
+from osgende.common.sqlalchemy import DropIndexIfExists, Truncate
 
 log = logging.getLogger(__name__)
 
@@ -207,10 +207,9 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                 if not todo_nodes:
                     break
 
-                q = self.data.delete()\
-                      .where(self.c.nodes.overlap(
-                         sa.cast(todo_nodes, type_=self.c.nodes.type)))\
-                      .returning(self.c.id, self.c.ways)
+                conn.execute(Truncate(temp_nodes))
+                conn.execute(temp_nodes.insert(),
+                             [ { "tid" : x } for x in todo_nodes ])
 
             # done, add the result back to the table
             log.info("Processing segments")
