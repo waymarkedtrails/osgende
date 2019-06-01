@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from osgende.common.table import TableSource
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, array
 import sqlalchemy as sa
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape, to_shape
@@ -156,12 +156,20 @@ class PlainWayTable(ThreadableDBObject, TableSource):
             if c.name not in ('id', 'nodes'):
                 cols.append(c.label('old_' + c.name))
 
+        # modified ways
+        waysql = self.src.select_add_modify()
+        # ways with modified nodes
+        od = self.data.alias("old")
+        ndsql = sa.select([od.c.id])\
+                  .where(od.c.nodes.overlap(array([self.osmdata.node.cc.id])))\
+                  .where(self.osmdata.node.cc.action != 'D')
+        # combine both to get the id of modified ways
+        idsql = sa.union(waysql, ndsql).alias('ids')
+
+        # now get the info
         j = s.join(d, d.c.id == s.c.id, isouter=True)
         sql = sa.select(cols).select_from(j)\
-                .where(sa.or_(
-                        self.src.c.id.in_(self.src.select_add_modify()),
-                        d.c.nodes.op('&& ARRAY')(self.osmdata.node.select_add_modify())
-                      ))
+                 .where(s.c.id == idsql.c.id)
 
         deleted = []
         inserts = []
