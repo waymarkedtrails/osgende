@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 """
-Tests for PlainWayTable.
+Tests for PlainWayTable without modified tags.
 """
 
 from osgende.lines import PlainWayTable

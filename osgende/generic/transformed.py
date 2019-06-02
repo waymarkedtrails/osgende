@@ -88,7 +88,7 @@ class TransformedTable(ThreadableDBObject, TableSource):
             cols = self.transform(obj)
             if cols is None:
                 if not is_added:
-                    deleted.append(oid)
+                    deleted.append({'oid' : oid})
                     changeset[oid] = 'D'
                 continue
 

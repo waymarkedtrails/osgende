@@ -184,7 +184,7 @@ class PlainWayTable(ThreadableDBObject, TableSource):
                 # if there is no old obejct info, then the object wasn't
                 # there before and is not now
                 if not is_added:
-                    deleted.append(oid)
+                    deleted.append({'oid' : oid})
                     changeset[oid] = 'D'
                 continue
 
