@@ -86,6 +86,16 @@ class TestTransformedTable(TableTestFixture):
                 {'id': 10, 'a': None, 'b': 0},
                 ])
 
+    def test_ignore_data(self):
+        self.import_data(self.baseimport)
+        self.update_data("n2 v2 Tignore=1,foo=3,go=go x1 y2")
+        self.has_changes("test_changeset", ['D2'])
+        self.table_equals("test", [
+                {'id': 3, 'a': 100, 'b': 4},
+                {'id': 5, 'a': None, 'b': 49},
+                {'id': 10, 'a': None, 'b': 0},
+                ])
+
     def test_unignore_data(self):
         self.import_data(self.baseimport)
         self.update_data("n6 v2 Tfoo=100,bar=4 x0 y0")
