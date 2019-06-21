@@ -106,7 +106,7 @@ class GroupedWayTable(TableSource):
                                                            conn, changes))
 
             # finally fill the changeset table
-            self.write_change_table(engine, changes)
+            self.write_change_table(conn, changes)
 
 
     def _insert_adjacent_ways(self, base, obj, conn, changes=None):
