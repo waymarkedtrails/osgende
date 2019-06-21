@@ -142,7 +142,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         # third pass: new ways added to set
         changeset.update(self._update_handle_new_ways(engine))
         # finally fill the changeset table
-        self.write_change_table(engine, changeset)
+        with engine.begin() as conn:
+            self.write_change_table(conn, changeset)
 
     def _update_handle_changed_ways(self, engine):
         """ Handle changes to way tags, added and removed nodes and moved nodes.

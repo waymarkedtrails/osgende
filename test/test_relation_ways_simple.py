@@ -210,3 +210,9 @@ class TestSimpleRelationWaysUpdateSimpleRelationChanges(TableTestFixture):
     def test_update_add_relation_member(self):
         self.update_data("r2 v2 Mr3@,w1@,w2@")
         self.is_unchanged()
+
+    def test_double_update(self):
+        self.update_data("r20 Mw1@")
+        self.has_changes("test_changeset", ['M1'])
+        self.update_data("r2 v2 Mw1@\nr1 v2 Mw1@")
+        self.has_changes("test_changeset", ['D2'])
