@@ -75,7 +75,7 @@ class TransformedTable(ThreadableDBObject, TableSource):
         for c in d.columns:
             cols.append(c.label('old_' + c.name))
 
-        j = s.join(d, d.c.id == s.c.id, isouter = True)
+        j = s.join(d, d.c.id == s.c.id, full = True)
         sql = sa.select(cols).select_from(j)\
                 .where(self.src.c.id.in_(self.src.select_add_modify()))
 
@@ -84,6 +84,11 @@ class TransformedTable(ThreadableDBObject, TableSource):
         for obj in conn.execute(sql):
             oid = obj['id']
             is_added = obj['old_id'] is None
+
+            if oid is None:
+                deleted.append({'oid' : obj['old_id']})
+                changeset[obj['old_id']] = 'D'
+                continue
 
             cols = self.transform(obj)
             if cols is None:
