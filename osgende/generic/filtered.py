@@ -37,23 +37,23 @@ class FilteredTable(TableSource):
     def __init__(self, meta, name, source, subset, view_only=False):
         self.view_only = view_only
         table = source.data.tometadata(meta, name=name)
-        if self.view_only:
-            TableSource.__init__(self, table, source.change)
-        else:
-            TableSource.__init__(self, table, name + "_changeset")
+        TableSource.__init__(self, table, name + "_changeset")
 
         self.subset = subset
         self.src = source
 
+        if view_only:
+            self.update = self.update_view
+            self.construct = lambda engine: None
+        else:
+            self.update = self.update_full
+
     def create_view(self, engine):
         sql = self.src.data.select().where(self.subset)
         engine.execute(CreateView(self.data, sql))
-
+        self.change.create(bind=engine, checkfirst=True)
 
     def construct(self, engine):
-        if self.view_only:
-            return
-
         with engine.begin() as conn:
             idx = sa.Index("idx_%s_id" % self.data.name,
                              self.c.id, unique=True)
@@ -69,10 +69,25 @@ class FilteredTable(TableSource):
             idx.create(conn)
 
 
-    def update(self, engine):
-        if self.view_only:
+    def update_view(self, engine):
+        if self.src.change is None:
             return
 
+        with engine.begin() as conn:
+            changeset = {}
+
+            # Added and changed rows are taken from the change table.
+            # Deleted row are all changed objects which are not there anymore.
+            # We end up with more objects than were initially in but that's
+            # the best we can do.
+            sql = sa.select([self.src.cc.id, self.src.cc.action,
+                            self.src.cc.id.in_(sa.select([self.c.id]))])
+            for row in conn.execute(sql):
+                changeset[row[0]] = row[1] if row[2] else 'D'
+
+            self.write_change_table(conn, changeset)
+
+    def update_full(self, engine):
         if self.src.change is None:
             self.construct(engine)
             return

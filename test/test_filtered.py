@@ -27,7 +27,7 @@ from osgende.generic import FilteredTable
 from table_test_fixture import TableTestFixture
 
 class TestFilteredTable(TableTestFixture):
-    with_change = True
+    view_only = False
 
     basedata1 = """\
       r1 Tname=house,foo=bar Mn23@,w4@forward
@@ -55,7 +55,8 @@ class TestFilteredTable(TableTestFixture):
 
     def create_tables(self, db):
         return [ FilteredTable(db.metadata, "test", db.osmdata.relation,
-                                 sqla.text("tags ? 'foo'")) ]
+                                 sqla.text("tags ? 'foo'"),
+                                 view_only=self.view_only) ]
 
     def test_create(self):
         self.import_data(self.basedata1)
@@ -64,44 +65,39 @@ class TestFilteredTable(TableTestFixture):
     def test_update_add(self):
         self.import_data(self.basedata1)
         self.update_data(self.basedata2)
-        if self.with_change:
+        if self.view_only:
+            self.has_changes("test_changeset", ['M11', 'D10'])
+        else:
             self.has_changes("test_changeset", ['M11'])
         self.table_equals("test", [self.r1_expect, self.r11_expect])
 
     def test_update_delete(self):
         self.import_data(self.basedata1)
         self.update_data("r1 dD")
-        if self.with_change:
-            self.has_changes("test_changeset", ['D1'])
+        self.has_changes("test_changeset", ['D1'])
         self.table_equals("test", [])
 
     def test_update_delete_unrelated(self):
         self.import_data(self.basedata1)
         self.update_data("r2 dD")
-        if self.with_change:
+        if self.view_only:
+            self.has_changes("test_changeset", ['D2'])
+        else:
             self.has_changes("test_changeset", [])
         self.table_equals("test", [self.r1_expect])
 
     def test_update_add_filter_tags(self):
         self.import_data(self.basedata1)
         self.update_data(self.basedata3)
-        if self.with_change:
-            self.has_changes("test_changeset", ['M2'])
+        self.has_changes("test_changeset", ['M2'])
         self.table_equals("test", [self.r1_expect, self.r2_expect])
 
     def test_update_remove_filter_tags(self):
         self.import_data(self.basedata1)
         self.update_data("r1 Tfooo=bar,name=house Mn23@,w4@forward")
-        if self.with_change:
-            self.has_changes("test_changeset", ['D1'])
+        self.has_changes("test_changeset", ['D1'])
         self.table_equals("test", [])
 
 
 class TestFilteredTableView(TestFilteredTable):
-    with_change = False
-
-    def create_tables(self, db):
-        t = FilteredTable(db.metadata, "test", db.osmdata.relation,
-                          sqla.text("tags ? 'foo'"))
-        t.view_only = True
-        return (t,)
+    view_only = True
