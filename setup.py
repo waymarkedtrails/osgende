@@ -31,5 +31,5 @@ setup(name='osgende',
                 'osgende.relations',
                ],
       scripts=['tools/osgende-import', 'tools/osgende-mapgen', 'tools/osgende-mapserv',
-               'osgende-mapserv-falcon.py'],
+               'tools/osgende-mapserv-falcon.py'],
       )
