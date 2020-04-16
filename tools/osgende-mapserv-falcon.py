@@ -116,7 +116,8 @@ class PostgresCache(object):
         else:
             c.execute(self.cmd_get, (mk_tileid(zoom, x, y), ))
             if c.rowcount > 0:
-                return c.fetchone()[0]
+                tile = c.fetchone()[0]
+                return bytes(tile) if tile is not None else None
 
         return self.empty[fmt]
 
