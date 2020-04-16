@@ -1,6 +1,5 @@
-#!/usr/bin/python3
 # This file is part of Osgende
-# Copyright (C) 2011-15 Sarah Hoffmann
+# Copyright (C) 2020 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -16,43 +15,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """
- CherryPi tile server for tile databases generated with osgende-mapgen.
+Falcon-based tile server for tile databases generated with osgende-mapgen.
+Use with uWSGI.
 """
 
+import datetime
 import os
 import sys
-from threading import Lock
+import threading
+import hashlib
 from math import pi,exp,atan
 
-import cherrypy
+import falcon
 import mapnik
-
-DEFAULT_TESTMAP="""\
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Testmap - %(style)s</title>
-    <link rel="stylesheet" href="%(leaflet_path)s/leaflet.css" />
-</head>
-<body >
-    <div id="map" style="position: absolute; width: 99%%; height: 97%%"></div>
-
-    <script src="%(leaflet_path)s/leaflet.js"></script>
-    <script src="%(leaflet_path)s/leaflet-hash.js"></script>
-    <script>
-        var map = L.map('map').setView([47.3317, 8.5017], 13);
-        var hash = new L.Hash(map);
-
-        L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 18,
-        }).addTo(map);
-        L.tileLayer('%(script_name)s/%(style)s/{z}/{x}/{y}.png', {
-            maxZoom: 18,
-        }).addTo(map);
-    </script>
-</body>
-</html>
-"""
 
 RAD_TO_DEG = 180/pi
 
@@ -118,16 +93,17 @@ class PostgresCache(object):
         self.cmd_get = "SELECT pixbuf FROM %s WHERE id=%%s" % config['table']
         self.cmd_check = "SELECT count(*) FROM %s WHERE id=%%s" % config['table']
         self.cmd_set = "UPDATE %s SET pixbuf=%%s WHERE id=%%s AND pixbuf is Null" % config['table']
+        self.thread_data = threading.local()
 
     def get_db(self):
-        if not hasattr(cherrypy.thread_data, 'db'):
-            cherrypy.thread_data.cache_db = self.pg.connect(self.dba)
+        if not hasattr(self.thread_data, 'cache_db'):
+            self.thread_data.cache_db = self.pg.connect(self.dba)
             # set into autocommit mode so that tiles still can be
             # read while the db is updated
-            cherrypy.thread_data.cache_db.autocommit = True
-            cherrypy.thread_data.cache_db.cursor().execute("SET synchronous_commit TO OFF")
+            self.thread_data.cache_db.autocommit = True
+            self.thread_data.cache_db.cursor().execute("SET synchronous_commit TO OFF")
 
-        return cherrypy.thread_data.cache_db
+        return self.thread_data.cache_db
 
     def get(self, zoom, x, y, fmt):
         c = self.get_db().cursor()
@@ -148,7 +124,6 @@ class PostgresCache(object):
         if zoom <= self.max_zoom:
             c = self.get_db().cursor()
             c.execute(self.cmd_set, (image, mk_tileid(zoom, x, y)))
-
 
 class MapnikRenderer(object):
 
@@ -177,19 +152,17 @@ class MapnikRenderer(object):
 
         self.mproj = mapnik.Projection(m.srs)
         self.gproj = TileProjection(self.config['max_zoom'])
+        self.thread_data = threading.local()
 
     def get_map(self):
         self.thread_map()
-        return cherrypy.thread_data.mapnik_map[self.name]
+        return self.thread_data.map
 
     def thread_map(self):
-        if not hasattr(cherrypy.thread_data, 'mapnik_map'):
-            cherrypy.thread_data.mapnik_map = dict()
-
-        if not self.name in cherrypy.thread_data.mapnik_map:
+        if not hasattr(self.thread_data, 'map'):
             m = mapnik.Map(*self.config['tile_size'])
             self.create_map(m)
-            cherrypy.thread_data.mapnik_map[self.name] = m
+            self.thread_data.map = m
 
     def _create_map_xml(self, mapnik_map):
         src = os.path.join(self.config['source'])
@@ -234,89 +207,106 @@ class MapnikRenderer(object):
         return im.tostring('png256')
 
 
-@cherrypy.popargs('zoom', 'x', 'y')
+class TestMap(object):
+
+    DEFAULT_TESTMAP="""\
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Testmap - %(style)s</title>
+    <link rel="stylesheet" href="%(leaflet_path)s/leaflet.css" />
+</head>
+<body >
+    <div id="map" style="position: absolute; width: 99%%; height: 97%%"></div>
+
+    <script src="%(leaflet_path)s/leaflet.js"></script>
+    <script src="%(leaflet_path)s/leaflet-hash.js"></script>
+    <script>
+        var map = L.map('map').setView([47.3317, 8.5017], 13);
+        var hash = new L.Hash(map);
+
+        L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+        }).addTo(map);
+        L.tileLayer('%(script_name)s/%(style)s/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+        }).addTo(map);
+    </script>
+</body>
+</html>
+"""
+
+    def __init__(self, style, script):
+        self.map_config = {
+            'style' : style,
+            'script_name' : script,
+            'leaflet_path' : os.environ.get('LEAFLET_PATH',
+                                            'http://cdn.leafletjs.com/leaflet-0.7.5')
+        }
+
+    def on_get(self, req, resp):
+        resp.content_type = falcon.MEDIA_HTML
+        resp.body = self.DEFAULT_TESTMAP % self.map_config
+
+
 class TileServer(object):
 
-    def __init__(self, style, script_name):
+    def __init__(self, style, config):
         self.cachecfg = dict({ 'type' : 'DummyCache'})
-        self.style_name = style
-        self.script_name = script_name
-
-    def setup(self, app, config):
         if 'TILE_CACHE' in config:
             self.cachecfg.update(config['TILE_CACHE'])
         cacheclass = globals()[self.cachecfg['type']]
         self.cache = cacheclass(self.cachecfg)
-        self.renderer = MapnikRenderer(self.style_name,
+        self.renderer = MapnikRenderer(style,
                                        config.get('RENDERER'),
                                        config.get('TILE_STYLE'))
 
-    @cherrypy.expose
-    def test_map(self):
-        return DEFAULT_TESTMAP % { 'style' : self.style_name,
-                                   'script_name' : self.script_name,
-                                   'leaflet_path' : os.environ.get('LEAFLET_PATH', 'http://cdn.leafletjs.com/leaflet-0.7.5')}
-
-    @cherrypy.expose
-    @cherrypy.tools.response_headers(headers=[('Content-Type', 'image/png')])
-    @cherrypy.tools.etags(autotags=True)
-    @cherrypy.tools.expires(secs=10800, force=True)
-    def index(self, zoom, x, y):
+    def on_get(self, req, resp, zoom, x, y):
         tile_desc = self.renderer.split_url(zoom, x, y)
         if tile_desc is None:
-            raise cherrypy.NotFound()
+            raise falcon.HTTPNotFound()
 
         tile = self.cache.get(*tile_desc)
         if tile is None:
             tile = self.renderer.render(*tile_desc)
             self.cache.set(*tile_desc, image=tile)
 
-        return tile
+        # compute etag
+        m = hashlib.md5()
+        m.update(tile)
+        content_etag = m.hexdigest()
 
-def error_page(status, message, traceback, version):
-    cherrypy.response.headers['Content-Type'] = 'text/plain'
-    return 'Error %s\n\n%s\n' % (status. message)
+        for etag in (req.if_none_match or []):
+            if etag == '*' or etag == content_etag:
+                resp.status = falcon.HTTP_304
+                return
 
-def setup_sites(sites, script_name=''):
-    for site in sites:
-        try:
-            __import__(site)
-        except ImportError:
-            print("Missing config for site '%s'. Skipping." % site)
-            continue
+        resp.content_type = falcon.MEDIA_PNG
+        resp.expires = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+        resp.body = tile
+        resp.etag = content_etag
 
-        site_cfg = dict()
-        for var in dir(sys.modules[site]):
-            site_cfg[var] = getattr(sys.modules[site], var)
 
-        basename = site.split('.')[-1]
-        server = TileServer(basename, script_name)
-        app = cherrypy.tree.mount(server,  script_name + '/' + basename)
-        server.setup(app, site_cfg)
-    # now disable trailing slash
-    cherrypy.config.update({'tools.trailing_slash.on': False })
+def setup_site(app, site, script_name=''):
+    try:
+        __import__(site)
+    except ImportError:
+        print("Missing config for site '%s'. Skipping." % site)
+        return
 
-_setup_lock = Lock()
-_setup_done = False
+    site_cfg = dict()
+    for var in dir(sys.modules[site]):
+        site_cfg[var] = getattr(sys.modules[site], var)
 
-def application(environ, start_response):
-    """ Handler for WSGI appications."""
-    with _setup_lock:
-        if not globals()['_setup_done']:
-            setup_sites(environ['TILE_SITES'].split(','),
-                        script_name=environ['SCRIPT_NAME'])
-            cherrypy.config.update({'log.wsgi' : True,
-                                    'log.screen' : False,
-                                    'error_page.default': error_page})
-            globals()['application'] = cherrypy.tree
-            globals()['_setup_done'] = True
-    return cherrypy.tree(environ, start_response)
+    basename = site.split('.')[-1]
 
-if __name__ == '__main__':
-    setup_sites(os.environ['TILE_SITES'].split(','))
-    if 'MAPSERV_LISTEN' in os.environ:
-        cherrypy.config.update({'server.socket_host' : os.environ['MAPSERV_LISTEN']})
-    if 'MAPSERV_PORT' in os.environ:
-        cherrypy.config.update({'server.socket_port' : int(os.environ['MAPSERV_PORT'])})
-    cherrypy.engine.start()
-    cherrypy.engine.block()
+    print("Setting up site", basename)
+
+    app.add_route('/' + basename + '/test-map', TestMap(basename, script_name))
+    app.add_route('/' + basename + '/{zoom}/{x}/{y}', TileServer(basename, site_cfg))
+
+
+application = falcon.API()
+
+for site in os.environ['TILE_SITES'].split(','):
+    setup_site(application, site)
