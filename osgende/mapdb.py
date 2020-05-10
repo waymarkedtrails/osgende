@@ -1,19 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2011-2015 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2011-2020 Sarah Hoffmann
 
 import logging
 from sqlalchemy import MetaData, create_engine
@@ -23,6 +11,7 @@ from sqlalchemy_utils.functions import analyze
 
 from osgende.osmdata import OsmSourceTables
 from osgende.common.sqlalchemy import Analyse
+from osgende.common.status import StatusManager
 
 log = logging.getLogger(__name__)
 
@@ -46,8 +35,12 @@ class MapDB:
     def __init__(self, options):
         self.options = options
         self.osmdata = OsmSourceTables(MetaData(),
-                                       nodestore=self.get_option('nodestore'),
-                                       status_table=self.get_option('status', True))
+                                       nodestore=self.get_option('nodestore'))
+
+        if self.get_option('status', True):
+            self.status = StatusManager(MetaData())
+        else:
+            self.status = None
 
         if not self.get_option('no_engine'):
             dba = URL('postgresql', username=options.username,
@@ -96,10 +89,12 @@ class MapDB:
         for tab in self.tables:
             log.info("Importing %s..." % str(tab.data.name))
             tab.construct(self.engine)
-            self.osmdata.set_status_from(self.engine, tname % str(tab.data.name), 'base')
+            if self.status:
+                self.status.set_status_from(self.engine,
+                                            tname % str(tab.data.name), 'base')
 
     def update(self):
-        base_state = self.osmdata.get_status(self.engine)
+        base_state = self.status.get_sequence(self.engine)
         schema = self.get_option('schema')
 
         if self.has_option('schema'):
@@ -110,7 +105,7 @@ class MapDB:
         for tab in self.tables:
             status_name = tname % str(tab.data.name)
             if base_state is not None:
-                table_state = self.osmdata.get_status(self.engine, status_name)
+                table_state = self.status.get_sequence(self.engine, status_name)
                 if table_state is not None and table_state >= base_state:
                     log.info("Table %s already up-to-date." % tab)
                     continue
@@ -122,7 +117,7 @@ class MapDB:
             if hasattr(tab, 'after_update'):
                 tab.after_update(self.engine)
 
-            self.osmdata.set_status_from(self.engine, status_name, 'base')
+            self.status.set_status_from(self.engine, status_name, 'base')
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\

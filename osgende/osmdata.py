@@ -1,22 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2015 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2015-2020 Sarah Hoffmann
 
-from sqlalchemy import Table, Column, Integer, BigInteger, String, DateTime, select, text
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY, insert
+from sqlalchemy import Table, Column, Integer, BigInteger, String, select, text
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.table import TableSource
 from osgende.common.nodestore import NodeStore, NodeStorePoint
@@ -25,7 +13,7 @@ class OsmSourceTables(object):
     """Collection of table sources that point to raw OSM data.
     """
 
-    def __init__(self, meta, nodestore=None, status_table=False):
+    def __init__(self, meta, nodestore=None):
         # node table is special as we have a larger change table
         data = Table('nodes', meta,
                      Column('id', BigInteger),
@@ -61,34 +49,6 @@ class OsmSourceTables(object):
                 self.nodestore = NodeStore(nodestore)
             else:
                 self.nodestore = nodestore
-
-        if status_table:
-            self.status = Table('status', meta,
-                                Column('part', String, primary_key=True),
-                                Column('date', DateTime(timezone=True)),
-                                Column('sequence', Integer)
-                               )
-
-    def get_status(self, conn, part='base'):
-        if hasattr(self, 'status'):
-            return conn.scalar(select([self.status.c.sequence])
-                                .where(self.status.c.part == part))
-
-    def set_status_from(self, conn, part, src):
-        if not hasattr(self, 'status'):
-            return
-
-        data = conn.execute(self.status.select().where(self.status.c.part == src))
-        data = data.fetchone()
-
-        upsert = insert(self.status).\
-                   on_conflict_do_update(index_elements=[self.status.c.part],
-                                         set_= { 'date' : text('EXCLUDED.date'),
-                                                 'sequence' : text('EXCLUDED.sequence')})
-
-        conn.execute(upsert.values([{'part' : part,
-                                     'date' : data['date'],
-                                     'sequence' : data['sequence']}]))
 
     def __getitem__(self, key):
         return getattr(self, key)

@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # This file is part of Osgende
-# Copyright (C) 2014 Sarah Hoffmann
+# Copyright (C) 2014-2020 Sarah Hoffmann
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -45,6 +45,7 @@ import sqlalchemy as sqla
 import sqlalchemy_utils as sqla_utils
 
 from osgende.common.nodestore import NodeStore
+from osgende.common.status import StatusManager
 from osgende.osmdata import OsmSourceTables
 
 
@@ -148,8 +149,13 @@ class OSMImporter(osmium.SimpleHandler):
                 raise RuntimeError("Database already exists.")
 
         self.metadata = sqla.MetaData()
-        self.tables = OsmSourceTables(self.metadata,
-                                      status_table=options.replication is not None)
+        self.tables = OsmSourceTables(self.metadata)
+        if options.replication is not None:
+            self.status = StatusManager(self.metadata)
+            self.status.create
+        else:
+            self.status = None
+
         self.engine = sqla.create_engine(dburl, echo=options.verbose)
 
         if options.replication:
@@ -182,11 +188,8 @@ class OSMImporter(osmium.SimpleHandler):
                 ts = osmium.replication.newest_change_from_file(options.inputfile)
                 diffinfo = self.repserver.get_state_info(self.repserver.timestamp_to_sequence(ts))
                 with self.engine.begin() as conn:
-                    conn.execute(self.tables.status.delete()
-                                      .where(self.tables.status.c.part == 'base'))
-                    conn.execute(self.tables.status.insert()
-                                      .values(part='base', date=diffinfo.timestamp,
-                                              sequence=diffinfo.sequence))
+                    self.status.set_status(conn, 'base', diffinfo.timestamp,
+                                           sequence=diffinfo.sequence)
 
         if self.is_change_file:
             self.prepare_changeset()
@@ -211,9 +214,7 @@ class OSMImporter(osmium.SimpleHandler):
             osmium.apply(self.reader, self)
         else:
             with self.engine.begin() as conn:
-                sel = sqla.select([self.tables.status.c.sequence])\
-                          .where(self.tables.status.c.part == 'base')
-                seq = conn.scalar(sel)
+                seq = self.status.get_sequence(conn)
                 if seq is None:
                     raise RuntimeError("Replication sequence missing.")
             seq = self.repserver.apply_diffs(self, seq + 1, self.change_size)
@@ -221,10 +222,8 @@ class OSMImporter(osmium.SimpleHandler):
                 diffinfo = self.repserver.get_state_info(seq)
                 if diffinfo is not None:
                     with self.engine.begin() as conn:
-                        conn.execute(self.tables.status.update()
-                                       .where(self.tables.status.c.part == 'base')
-                                       .values(date=diffinfo.timestamp,
-                                               sequence=diffinfo.sequence))
+                        self.status.set_status(conn, 'base', diffinfo.timestamp,
+                                               sequence=diffinfo.sequence)
 
 
         for tab in self.data:
