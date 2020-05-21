@@ -34,6 +34,13 @@ class StatusManager(object):
         return conn.scalar(sa.select([self.table.c.sequence])
                              .where(self.table.c.part == part))
 
+    def get_date(self, conn, part='base'):
+        """ Get current date of table `part`. Use connection object
+            `conn` to query the database.
+        """
+        return conn.scalar(sa.select([self.table.c.date])
+                             .where(self.table.c.part == part))
+
     def get_min_sequence(self, conn):
         """ Get the smallest sequence number of any table.
         """
