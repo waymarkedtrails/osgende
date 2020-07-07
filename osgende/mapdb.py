@@ -7,7 +7,6 @@ import logging
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.engine.url import URL
 from sqlalchemy.schema import CreateSchema
-from sqlalchemy_utils.functions import analyze
 
 from osgende.osmdata import OsmSourceTables
 from osgende.common.sqlalchemy import Analyse
