@@ -66,7 +66,6 @@ def build_route_geometry(conn, members, way_table, rel_table):
         else:
             raise RuntimeError("Bad geometry type '%s' (member type: %s member id: %d" % (geom.geom_type, t, m['id']))
 
-        oldgeom = outgeom
         if outgeom:
             # try connect with previous geometry at end point
             if geom[0][0] == outgeom[-1][-1]:

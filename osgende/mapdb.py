@@ -97,7 +97,6 @@ class MapDB:
             base_state = None
         else:
             base_state = self.status.get_sequence(self.engine)
-        schema = self.get_option('schema')
 
         if self.has_option('schema'):
             tname = '%s.%%s' % self.options.schema
