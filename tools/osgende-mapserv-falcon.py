@@ -226,7 +226,7 @@ class TestMap(object):
         var map = L.map('map').setView([47.3317, 8.5017], 13);
         var hash = new L.Hash(map);
 
-        L.tileLayer('http://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://a.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 18,
         }).addTo(map);
         L.tileLayer('%(script_name)s/%(style)s/{z}/{x}/{y}.png', {
@@ -242,7 +242,7 @@ class TestMap(object):
             'style' : style,
             'script_name' : script,
             'leaflet_path' : os.environ.get('LEAFLET_PATH',
-                                            'http://cdn.leafletjs.com/leaflet-0.7.5')
+                                            'https://cdn.leafletjs.com/leaflet-0.7.5')
         }
 
     def on_get(self, req, resp):
