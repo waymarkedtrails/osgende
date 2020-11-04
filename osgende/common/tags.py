@@ -127,16 +127,15 @@ class TagStore(dict):
            Returns an empty dictionary if the object has no wikipedia tags.
         """
         ret = {}
-        for k,v in self.items():
+        for k, v in self.items():
             if k == 'wikipedia':
-                idx = v.find(':')
-                if idx in (2, 3):
-                    if not v[idx+1:].startswith('http'):
-                        ret[v[:idx]] = v[idx+1:]
-                else:
-                    if not v.startswith('http'):
-                        ret['en'] = v
-            elif k.startswith('wikipedia:') and not v.startswith('http'):
+                parts = v.split(':', 1)
+                if len(parts) == 1:
+                    ret['en'] = v
+                if len(parts[0]) in (2, 3):
+                    ret[parts[0]] = parts[1]
+            elif k.startswith('wikipedia:') and len(k) in (12, 13) \
+                 and not v.startswith('http'):
                 ret[k[10:]] = v
 
         return ret

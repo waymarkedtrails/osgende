@@ -37,3 +37,21 @@ class TestTagStore(unittest.TestCase):
 
         self.assertIsNone(TagStore({'wikipedia:x': 'Nada'}).get_wikipedia_url())
         self.assertIsNone(TagStore({'wikipedia:1234': 'Nada'}).get_wikipedia_url())
+
+    def test_get_wikipedia_tags(self):
+        self.assertEqual(dict(en='Something'),
+                         TagStore(dict(wikipedia='Something')).get_wikipedia_tags())
+        self.assertEqual(dict(de='Etwas'),
+                         TagStore(dict(wikipedia='de:Etwas')).get_wikipedia_tags())
+        self.assertEqual(dict(de='Etw as'),
+                         TagStore(dict(wikipedia='de:Etw as')).get_wikipedia_tags())
+        self.assertEqual(dict(est='Nada'),
+                         TagStore({'wikipedia:est': 'Nada'}).get_wikipedia_tags())
+
+        self.assertEqual({}, TagStore(dict(name='wikipedia')).get_wikipedia_tags())
+        self.assertEqual({}, TagStore(dict(wikipedia='http://en.wikipedia.org/wiki/Something')).get_wikipedia_tags())
+        self.assertEqual({}, TagStore(dict(wikipedia='xxxx:Entry')).get_wikipedia_tags())
+
+        self.assertEqual({}, TagStore({'wikipedia:x': 'Nada'}).get_wikipedia_tags())
+        self.assertEqual({}, TagStore({'wikipedia:1234': 'Nada'}).get_wikipedia_tags())
+
