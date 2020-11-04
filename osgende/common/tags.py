@@ -123,7 +123,7 @@ class TagStore(dict):
         if ret[1].startswith('http'):
             return ret[1] if as_url else None
 
-        return 'http://%s.wikipedia.org/wiki/%s' % ret
+        return 'https://%s.wikipedia.org/wiki/%s' % ret
 
     def get_wikipedia_tags(self):
         """Return a dictionary of available wikipedia links.
