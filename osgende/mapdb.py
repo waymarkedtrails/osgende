@@ -93,7 +93,10 @@ class MapDB:
                                             tname % str(tab.data.name), 'base')
 
     def update(self):
-        base_state = self.status.get_sequence(self.engine)
+        if self.status is None:
+            base_state = None
+        else:
+            base_state = self.status.get_sequence(self.engine)
         schema = self.get_option('schema')
 
         if self.has_option('schema'):
@@ -116,7 +119,8 @@ class MapDB:
             if hasattr(tab, 'after_update'):
                 tab.after_update(self.engine)
 
-            self.status.set_status_from(self.engine, status_name, 'base')
+            if self.status is not None:
+                self.status.set_status_from(self.engine, status_name, 'base')
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\
