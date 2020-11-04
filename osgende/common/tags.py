@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 import re
-import urllib
+from urllib.parse import urlparse, quote
 
 unit_re = re.compile("\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
 
@@ -45,7 +45,7 @@ class TagStore(dict):
         """
         ret = TagStore()
         tagweights = {}
-        for k,v in tags.items():
+        for k, v in tags.items():
             idx = k.find(':')
             lang = k[idx+1:]
             if idx > 0 and lang in locales:
@@ -79,7 +79,7 @@ class TagStore(dict):
            and all that are set to negative boolean (no, false).
         """
         ret = {}
-        for k,v in self.items():
+        for k, v in self.items():
             lowv = v.lower()
             if lowv in ("yes", "true"):
                 ret[k] = True
@@ -89,41 +89,30 @@ class TagStore(dict):
         return ret
 
 
-    def get_wikipedia_url(self, as_url=True):
+    def get_wikipedia_url(self):
         """Return a link to the wikipedia page for the object.
            Supports tags of the following formats:
            * wikipedia=<page>  (assumes English wikipedia)
            * wikipedia=<lang>:<page>
            * wikipedia:<lang>=<page>
-
-           If `as_url` is true, then <page> may be either a
-           complete URL or a page name. If it set to false, URLs
-           in <page> are ignored.
         """
-        entry = None # triple of weight, language, link
-        if 'wikipedia' in self:
-            v = self['wikipedia']
-            idx = v.find(':')
-            if idx in (2, 3):
-                entry = (v[:idx], v[idx+1:])
-            else:
-                entry = ('en', v)
+        WIKI_PATTERN = 'https://{}.wikipedia.org/wiki/{}'
+        entry = self.get('wikipedia')
+        if entry is not None:
+            parts = entry.split(':', 1)
+            if len(parts) == 1:
+                return WIKI_PATTERN.format('en', quote(entry))
+            if len(parts[0]) in (2, 3):
+                return WIKI_PATTERN.format(parts[0], quote(parts[1]))
 
-        if ret is None or (not as_url and ret[1].startswith('http')):
-            for k,v in self.items():
-                if k.startswith('wikipedia:') and (as_url or not v.startswith('http')):
-                    entry = (k[10:], v)
-                    break
-            else:
-                return None
+        # Try language-specific tags
+        for k, v in self.items():
+            if k.startswith('wikipedia:') and len(k) in (12, 13) \
+               and not v.startswith('http'):
+                return WIKI_PATTERN.format(k[10:], quote(v))
 
-        # paranoia, avoid HTML injection
-        ret[1].replace('"', '%22')
-        ret[1].replace("'", '%27')
-        if ret[1].startswith('http'):
-            return ret[1] if as_url else None
+        return None
 
-        return 'https://%s.wikipedia.org/wiki/%s' % ret
 
     def get_wikipedia_tags(self):
         """Return a dictionary of available wikipedia links.
@@ -153,9 +142,9 @@ class TagStore(dict):
         return ret
 
 
-    def get_url(self):
+    def get_url(self, schemas=None):
         """Return a properly encoded URL for the object.
-           Supports `website` and `url` tags, with and without protocol prefix.
+           Supports `website` and `url` tags.
         """
         ret = self.firstof('url', 'website')
 
@@ -163,9 +152,12 @@ class TagStore(dict):
             # paranoia, to avoid HTML injection
             ret.replace('"', '%22')
             ret.replace("'", '%27')
-            proto = ret.find(':')
-            if proto < 0:
-                ret = 'http://%s' % ret
+            try:
+                url = urlparse(ret)
+            except ValueError:
+                return None
+            if not(url.schema in (schemas or ('http', 'https')) and url.netloc):
+                return None
 
         return ret
 
