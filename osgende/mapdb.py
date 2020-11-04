@@ -12,7 +12,7 @@ from osgende.osmdata import OsmSourceTables
 from osgende.common.sqlalchemy import Analyse
 from osgende.common.status import StatusManager
 
-log = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 class MapDB:
     """Basic class for creation and modification of a complete database.
@@ -51,11 +51,13 @@ class MapDB:
         self.tables = self.create_tables()
 
     def get_option(self, option, default=None):
-        """Return the value of the given option or None if not set.
+        """ Return the value of the given option or `default` if not set.
         """
         return getattr(self.options, option, default)
 
     def has_option(self, option):
+        """ Check if the given option is available.
+        """
         return hasattr(self.options, option)
 
     def create(self):
@@ -66,31 +68,21 @@ class MapDB:
             if schema is not None:
                 conn.execute(CreateSchema(schema))
                 if rouser is not None:
-                    conn.execute('GRANT USAGE ON SCHEMA %s TO "%s"' % (schema, rouser))
+                    conn.execute(f'GRANT USAGE ON SCHEMA {schema} TO "{rouser}"')
 
             for t in self.tables:
                 t.create(conn)
 
             if rouser is not None:
                 for t in self.tables:
-                    if schema:
-                        tname = '%s.%s' % (schema, str(t.data.name))
-                    else:
-                        tname = str(t.data.name)
-                    conn.execute('GRANT SELECT ON TABLE %s TO "%s"' % (tname, rouser))
+                    conn.execute(f'GRANT SELECT ON TABLE {t.key} TO "{rouser}"')
 
     def construct(self):
-        if self.has_option('schema'):
-            tname = '%s.%%s' % self.options.schema
-        else:
-            tname = '%s'
-
         for tab in self.tables:
-            log.info("Importing %s..." % str(tab.data.name))
+            LOG.info("Importing %s...", str(tab.data.name))
             tab.construct(self.engine)
             if self.status:
-                self.status.set_status_from(self.engine,
-                                            tname % str(tab.data.name), 'base')
+                self.status.set_status_from(self.engine, t.key, 'base')
 
     def update(self):
         if self.status is None:
@@ -98,34 +90,26 @@ class MapDB:
         else:
             base_state = self.status.get_sequence(self.engine)
 
-        if self.has_option('schema'):
-            tname = '%s.%%s' % self.options.schema
-        else:
-            tname = '%s'
-
         for tab in self.tables:
-            status_name = tname % str(tab.data.name)
             if base_state is not None:
-                table_state = self.status.get_sequence(self.engine, status_name)
+                table_state = self.status.get_sequence(self.engine, tab.key)
                 if table_state is not None and table_state >= base_state:
-                    log.info("Table %s already up-to-date." % tab)
+                    LOG.info("Table %s already up-to-date.", tab)
                     continue
 
             if hasattr(tab, 'before_update'):
                 tab.before_update(self.engine)
-            log.info("Updating %s..." % str(tab.data.name))
+            LOG.info("Updating %s...", str(tab.data.name))
             tab.update(self.engine)
             if hasattr(tab, 'after_update'):
                 tab.after_update(self.engine)
 
             if self.status is not None:
-                self.status.set_status_from(self.engine, status_name, 'base')
+                self.status.set_status_from(self.engine, tab.key, 'base')
 
     def finalize(self, dovacuum):
         conn = self.engine.connect()\
                  .execution_options(isolation_level="AUTOCOMMIT")
         with conn.begin() as trans:
             for tab in self.tables:
-                conn.execute(Analyse(tab.data, dovacuum));
-
-
+                conn.execute(Analyse(tab.data, dovacuum))
