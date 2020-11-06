@@ -19,30 +19,38 @@ File-backed storage for node geometries.
 """
 
 import logging
-
-from osmium import index, osm
 from binascii import hexlify
 from struct import pack
 from collections import namedtuple
+
+from osmium import index, osm
 from osmium.geom import lonlat_to_mercator, Coordinates
 
-log = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 class NodeStorePoint(namedtuple('NodeStorePoint', ['x', 'y'])):
+    """ A single entry in a permanent node storage.
+    """
 
-    def wkb(self):
+    def wkb(self, srid=4326):
+        """ Return the coordinates as PostGIS-compatible extended WKB with
+            SRID. Default SRID is WSG84. Use the `srid` parameter to encode
+            a different one.
+        """
         # PostGIS extension that includes a SRID, see postgis/doc/ZMSGeoms.txt
-        return hexlify(pack("=biidd", 1, 0x20000001, 4326,
-                                   self.x, self.y)).decode()
+        return hexlify(pack("=biidd", 1, 0x20000001, srid,
+                            self.x, self.y)).decode()
 
     def to_mercator(self):
-        c = lonlat_to_mercator(Coordinates(self.x, self.y))
-        return NodeStorePoint(c.x, c.y)
+        """ Project the point to Mercator.
+        """
+        coord = lonlat_to_mercator(Coordinates(self.x, self.y))
+        return NodeStorePoint(coord.x, coord.y)
 
-class NodeStore(object):
-    """Provides a map like persistent storage for node geometries.
+class NodeStore:
+    """ Provides a map like persistent storage for node geometries.
 
-       This implementation relies on a osmium location index.
+        This implementation relies on a osmium location index.
     """
 
     def __init__(self, filename):
@@ -62,66 +70,14 @@ class NodeStore(object):
         self.mapfile.set(nodeid, osm.Location())
 
     def set_from_node(self, node):
+        """ Set an entry from the given node. Its id functions as array index
+            and its location as value.
+        """
         self.mapfile.set(node.id, node.location)
 
     def close(self):
+        """ Close the underlying storage file.
+        """
         if hasattr(self, 'mapfile'):
-            log.info("Used memory by index: %d" % self.mapfile.used_memory())
+            LOG.info("Used memory by index: %d", self.mapfile.used_memory())
             del self.mapfile
-
-
-if __name__ == '__main__':
-    print("Creating store...")
-    store = NodeStore('test.store')
-
-    print("Filling store...")
-    for i in range(25500,26000):
-        store[i] = NodeStorePoint(1,i/1000.0)
-
-    store.close()
-    del store
-
-    print("Reloading store...")
-    store = NodeStore('test.store')
-
-    print("Checking store...")
-    for i in range(25500,26000):
-        assert store[i].y == i/1000.0
-
-    try:
-        x = store[1000]
-    except KeyError:
-        print("Yeah!")
-
-    try:
-        x = store[0]
-    except KeyError:
-        print("Yeah!")
-
-    print("Filling store...")
-    for i in range(100055500,100056000):
-        store[i] = NodeStorePoint(i/10000000.0,1)
-
-    try:
-        x = store[26001]
-        print("Unexpected node location:", x)
-    except KeyError:
-        print("Yeah!")
-
-    store.close()
-    del store
-
-    print("Reloading store...")
-    store = NodeStore('test.store')
-
-    print("Checking store...")
-    for i in range(100055500,100056000):
-        assert store[i].x == i/10000000.0
-
-    print("Checking store...")
-    for i in range(25500,26000):
-        assert store[i].y == i/1000.0
-
-
-    store.close()
-
