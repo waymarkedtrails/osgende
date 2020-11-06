@@ -18,10 +18,10 @@
 import re
 from urllib.parse import urlparse, quote
 
-unit_re = re.compile("\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
+UNIT_RE = re.compile("\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
 
 # conversion matrix for units of length
-length_matrix = { 'km' : { 'm' : 0.001,
+LENGTH_MATRIX = { 'km' : { 'm' : 0.001,
                            'mi' : 1.6093 },
                   'm' : { 'km' : 1000,
                           'mi' : 1609.3 }
@@ -40,23 +40,21 @@ class TagStore(dict):
     def make_localized(tags, locales):
         """Returns a TagStore with localization replacements.
 
-           locales must be a list of language codes with
+           `locales` must be a list of language codes with
            decreasing preference.
         """
         ret = TagStore()
         tagweights = {}
         for k, v in tags.items():
-            idx = k.find(':')
-            lang = k[idx+1:]
-            if idx > 0 and lang in locales:
-                w = locales.index(k[idx+1:])
-                outkey = k[:idx]
-                if w < tagweights.get(outkey, 1000):
-                    ret[outkey] = v
-                    tagweights[outkey] = w
+            parts = k.split(':', 1)
+            if len(parts) == 2 and parts[1] in locales:
+                weight = locales.index(parts[1])
+                if weight < tagweights.get(parts[0], 1000):
+                    ret[parts[0]] = v
+                    tagweights[parts[0]] = weight
             else:
-                ret[k] = v
-                tagweights[k] = 1000
+                if k not in tagweights:
+                    ret[k] = v
 
         return ret
 
@@ -141,7 +139,7 @@ class TagStore(dict):
         return ret
 
 
-    def get_url(self, schemas=None):
+    def get_url(self, schemes=None):
         """Return a properly encoded URL for the object.
            Supports `website` and `url` tags.
         """
@@ -149,13 +147,13 @@ class TagStore(dict):
 
         if ret is not None:
             # paranoia, to avoid HTML injection
-            ret.replace('"', '%22')
-            ret.replace("'", '%27')
+            ret = ret.replace('"', '%22')
+            ret = ret.replace("'", '%27')
             try:
                 url = urlparse(ret)
             except ValueError:
                 return None
-            if not(url.schema in (schemas or ('http', 'https')) and url.netloc):
+            if not(url.scheme in (schemes or ('http', 'https')) and url.netloc):
                 return None
 
         return ret
@@ -167,14 +165,14 @@ class TagStore(dict):
             `default` denotes the unit to use when the tag has
             no unit stated.
         """
-        if unit not in length_matrix:
-            raise Error('Unknown distance unit')
+        if unit not in LENGTH_MATRIX:
+            raise ValueError('Unknown distance unit')
 
         tag = self.firstof(*tags)
         if tag is None:
             return None
 
-        m = unit_re.match(tag)
+        m = UNIT_RE.match(tag)
         if m is not None:
             if m.group(3) is None:
                 mag = float(m.group(1))
@@ -185,7 +183,7 @@ class TagStore(dict):
                 tagunit = default
             if tagunit == unit:
                 return mag
-            elif tagunit in length_matrix[unit]:
-                return mag * length_matrix[unit][tagunit]
+            elif tagunit in LENGTH_MATRIX[unit]:
+                return mag * LENGTH_MATRIX[unit][tagunit]
 
         return None
