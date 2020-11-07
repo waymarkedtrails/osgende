@@ -7,7 +7,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql.functions import min as sql_min
 
-class StatusManager(object):
+class StatusManager:
     """A class that monitors the import status of the database. It exports
        functions to set and query the last import status of each table.
 
@@ -18,7 +18,7 @@ class StatusManager(object):
     """
 
     def __init__(self, meta, name='status'):
-        self.table = sa.Table('status', meta,
+        self.table = sa.Table(name, meta,
                               sa.Column('part', sa.String, primary_key=True),
                               sa.Column('date', sa.DateTime(timezone=True)),
                               sa.Column('sequence', sa.Integer)
@@ -56,13 +56,13 @@ class StatusManager(object):
         self.set_status(conn, part, data['date'], data['sequence'])
 
     def set_status(self, conn, part, date, sequence):
-        """ Set a new status of table `part` to date `sate` and sequence id
+        """ Set a new status of table `part` to date `date` and sequence id
             `sequence`.
         """
         upsert = insert(self.table).\
                    on_conflict_do_update(index_elements=[self.table.c.part],
-                                         set_= { 'date' : sa.text('EXCLUDED.date'),
-                                                 'sequence' : sa.text('EXCLUDED.sequence')})
+                                         set_={'date' : sa.text('EXCLUDED.date'),
+                                               'sequence' : sa.text('EXCLUDED.sequence')})
 
         conn.execute(upsert.values([{'part' : part,
                                      'date' : date,
@@ -71,4 +71,4 @@ class StatusManager(object):
     def remove_status(self, conn, part):
         """ Completely remove the status for the given table.
         """
-        conn.execute(self.table.delete().where(self.table.c.part==part))
+        conn.execute(self.table.delete().where(self.table.c.part == part))
