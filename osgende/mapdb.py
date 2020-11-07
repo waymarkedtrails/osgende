@@ -110,6 +110,6 @@ class MapDB:
     def finalize(self, dovacuum):
         conn = self.engine.connect()\
                  .execution_options(isolation_level="AUTOCOMMIT")
-        with conn.begin() as trans:
+        with conn.begin():
             for tab in self.tables:
                 conn.execute(Analyse(tab.data, dovacuum))

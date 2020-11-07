@@ -3,13 +3,28 @@
 # This file is part of Osgende
 # Copyright (C) 2015-2020 Sarah Hoffmann
 
-from sqlalchemy import Table, Column, Integer, BigInteger, String, select, text
+from sqlalchemy import Table, Column, BigInteger, String, select
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from geoalchemy2 import Geometry
 from osgende.common.table import TableSource
 from osgende.common.nodestore import NodeStore, NodeStorePoint
 
-class OsmSourceTables(object):
+def _mkpointlist_points(nodes, store):
+    ret = []
+    prev = None
+    for n in filter(None.__ne__, nodes):
+        try:
+            coord = store[n]
+            if coord == prev:
+                coord = NodeStorePoint(coord.x + 0.00000001, coord.y)
+            prev = coord
+            ret.append(coord)
+        except KeyError:
+            pass
+
+    return ret
+
+class OsmSourceTables:
     """Collection of table sources that point to raw OSM data.
     """
 
@@ -33,12 +48,12 @@ class OsmSourceTables(object):
                                      Column('id', BigInteger),
                                      Column('tags', JSONB),
                                      Column('nodes', ARRAY(BigInteger))
-                               ), change_table='way_changeset')
+                                    ), change_table='way_changeset')
         self.relation = TableSource(Table('relations', meta,
                                           Column('id', BigInteger),
                                           Column('tags', JSONB),
                                           Column('members', JSONB),
-                                    ), change_table='relation_changeset')
+                                         ), change_table='relation_changeset')
 
         if nodestore is None:
             self.get_points = self.__table_get_points
@@ -54,7 +69,7 @@ class OsmSourceTables(object):
         return getattr(self, key)
 
     def __nodestore_get_points(self, nodes, engine=None):
-        return self.__mkpointlist_points(nodes, self.nodestore)
+        return _mkpointlist_points(nodes, self.nodestore)
 
     def __table_get_points(self, nodes, conn):
         t = self.node.data
@@ -65,19 +80,4 @@ class OsmSourceTables(object):
         for res in conn.execute(sql):
             geoms[res['id']] = NodeStorePoint(res['x'], res['y'])
 
-        return self.__mkpointlist_points(nodes, geoms)
-
-    def __mkpointlist_points(self, nodes, store):
-        ret = []
-        prev = None
-        for n in filter(None.__ne__, nodes):
-            try:
-                coord = store[n]
-                if coord == prev:
-                    coord = NodeStorePoint(coord.x + 0.00000001, coord.y)
-                prev = coord
-                ret.append(coord)
-            except KeyError:
-                pass
-
-        return ret
+        return _mkpointlist_points(nodes, geoms)
