@@ -1,24 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
 # This file is part of Osgende
-# Copyright (C) 2015 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2015-2020 Sarah Hoffmann
 """
 Various classes that provide connections between processed tables.
 """
 
-from sqlalchemy import String, BigInteger, Table, Column, select, and_, text
+from sqlalchemy import String, Table, Column, select, text
 from sqlalchemy.dialects.postgresql import insert
 from osgende.common.sqlalchemy import Truncate
 
@@ -107,7 +94,7 @@ class TableSource:
             return
 
         conn.execute(self.change.insert()
-                .values([{'id': k, 'action': v} for k, v in changeset.items()]))
+                     .values([{'id': k, 'action': v} for k, v in changeset.items()]))
 
 
     def upsert_data(self):
@@ -118,8 +105,8 @@ class TableSource:
 
             Add the actual inserted values or query to complete the query.
         """
-        upsertdict = dict([(c.name, text('EXCLUDED.' + c.name))
-                                for c in self.c if c.name != 'id'])
+        upsertdict = {c.name: text('EXCLUDED.' + c.name)
+                      for c in self.c if c.name != 'id'}
         return insert(self.data)\
                 .on_conflict_do_update(index_elements=[self.c.id],
                                        set_=upsertdict)
@@ -165,4 +152,4 @@ class TableSource:
         if self.change is None:
             return select([self.c.id])
 
-        return (select([self.cc.id]).where(self.cc.action == text("'D'")))
+        return select([self.cc.id]).where(self.cc.action == text("'D'"))

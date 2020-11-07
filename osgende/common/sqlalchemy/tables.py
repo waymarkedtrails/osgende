@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
 # Copyright (C) 2017 Sarah Hoffmann
 #
@@ -20,7 +22,6 @@
 
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.expression import ClauseElement, Executable
-from sqlalchemy.schema import DDLElement
 
 # Code courtesy of http://stackoverflow.com/questions/30575111/how-to-create-a-new-table-from-select-statement-in-sqlalchemy
 class CreateTableAs(Executable, ClauseElement):
@@ -36,9 +37,8 @@ class CreateTableAs(Executable, ClauseElement):
 
 @compiles(CreateTableAs, "postgresql")
 def _create_table_as(element, compiler, **kw):
-    return "CREATE %s TABLE %s AS %s" % (
-        element.prefix, element.name, compiler.process(element.query)
-    )
+    return "CREATE {} TABLE {} AS {}".format(element.prefix, element.name,
+                                             compiler.process(element.query))
 
 
 class Analyse(Executable, ClauseElement):
@@ -50,9 +50,8 @@ class Analyse(Executable, ClauseElement):
 
 @compiles(Analyse, "postgresql")
 def _analyse(element, compiler, **kw):
-    return "%sANALYSE %s" % (
-              "VACUUM " if element.dovacuum else '',
-               compiler.process(element.table, asfrom=True))
+    return "{}ANALYSE {}".format("VACUUM " if element.dovacuum else '',
+                                 compiler.process(element.table, asfrom=True))
 
 
 
@@ -66,10 +65,10 @@ class CreateView(Executable, ClauseElement):
 
 @compiles(CreateView)
 def visit_create_view(element, compiler, **kw):
-    return "CREATE %s VIEW %s AS %s" % (
-         "OR REPLACE" if element.do_replace else "", element.name,
-         compiler.process(element.select, literal_binds=True)
-         )
+    return "CREATE {} VIEW {} AS {}".format(
+        "OR REPLACE" if element.do_replace else "",
+        element.name,
+        compiler.process(element.select, literal_binds=True))
 
 
 class DropIndexIfExists(Executable, ClauseElement):
@@ -92,11 +91,8 @@ class Truncate(Executable, ClauseElement):
     """
     def __init__(self, table, reset=False):
         self.table = table
-        self.do_reset = reset
+        self.attr = 'RESTART IDENTITY' if reset else ''
 
 @compiles(Truncate, "postgresql")
 def __truncate(element, compiler, **kw):
-    q = ["TRUNCATE", element.table.key]
-    if element.do_reset:
-        q.append("RESTART IDENTITY")
-    return " ".join(q)
+    return f"TRUNCATE {element.table.key} {element.attr}"

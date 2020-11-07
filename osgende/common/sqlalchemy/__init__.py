@@ -16,5 +16,4 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 from .tables import CreateTableAs, Analyse, CreateView, DropIndexIfExists, Truncate
-from .geometry import ST_MakeLine
 from .jsonb import jsonb_array_elements
