@@ -18,13 +18,11 @@
 import re
 from urllib.parse import urlparse, quote
 
-UNIT_RE = re.compile("\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
+UNIT_RE = re.compile(r"\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
 
 # conversion matrix for units of length
-LENGTH_MATRIX = { 'km' : { 'm' : 0.001,
-                           'mi' : 1.6093 },
-                  'm' : { 'km' : 1000,
-                          'mi' : 1609.3 }
+LENGTH_MATRIX = {'km' : {'m' : 0.001, 'mi' : 1.6093},
+                 'm' : {'km' : 1000, 'mi' : 1609.3}
                 }
 
 class TagStore(dict):
@@ -183,7 +181,7 @@ class TagStore(dict):
                 tagunit = default
             if tagunit == unit:
                 return mag
-            elif tagunit in LENGTH_MATRIX[unit]:
+            if tagunit in LENGTH_MATRIX[unit]:
                 return mag * LENGTH_MATRIX[unit][tagunit]
 
         return None
