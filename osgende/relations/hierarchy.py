@@ -1,25 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2010-11 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2010-2020 Sarah Hoffmann
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import array
 from osgende.common.sqlalchemy import Truncate, jsonb_array_elements
 
-class RelationHierarchy(object):
+class RelationHierarchy:
     """Table describing the relation hierarchies of the OSM relations table.
 
        'subset' can be used to limit the relations taken into account.
@@ -34,10 +22,10 @@ class RelationHierarchy(object):
 
     def __init__(self, meta, name, source, self_ref=False):
         self.data = sa.Table(name, meta,
-                          sa.Column('parent', sa.BigInteger, index=True),
-                          sa.Column('child', sa.BigInteger, index=True),
-                          sa.Column('depth', sa.Integer)
-                         )
+                             sa.Column('parent', sa.BigInteger, index=True),
+                             sa.Column('child', sa.BigInteger, index=True),
+                             sa.Column('depth', sa.Integer)
+                            )
 
         self.src = source
         self.self_reference = self_ref
@@ -63,12 +51,13 @@ class RelationHierarchy(object):
             # Insert all direct children
             rels = self.src.data.alias('r')
             members = jsonb_array_elements(rels.c.members).lateral()
+            id_bigint = members.c.value['id'].astext.cast(sa.BigInteger)
 
             sql = sa.select([rels.c.id.label('parent'),
-                             members.c.value['id'].astext.cast(sa.BigInteger).label('child'), 2]
-                       ).select_from(rels.join(members, onclause=sa.text("True")))\
+                             id_bigint.label('child'), 2])\
+                    .select_from(rels.join(members, onclause=sa.text("True")))\
                     .where(members.c.value['type'].astext == 'R')\
-                    .where(members.c.value['id'].astext.cast(sa.BigInteger) != rels.c.id.label('parent'))
+                    .where(id_bigint != rels.c.id.label('parent'))
             res = conn.execute(self.data.insert().from_select(self.data.c, sql))
 
             level = 3
