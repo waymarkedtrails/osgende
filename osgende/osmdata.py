@@ -29,7 +29,26 @@ class OsmSourceTables:
     """
 
     def __init__(self, meta, nodestore=None):
-        # node table is special as we have a larger change table
+        self.node = self.create_node_table(meta)
+        self.way = self.create_way_table(meta)
+        self.relation = self.create_relation_table(meta)
+
+        if nodestore is None:
+            self.get_points = self.__table_get_points
+            self.nodestore = None
+        else:
+            self.get_points = self.__nodestore_get_points
+            if isinstance(nodestore, str):
+                self.nodestore = NodeStore(nodestore)
+            else:
+                self.nodestore = nodestore
+
+    @staticmethod
+    def create_node_table(meta):
+        """ Create the table source for backing OSM node data.
+            Node tables are special because they have a change table that
+            also stores tags and geometry of changed nodes to avoid lookup.
+        """
         data = Table('nodes', meta,
                      Column('id', BigInteger),
                      Column('tags', JSONB),
@@ -41,29 +60,27 @@ class OsmSourceTables:
                        Column('tags', JSONB),
                        Column('geom', Geometry('POINT', srid=4326))
                       )
-        self.node = TableSource(data, change)
+        return TableSource(data, change)
 
-        # way and relation get a standard change table
-        self.way = TableSource(Table('ways', meta,
-                                     Column('id', BigInteger),
-                                     Column('tags', JSONB),
-                                     Column('nodes', ARRAY(BigInteger))
-                                    ), change_table='way_changeset')
-        self.relation = TableSource(Table('relations', meta,
-                                          Column('id', BigInteger),
-                                          Column('tags', JSONB),
-                                          Column('members', JSONB),
-                                         ), change_table='relation_changeset')
+    @staticmethod
+    def create_way_table(meta):
+        """ Create the table source for backing OSM way data.
+        """
+        return TableSource(Table('ways', meta,
+                                 Column('id', BigInteger),
+                                 Column('tags', JSONB),
+                                 Column('nodes', ARRAY(BigInteger))
+                                ), change_table='way_changeset')
 
-        if nodestore is None:
-            self.get_points = self.__table_get_points
-            self.nodestore = None
-        else:
-            self.get_points = self.__nodestore_get_points
-            if isinstance(nodestore, str):
-                self.nodestore = NodeStore(nodestore)
-            else:
-                self.nodestore = nodestore
+    @staticmethod
+    def create_relation_table(meta):
+        """ Create the table source for backing OSM relation data.
+        """
+        return TableSource(Table('relations', meta,
+                                 Column('id', BigInteger),
+                                 Column('tags', JSONB),
+                                 Column('members', JSONB),
+                                ), change_table='relation_changeset')
 
     def __getitem__(self, key):
         return getattr(self, key)
