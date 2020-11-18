@@ -26,7 +26,7 @@ from osgende.relations import RelationHierarchy
 
 from table_test_fixture import TableTestFixture
 
-class TestHierarchyTale(TableTestFixture):
+class TestHierarchyTable(TableTestFixture):
 
     def create_tables(self, db):
         return [RelationHierarchy(db.metadata, "test", db.osmdata.relation)]

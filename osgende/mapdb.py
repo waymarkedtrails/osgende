@@ -4,15 +4,36 @@
 # Copyright (C) 2011-2020 Sarah Hoffmann
 
 import logging
+import collections
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.engine.url import URL
 from sqlalchemy.schema import CreateSchema
 
 from osgende.osmdata import OsmSourceTables
 from osgende.common.sqlalchemy import Analyse
-from osgende.common.status import StatusManager
+from osgende.common.status import StatusManager, DummyStatusManager
 
 LOG = logging.getLogger(__name__)
+
+class _Tables:
+
+    def __init__(self):
+        self._data = collections.OrderedDict()
+
+    def __getitem__(self, key):
+        return self._data.__getitem__(key)
+
+    def __getattr__(self, key):
+        return self._data.__getitem__(key)
+
+    def __iter__(self):
+        return self._data.values().__iter__()
+
+    def __len__(self):
+        return self._data.__len__()
+
+    def add(self, name, table):
+        self._data[name] = table
 
 class MapDB:
     """Basic class for creation and modification of a complete database.
@@ -39,7 +60,7 @@ class MapDB:
         if self.get_option('status', True):
             self.status = StatusManager(MetaData())
         else:
-            self.status = None
+            self.status = DummyStatusManager()
 
         if not self.get_option('no_engine'):
             dba = URL('postgresql', username=options.username,
@@ -48,7 +69,16 @@ class MapDB:
 
         self.metadata = MetaData(schema=self.get_option('schema'))
 
-        self.tables = self.create_tables()
+        self.tables = _Tables()
+
+    def add_table(self, name, table):
+        """ Add a new table handler to the database. The table is available
+            as self.table.<name> afterwards and will also be returned.
+            Tables must be added in the order they need to be processed to
+            ensure that dependencies are available.
+        """
+        self.tables.add(name, table)
+        return table
 
     def get_option(self, option, default=None):
         """ Return the value of the given option or `default` if not set.
@@ -70,29 +100,25 @@ class MapDB:
                 if rouser is not None:
                     conn.execute(f'GRANT USAGE ON SCHEMA {schema} TO "{rouser}"')
 
-            for t in self.tables:
-                t.create(conn)
+            for table in self.tables:
+                table.create(conn)
 
             if rouser is not None:
-                for t in self.tables:
-                    conn.execute(f'GRANT SELECT ON TABLE {t.key} TO "{rouser}"')
+                for table in self.tables:
+                    conn.execute(f'GRANT SELECT ON TABLE {table.data.key} TO "{rouser}"')
 
     def construct(self):
         for tab in self.tables:
             LOG.info("Importing %s...", str(tab.data.name))
             tab.construct(self.engine)
-            if self.status:
-                self.status.set_status_from(self.engine, t.key, 'base')
+            self.status.set_status_from(self.engine, tab.data.key, 'base')
 
     def update(self):
-        if self.status is None:
-            base_state = None
-        else:
-            base_state = self.status.get_sequence(self.engine)
+        base_state = self.status.get_sequence(self.engine)
 
         for tab in self.tables:
             if base_state is not None:
-                table_state = self.status.get_sequence(self.engine, tab.key)
+                table_state = self.status.get_sequence(self.engine, tab.data.key)
                 if table_state is not None and table_state >= base_state:
                     LOG.info("Table %s already up-to-date.", tab)
                     continue
@@ -104,10 +130,11 @@ class MapDB:
             if hasattr(tab, 'after_update'):
                 tab.after_update(self.engine)
 
-            if self.status is not None:
-                self.status.set_status_from(self.engine, tab.key, 'base')
+            self.status.set_status_from(self.engine, tab.data.key, 'base')
 
     def finalize(self, dovacuum):
+        """ Analyse the tables to update the statistics.
+        """
         conn = self.engine.connect()\
                  .execution_options(isolation_level="AUTOCOMMIT")
         with conn.begin():

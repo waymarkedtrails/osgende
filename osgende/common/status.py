@@ -7,6 +7,22 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql.functions import min as sql_min
 
+class DummyStatusManager:
+    """ An implementation of a status manager that does nothing.
+    """
+
+    def set_status_from(self, *args):
+        pass
+
+    def get_sequence(self, *args):
+        return None
+
+    def get_min_sequence(self, *args):
+        return None
+
+    def get_date(self, *args):
+        return None
+
 class StatusManager:
     """A class that monitors the import status of the database. It exports
        functions to set and query the last import status of each table.

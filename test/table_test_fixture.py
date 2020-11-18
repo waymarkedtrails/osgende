@@ -37,22 +37,6 @@ class TableTestFixture(unittest.TestCase):
         password = None
         status = False
 
-    class TestDB(MapDB):
-
-        def __init__(self, tables):
-            self.test_tables = tables
-            MapDB.__init__(self, TableTestFixture.Options())
-
-        def create_tables(self):
-            tables = OrderedDict()
-            for t in self.test_tables(self):
-                tables[t.data.name] = t
-
-            _RouteTables = namedtuple('_RouteTables', tables.keys())
-
-            return _RouteTables(**tables)
-
-
     def import_data(self, data, nodes={}, grid=None):
         assert_equal(0, os.system('dropdb --if-exists ' + self.Options.database))
         osm_data = ""
@@ -90,8 +74,10 @@ class TableTestFixture(unittest.TestCase):
             cmd = ['../tools/osgende-import', '-c', '-d', self.Options.database, fd.name]
             subprocess.run(cmd, check=True)
 
+        self.db = MapDB(self.Options())
+        for table in self.create_tables(self.db):
+            self.db.add_table(table.data.name, table)
 
-        self.db = self.TestDB(self.create_tables)
         self.db.create()
         self.db.construct()
 
