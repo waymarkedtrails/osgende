@@ -5,6 +5,7 @@
 
 import logging
 import collections
+import types
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.engine.url import URL
 from sqlalchemy.schema import CreateSchema
@@ -79,6 +80,16 @@ class MapDB:
         """
         self.tables.add(name, table)
         return table
+
+    def set_metadata(self, key, value):
+        """ Set a field in the SQLAlchemy metadata information field.
+        """
+        self.metadata.info[key] = value
+
+    def add_function(self, name, func):
+        """ Add a custom function for additional special handling.
+        """
+        setattr(self, name, types.MethodType(func, self))
 
     def get_option(self, option, default=None):
         """ Return the value of the given option or `default` if not set.
