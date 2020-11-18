@@ -69,6 +69,17 @@ class TableSource:
             if self.change is not None:
                 self.change.create(bind=engine, checkfirst=True)
 
+    def construct(self, engine):
+        """ Fill the table with data. This function is called for the initial
+            import. Derived classes need to provide an implementation.
+        """
+        pass
+
+    def update(self, engine):
+        """ Update the content of the table from its sources. This function
+            is called every time, the OSM data tables receive new data.
+            Derived classes need to provide an implementation.
+        """
 
     def truncate(self, conn):
         """ Truncate the table. Has no effect on views.
