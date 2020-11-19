@@ -103,3 +103,10 @@ class TestTagStore(unittest.TestCase):
         tags = OrderedDict((('name', 'B'), ('name:fr', 'A')))
         self.assertDictEqual({'name' : 'B', 'name:fr' : 'A'},
                              TagStore.make_localized(tags, ('en', 'de')))
+
+    def test_get_prefixed(self):
+        tags = TagStore({'name': 'A', 'name:fr': 'B', 'ref': 'C', 'name:XXX': 'D'})
+        self.assertDictEqual(dict(fr='B', XXX='D'), tags.get_prefixed('name:'))
+
+        tags = TagStore({'name': 'A', 'name:fr': 'B', 'ref': 'C', 'name:XXX': 'D'})
+        self.assertDictEqual({}, tags.get_prefixed('addr:'))

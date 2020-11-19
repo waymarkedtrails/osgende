@@ -68,6 +68,12 @@ class TagStore(dict):
 
         return default
 
+    def get_prefixed(self, prefix):
+        """ Return a dictionary of all tags whose keys start with prefix.
+            The prefix is removed before putting them into the dict.
+        """
+        return {k[len(prefix):]: v for k, v in self.items() if k.startswith(prefix)}
+
     def get_booleans(self):
         """Return subset of tags that represent booleans and return
            them as a normalized dict. The subset contains
