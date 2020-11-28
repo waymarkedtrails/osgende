@@ -1,103 +1,86 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2017 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2017-2020 Sarah Hoffmann
 
 """
 Tests for FilteredTable
 """
 
-import unittest
-import sqlalchemy as sqla
+import pytest
+import sqlalchemy as sa
 
 from osgende.generic import FilteredTable
 
-from table_test_fixture import TableTestFixture
+@pytest.fixture(params=[True, False])
+def filter_table(request, db):
+    table = db.add_table(FilteredTable(db.db.metadata, 'test',
+                                       db.db.osmdata.relation,
+                                       sa.text("tags ? 'foo'"),
+                                       view_only=request.param))
 
-class TestFilteredTable(TableTestFixture):
-    view_only = False
-
-    basedata1 = """\
+    db.import_data("""\
       r1 Tname=house,foo=bar Mn23@,w4@forward
       r2 Ttype=multipolygon,building=yes Mw2@,w3@,w5@
-      """
+      """)
 
-    basedata2 = """\
+    return table
+
+R1_EXPECT = dict(id=1, tags={'foo': 'bar', 'name': 'house'},
+                 members= [dict(id=23, type='N', role=''),
+                           dict(id=4, type='W', role='forward')])
+
+
+def test_create(filter_table):
+    filter_table.has_data(R1_EXPECT)
+
+
+def test_update_add(db, filter_table):
+    db.update_data("""\
       r10 Ttype=nothing Mw7@,w8@,w9@
       r11 Tfoo=foo,source=gogo Mr11@
-      """
+      """)
 
-    basedata3 = """\
-      r2 Tfoo=x,building=yes Mw2@,w3@,w5@
-      """
+    if filter_table.table.view_only:
+        filter_table.has_changes('M11', 'D10')
+    else:
+        filter_table.has_changes('M11')
 
-    r1_expect = {'id' : 1, 'tags': { 'foo' : 'bar', 'name' : 'house' },
-                 'members' : [{ 'id' : 23, 'type' : 'N', 'role' : ''},
-                              { 'id' : 4, 'type' : 'W', 'role' : 'forward'}]}
-    r2_expect = {'id' : 2, 'tags' : { 'foo' : 'x', 'building' : 'yes' },
-                 'members' : [{'id' : 2, 'type' : 'W', 'role' : ''},
-                             {'id' : 3, 'type' : 'W', 'role' : ''},
-                             {'id' : 5, 'type' : 'W', 'role' : ''}]}
-    r11_expect = {'id' : 11, 'tags' : { 'foo' : 'foo', 'source' : 'gogo' },
-                   'members' : [{ 'id' : 11, 'type' : 'R', 'role' : '' }]}
-
-    def create_tables(self, db):
-        return [ FilteredTable(db.metadata, "test", db.osmdata.relation,
-                                 sqla.text("tags ? 'foo'"),
-                                 view_only=self.view_only) ]
-
-    def test_create(self):
-        self.import_data(self.basedata1)
-        self.table_equals("test", [self.r1_expect])
-
-    def test_update_add(self):
-        self.import_data(self.basedata1)
-        self.update_data(self.basedata2)
-        if self.view_only:
-            self.has_changes("test_changeset", ['M11', 'D10'])
-        else:
-            self.has_changes("test_changeset", ['M11'])
-        self.table_equals("test", [self.r1_expect, self.r11_expect])
-
-    def test_update_delete(self):
-        self.import_data(self.basedata1)
-        self.update_data("r1 dD")
-        self.has_changes("test_changeset", ['D1'])
-        self.table_equals("test", [])
-
-    def test_update_delete_unrelated(self):
-        self.import_data(self.basedata1)
-        self.update_data("r2 dD")
-        if self.view_only:
-            self.has_changes("test_changeset", ['D2'])
-        else:
-            self.has_changes("test_changeset", [])
-        self.table_equals("test", [self.r1_expect])
-
-    def test_update_add_filter_tags(self):
-        self.import_data(self.basedata1)
-        self.update_data(self.basedata3)
-        self.has_changes("test_changeset", ['M2'])
-        self.table_equals("test", [self.r1_expect, self.r2_expect])
-
-    def test_update_remove_filter_tags(self):
-        self.import_data(self.basedata1)
-        self.update_data("r1 Tfooo=bar,name=house Mn23@,w4@forward")
-        self.has_changes("test_changeset", ['D1'])
-        self.table_equals("test", [])
+    filter_table.has_data(R1_EXPECT,
+                          dict(id=11, tags={'foo': 'foo', 'source': 'gogo'},
+                               members=[dict(id=11, type='R', role='')]))
 
 
-class TestFilteredTableView(TestFilteredTable):
-    view_only = True
+def test_update_delete(db, filter_table):
+    db.update_data("r1 dD")
+
+    filter_table.has_changes('D1')
+    filter_table.has_data()
+
+
+def test_update_delete_unrelated(db, filter_table):
+    db.update_data("r2 dD")
+
+    if filter_table.table.view_only:
+        filter_table.has_changes('D2')
+    else:
+        filter_table.has_changes()
+    filter_table.has_data(R1_EXPECT)
+
+
+def test_update_add_filter_tags(db, filter_table):
+    db.update_data("""r2 Tfoo=x,building=yes Mw2@,w3@,w5@""")
+
+    filter_table.has_changes('M2')
+    filter_table.has_data(R1_EXPECT,
+                          dict(id=2, tags={'foo': 'x', 'building': 'yes'},
+                               members=[dict(id=2, type='W', role=''),
+                                        dict(id=3, type='W', role=''),
+                                        dict(id=5, type='W', role='')]))
+
+
+def test_update_remove_filter_tags(db, filter_table):
+    db.update_data("r1 Tfooo=bar,name=house Mn23@,w4@forward")
+
+    filter_table.has_changes('D1')
+    filter_table.has_data()

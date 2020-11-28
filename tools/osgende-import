@@ -167,7 +167,6 @@ class OSMImporter(osmium.SimpleHandler):
         if options.createdb:
             with self.engine.begin() as conn:
                 conn.execute("CREATE EXTENSION postgis")
-                conn.execute("CREATE EXTENSION hstore")
             self.metadata.create_all(self.engine)
 
         if options.nodestore is None:
