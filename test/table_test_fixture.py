@@ -18,6 +18,7 @@
 from geoalchemy2.elements import _SpatialElement as GeoElement
 from geoalchemy2.shape import to_shape
 from collections import namedtuple, OrderedDict
+from pathlib import Path
 import os
 import subprocess
 import tempfile
@@ -28,6 +29,8 @@ from textwrap import dedent
 
 from osgende import MapDB
 from db_compare import DBCompareValue
+
+IMPORT_CMD = Path(__file__, '..', '..', 'tools', 'osgende-import').resolve()
 
 class TableTestFixture(unittest.TestCase):
 
@@ -71,7 +74,7 @@ class TableTestFixture(unittest.TestCase):
             fd.write(osm_data.encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = ['../tools/osgende-import', '-c', '-d', self.Options.database, fd.name]
+            cmd = [IMPORT_CMD, '-c', '-d', self.Options.database, fd.name]
             subprocess.run(cmd, check=True)
 
         self.db = MapDB(self.Options())
@@ -86,7 +89,7 @@ class TableTestFixture(unittest.TestCase):
             fd.write(dedent(data).encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = ['../tools/osgende-import', '-C', '-d', self.Options.database, fd.name]
+            cmd = [IMPORT_CMD, '-C', '-d', self.Options.database, fd.name]
             subprocess.run(cmd)
 
         self.db.update()
