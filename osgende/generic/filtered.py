@@ -23,11 +23,10 @@ class FilteredTable(TableSource):
     """ Table that provides a filtered view of another table according
         to a given subquery.
 
-        The table may be used in view-only mode. In this case, there is no
-        separate change table created but the change is inherited from the
-        source. Note that the change may not be completely correct then
-        with respect to rows that disappear because the filter criteria are
-        no longer met.
+        The table may be used in view-only mode. In this case, the change
+        table will be filled a bit differently: it has the full content of
+        the source change table but taking addition/deletion into account
+        due to appearance and disappearance of filter criteria.
 
         The change table for a full table currently does not distiguish
         between 'add' and 'modified'. All new and changed rows appear as
@@ -77,7 +76,7 @@ class FilteredTable(TableSource):
             changeset = {}
 
             # Added and changed rows are taken from the change table.
-            # Deleted row are all changed objects which are not there anymore.
+            # Deleted rows are all changed objects which are not there anymore.
             # We end up with more objects than were initially in but that's
             # the best we can do.
             sql = sa.select([self.src.cc.id, self.src.cc.action,
