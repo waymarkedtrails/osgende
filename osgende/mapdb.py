@@ -25,7 +25,13 @@ class _Tables:
         return self._data.__getitem__(key)
 
     def __getattr__(self, key):
-        return self._data.__getitem__(key)
+        try:
+            return self._data.__getitem__(key)
+        except KeyError:
+            raise AttributeError()
+
+    def __contains__(self, item):
+        return item in self._data
 
     def __iter__(self):
         return self._data.values().__iter__()
