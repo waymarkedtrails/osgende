@@ -145,11 +145,14 @@ class TagStore(dict):
         return ret
 
 
-    def get_url(self, schemes=None):
+    def get_url(self, schemes=None, keys=None):
         """Return a properly encoded URL for the object.
            Supports `website` and `url` tags.
         """
-        ret = self.firstof('url', 'website')
+        if keys:
+            ret = self.firstof(*keys)
+        else:
+            ret = self.firstof('url', 'website')
 
         if ret is not None:
             # paranoia, to avoid HTML injection

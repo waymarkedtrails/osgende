@@ -69,6 +69,11 @@ class TestTagStore(unittest.TestCase):
         self.assertIsNone(TagStore({'url' : 'ftp://foo.bar'}).get_url())
         self.assertIsNone(TagStore({'url' : 'foo.bar'}).get_url())
 
+    def test_get_image_url(self):
+        self.assertEqual('http://foo.bar',
+                         TagStore({'image' : 'http://foo.bar'}).get_url(keys=['image']))
+        self.assertIsNone(TagStore({'image' : 'foo.bar'}).get_url(keys=['image']))
+
     def test_get_length(self):
         with self.assertRaises(ValueError):
             TagStore({}).get_length(unit='xx')
