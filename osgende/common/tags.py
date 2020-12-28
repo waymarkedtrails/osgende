@@ -21,8 +21,10 @@ from urllib.parse import urlparse, quote
 UNIT_RE = re.compile(r"\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
 
 # conversion matrix for units of length
-LENGTH_MATRIX = {'km' : {'m' : 0.001, 'mi' : 1.6093},
-                 'm' : {'km' : 1000, 'mi' : 1609.3}
+LENGTH_MATRIX = {'km' : {'m': 0.001, 'mi': 1.6093, 'ft': 0.0003048},
+                 'm' : {'km': 1000.0, 'mi': 1609.3, 'ft': 0.3048},
+                 'ft' : {'m': 3.28084, 'km': 3280.84, 'mi': 5280.0},
+                 'mi' : {'m': 0.0006213712, 'km': 0.6213712, 'ft': 0.0001893939}
                 }
 
 class TagStore(dict):

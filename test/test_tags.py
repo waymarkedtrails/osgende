@@ -83,6 +83,12 @@ class TestTagStore(unittest.TestCase):
         self.assertEqual(0.1, TagStore({'dist' : '100m'}).get_length('dist'))
         self.assertEqual(0.1, TagStore({'dist' : '100 m'}).get_length('dist'))
 
+    def test_get_length_convert(self):
+        self.assertAlmostEqual(10000,
+            TagStore({'ele': '10km'}).get_length('ele', unit='m'))
+        self.assertAlmostEqual(3.048,
+            TagStore({'ele': '10'}).get_length('ele', unit='m', default='ft'))
+
     def test_make_localized(self):
         tags = OrderedDict((('name', 'B'), ('name:en', 'A')))
         self.assertDictEqual({'name' : 'A'},
