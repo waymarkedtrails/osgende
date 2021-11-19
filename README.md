@@ -53,7 +53,7 @@ Installation
 
 Osgende can be installed using Python's default setup tools:
 
-    python3 setup.py install
+    pip install .
 
 Usage
 -----
