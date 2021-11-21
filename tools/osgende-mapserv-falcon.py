@@ -29,29 +29,16 @@ from math import pi,exp,atan
 import falcon
 import mapnik
 
-RAD_TO_DEG = 180/pi
+MERCATOR_WIDTH = 20037508.34
 
-class TileProjection:
-    def __init__(self,levels=18):
-        self.Bc = []
-        self.Cc = []
-        self.zc = []
-        self.Ac = []
-        c = 256
-        for d in range(0,levels + 1):
-            e = c/2;
-            self.Bc.append(c/360.0)
-            self.Cc.append(c/(2 * pi))
-            self.zc.append((e,e))
-            self.Ac.append(c)
-            c *= 2
+def tile_to_bbox(zoom, x, y):
+    if zoom == 0:
+        return (-MERCATOR_WIDTH, -MERCATOR_WIDTH, MERCATOR_WIDTH, MERCATOR_WIDTH)
 
-    def fromTileToLL(self, zoom, x, y):
-         e = self.zc[zoom]
-         f = (x*256.0 - e[0])/self.Bc[zoom]
-         g = (y*256.0 - e[1])/-self.Cc[zoom]
-         h = RAD_TO_DEG * ( 2 * atan(exp(g)) - 0.5 * pi)
-         return (f,h)
+    fac = MERCATOR_WIDTH / (1 << (zoom - 1))
+    xmin, ymin = x * fac - MERCATOR_WIDTH, MERCATOR_WIDTH - y * fac
+
+    return (xmin, ymin - fac, xmin + fac, ymin)
 
 
 def mk_tileid(zoom, x, y):
@@ -151,8 +138,6 @@ class MapnikRenderer(object):
         m = mapnik.Map(*self.config['tile_size'])
         self.create_map(m)
 
-        self.mproj = mapnik.Projection(m.srs)
-        self.gproj = TileProjection(self.config['max_zoom'])
         self.thread_data = threading.local()
 
     def get_map(self):
@@ -192,14 +177,8 @@ class MapnikRenderer(object):
         return (zoom, x, y, tiletype)
 
     def render(self, zoom, x, y, fmt):
-        p0 = self.gproj.fromTileToLL(zoom, x, y+1)
-        p1 = self.gproj.fromTileToLL(zoom, x+1, y)
-
-        c0 = self.mproj.forward(mapnik.Coord(p0[0],p0[1]))
-        c1 = self.mproj.forward(mapnik.Coord(p1[0],p1[1]))
-
-        bbox = mapnik.Box2d(c0.x, c0.y, c1.x, c1.y)
-        im = mapnik.Image(256, 256)
+        bbox = mapnik.Box2d(*tile_to_bbox(zoom, x, y))
+        im = mapnik.Image(*self.config['tile_size'])
 
         m = self.get_map()
         m.zoom_to_box(bbox)
