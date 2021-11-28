@@ -128,6 +128,8 @@ class MapDB:
         for tab in self.tables:
             LOG.info("Importing %s...", str(tab.data.name))
             tab.construct(self.engine)
+            if hasattr(tab, 'after_construct'):
+                tab.after_construct(self.engine)
             self.status.set_status_from(self.engine, tab.data.key, 'base')
 
     def update(self):
