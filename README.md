@@ -39,10 +39,6 @@ Osgende requires Python3. Python2 might work but is not officially supported.
 
 Optionally, the following packages are required by some of the tools:
 
-- SQLAlchemy-utils    https://sqlalchemy-utils.readthedocs.org
-
-    Helper functions for SQLAlchemy.
-
 - Mapnik >= 3.0       http://mapnik.org/
 
     Map renderer for OSM data. 

@@ -42,7 +42,6 @@ import osmium.replication.server as rserv
 from collections import namedtuple
 
 import sqlalchemy as sqla
-import sqlalchemy_utils as sqla_utils
 
 from osgende.common.nodestore import NodeStore
 from osgende.common.status import StatusManager
@@ -138,15 +137,24 @@ class OSMImporter(osmium.SimpleHandler):
         dburl = sqla.engine.url.URL('postgresql', username=options.username,
                                     password=options.password,
                                     database=options.database)
-        if not sqla_utils.database_exists(dburl):
-            if not options.createdb:
-                raise RuntimeError("Database does not exist.")
+        mgmt_dburl = sqla.engine.url.URL('postgresql', username=options.username,
+                                    password=options.password,
+                                    database='postgres')
+        mgmt_engine = sqla.create_engine(mgmt_dburl, echo=options.verbose)
+        with mgmt_engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+            db_table = sqla.Table('pg_database', sqla.MetaData(),
+                                   sqla.Column('datname', sqla.Text))
+            res = conn.scalar(sqla.select([sqla.func.count()])\
+                                  .where(db_table.c.datname == options.database))
+            if not res:
+                if not options.createdb:
+                    raise RuntimeError("Database does not exist.")
 
-            print("Creating new DB")
-            sqla_utils.create_database(dburl)
-        else:
-            if options.createdb:
-                raise RuntimeError("Database already exists.")
+                print("Creating new DB")
+                conn.execute(f'CREATE DATABASE "{options.database}"')
+            else:
+                if options.createdb:
+                    raise RuntimeError("Database already exists.")
 
         self.metadata = sqla.MetaData()
         self.tables = OsmSourceTables(self.metadata)
