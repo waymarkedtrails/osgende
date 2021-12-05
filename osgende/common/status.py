@@ -23,6 +23,9 @@ class DummyStatusManager:
     def get_date(self, *args):
         return None
 
+    def grant_read_access(self, *args):
+        pass
+
 class StatusManager:
     """A class that monitors the import status of the database. It exports
        functions to set and query the last import status of each table.
@@ -88,3 +91,6 @@ class StatusManager:
         """ Completely remove the status for the given table.
         """
         conn.execute(self.table.delete().where(self.table.c.part == part))
+
+    def grant_read_access(self, conn, user):
+        conn.execute(f'GRANT SELECT ON TABLE {self.table.key} TO "{user}"')

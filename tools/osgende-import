@@ -254,6 +254,12 @@ class OSMImporter(osmium.SimpleHandler):
                     i = sqla.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
                     i.create(conn)
 
+    def grant_read_access(self, user):
+        with self.engine.begin() as conn:
+            for table in (self.tables.node, self.tables.way, self.tables.relation):
+                conn.execute(f'GRANT SELECT ON TABLE {table.data.key} TO "{user}"')
+                self.status.grant_read_access(conn, user)
+
     def prepare_changeset(self):
         with self.engine.begin() as conn:
             for n in ('node', 'way', 'relation'):
@@ -354,6 +360,8 @@ if __name__ == '__main__':
                        help='name of database')
     parser.add_argument('-u', action='store', dest='username', default=None,
                        help='database user')
+    parser.add_argument('-U', action='store', dest='ro_user', default=None,
+                       help='Additonal database to be granted r/o access')
     parser.add_argument('-p', action='store', dest='password', default=None,
                        help='password for database')
     parser.add_argument('-n', action='store', dest='nodestore', default=None,
@@ -379,4 +387,5 @@ if __name__ == '__main__':
     importer.readfile()
     if options.createindices:
         importer.create_indices()
-
+    if options.ro_user:
+        importer.grant_read_access(options.ro_user)
