@@ -19,12 +19,18 @@ class TestBuildGeometry(unittest.TestCase):
         ids = { 'W' : count(1), 'R' : count(1) }
         for member in members:
             typ = member[0]
-            oid = next(ids[typ])
+            if member[1] == '[':
+                eoid = member.find(']')
+                oid = member[2:eoid]
+                nodes = member[eoid + 1:]
+            else:
+                oid = next(ids[typ])
+                nodes = member[1:]
 
             rel_members.append({'id' : oid, 'type' : typ, 'role' : ''})
 
             nodes = [[(0.0, float(x)*0.0001) for x in s.split(',')]
-                     for s in member[1:].split(' ')]
+                     for s in nodes.split(' ')]
 
             if len(nodes) == 1:
                 geoms[typ][oid] = builder._MultiLine(LineString(nodes[0]))
@@ -38,13 +44,13 @@ class TestBuildGeometry(unittest.TestCase):
         lines = expected.split()
         if len(lines) == 1:
             self.assertEqual('LineString', result.geom_type)
-            coords = [(0, float(c)*0.0001) for c in lines[0].split(',')]
+            coords = [(0.0, float(c)*0.0001) for c in lines[0].split(',')]
             self.assertListEqual(coords, list(result.coords))
         else:
             self.assertEqual('MultiLineString', result.geom_type)
             self.assertEqual(len(lines), len(result.geoms))
             for exp, res in zip(lines, result.geoms):
-                coords = [(0, float(c)*0.0001) for c in exp.split(',')]
+                coords = [(0.0, float(c)*0.0001) for c in exp.split(',')]
                 self.assertListEqual(coords, list(res.coords))
 
     def test_one_way(self):
@@ -79,3 +85,8 @@ class TestBuildGeometry(unittest.TestCase):
         self.check_geom('1,2 3,4 5,6 7,8', self.build('R1,2 3,4', 'R8,7 6,5'))
         self.check_geom('1,2 3,4 5,6 7,8', self.build('R4,3 2,1', 'R5,6 7,8'))
         self.check_geom('1,2 3,4 5,6 7,8', self.build('R4,3 2,1', 'R8,7 6,5'))
+
+    def test_circular_with_end(self):
+        self.check_geom('1,2,3,4,5,2,1',
+                        self.build('W[100]1,2', 'W2,3,4', 'W2,5,4', 'W[100]1,2'))
+

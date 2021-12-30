@@ -82,14 +82,14 @@ class _MultiLine:
         """ Add the given geometry as new segments to the end of the multiline.
         """
         self.turn_point = len(self.geom)
-        self.geom.extend(geom.geom)
+        self.geom.extend(list(g) for g in geom.geom)
 
     def weld(self, geom):
         """ Adds the geometry by joining the last point of this geometry
             and the first point of the given one.
         """
         self.geom[-1].extend(geom.geom[0][1:])
-        self.geom.extend(geom.geom[1:])
+        self.geom.extend(list(g) for g in geom.geom[1:])
 
     def weld_reverse(self, geom):
         """ Reverses the geometry and adds it by joining the last point of this
@@ -192,6 +192,7 @@ def build_route_geometry(conn, members, way_table, rel_table):
 
     for member in filter(lambda m: m['type'] != 'N', members):
         geom = geoms[member['type']].get(member['id'])
+
         if geom is None:
             continue
 
