@@ -1,123 +1,187 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # This file is part of Osgende.
-# Copyright (C) 2020 Sarah Hoffmann
+# Copyright (C) 2021 Sarah Hoffmann
+import pytest
 
-import unittest
 from collections import OrderedDict
 
 from osgende.common.tags import TagStore
 
-class TestTagStore(unittest.TestCase):
+@pytest.mark.parametrize('keys,result', [(('one', 'two'), 'foo'),
+                                         (('two', 'one'), 'bar'),
+                                         (('three', 'two'), 'bar')])
+def test_firstof_simple(keys, result):
+    t = TagStore({'one': 'foo', 'two': 'bar'})
 
-    def test_firstof(self):
-        t = TagStore({'one': 'foo', 'two': 'bar'})
-        self.assertEqual('foo', t.firstof('one', 'two'))
-        self.assertEqual('bar', t.firstof('three', 'two'))
-        self.assertEqual('baz', t.firstof('three', 'siz', default='baz'))
-        self.assertIsNone(t.firstof('three', 'siz'))
+    assert t.firstof(*keys) == result
 
-    def test_get_booleans(self):
-        t = TagStore(dict(a='true', b='True', c='no', d='noo', e='yes', f='false'))
-        self.assertEqual(dict(a=True, b=True, c=False, e=True, f=False),
-                         t.get_booleans())
 
-    def test_get_wikipedia_url(self):
-        self.assertEqual('https://en.wikipedia.org/wiki/Something',
-                         TagStore(dict(wikipedia='Something')).get_wikipedia_url())
-        self.assertEqual('https://de.wikipedia.org/wiki/Etwas',
-                         TagStore(dict(wikipedia='de:Etwas')).get_wikipedia_url())
-        self.assertEqual('https://de.wikipedia.org/wiki/Etw%20as',
-                         TagStore(dict(wikipedia='de:Etw as')).get_wikipedia_url())
-        self.assertEqual('https://est.wikipedia.org/wiki/Nada',
-                         TagStore({'wikipedia:est': 'Nada'}).get_wikipedia_url())
+def test_firstof_default():
+    t = TagStore({'one': 'foo', 'two': 'bar'})
 
-        self.assertIsNone(TagStore(dict(name='wikipedia')).get_wikipedia_url())
-        self.assertIsNone(TagStore(dict(wikipedia='http://en.wikipedia.org/wiki/Something')).get_wikipedia_url())
-        self.assertIsNone(TagStore(dict(wikipedia='xxxx:Entry')).get_wikipedia_url())
+    assert t.firstof('three', 'siz', default='baz') == 'baz'
 
-        self.assertIsNone(TagStore({'wikipedia:x': 'Nada'}).get_wikipedia_url())
-        self.assertIsNone(TagStore({'wikipedia:1234': 'Nada'}).get_wikipedia_url())
 
-    def test_get_wikipedia_tags(self):
-        self.assertEqual(dict(en='Something'),
-                         TagStore(dict(wikipedia='Something')).get_wikipedia_tags())
-        self.assertEqual(dict(de='Etwas'),
-                         TagStore(dict(wikipedia='de:Etwas')).get_wikipedia_tags())
-        self.assertEqual(dict(de='Etw as'),
-                         TagStore(dict(wikipedia='de:Etw as')).get_wikipedia_tags())
-        self.assertEqual(dict(est='Nada'),
-                         TagStore({'wikipedia:est': 'Nada'}).get_wikipedia_tags())
+def test_firstof_default_none():
+    t = TagStore({'one': 'foo', 'two': 'bar'})
 
-        self.assertEqual({}, TagStore(dict(name='wikipedia')).get_wikipedia_tags())
-        self.assertEqual({}, TagStore(dict(wikipedia='http://en.wikipedia.org/wiki/Something')).get_wikipedia_tags())
-        self.assertEqual({}, TagStore(dict(wikipedia='xxxx:Entry')).get_wikipedia_tags())
+    assert t.firstof('three', 'siz') is None
 
-        self.assertEqual({}, TagStore({'wikipedia:x': 'Nada'}).get_wikipedia_tags())
-        self.assertEqual({}, TagStore({'wikipedia:1234': 'Nada'}).get_wikipedia_tags())
 
-    def test_get_url(self):
-        self.assertEqual('http://foo.bar',
-                         TagStore({'url' : 'http://foo.bar',
-                                   'website' : 'https://foo.bar'}).get_url())
-        self.assertEqual('http://google.com',
-                         TagStore({'website' : 'http://google.com'}).get_url())
-        self.assertEqual('ftp://google.com',
-                         TagStore({'website' : 'ftp://google.com'}).get_url(schemes=('ftp','http')))
-        self.assertEqual('http://myspace.de/me%27me%22',
-                         TagStore({'url' : 'http://myspace.de/me\'me"'}).get_url())
-        self.assertIsNone(TagStore({'url' : 'ftp://foo.bar'}).get_url())
-        self.assertIsNone(TagStore({'url' : 'foo.bar'}).get_url())
+def test_get_booleans():
+    t = TagStore(dict(a='true', b='True', c='no', d='noo', e='yes', f='false'))
 
-    def test_get_image_url(self):
-        self.assertEqual('http://foo.bar',
-                         TagStore({'image' : 'http://foo.bar'}).get_url(keys=['image']))
-        self.assertIsNone(TagStore({'image' : 'foo.bar'}).get_url(keys=['image']))
+    assert t.get_booleans() == dict(a=True, b=True, c=False, e=True, f=False)
 
-    def test_get_length(self):
-        with self.assertRaises(ValueError):
-            TagStore({}).get_length(unit='xx')
 
-        self.assertIsNone(TagStore({'name' : 'A'}).get_length('ele'))
-        self.assertIsNone(TagStore({'dist' : '100xx'}).get_length('dist'))
+def test_get_wikipedia_url_simple():
+    t = TagStore(dict(wikipedia='Something'))
 
-        self.assertEqual(10, TagStore({'dist' : '10'}).get_length('dist'))
-        self.assertEqual(10, TagStore({'dist' : '10km'}).get_length('dist'))
-        self.assertEqual(10.3, TagStore({'dist' : '10.3 km'}).get_length('dist'))
-        self.assertEqual(10.3, TagStore({'dist' : '10,3'}).get_length('dist'))
-        self.assertEqual(0.1, TagStore({'dist' : '100m'}).get_length('dist'))
-        self.assertEqual(0.1, TagStore({'dist' : '100 m'}).get_length('dist'))
+    assert t.get_wikipedia_url() == 'https://en.wikipedia.org/wiki/Something'
 
-    def test_get_length_convert(self):
-        self.assertAlmostEqual(10000,
-            TagStore({'ele': '10km'}).get_length('ele', unit='m'))
-        self.assertAlmostEqual(3.048,
-            TagStore({'ele': '10'}).get_length('ele', unit='m', default='ft'))
 
-    def test_make_localized(self):
-        tags = OrderedDict((('name', 'B'), ('name:en', 'A')))
-        self.assertDictEqual({'name' : 'A'},
-                             TagStore.make_localized(tags, ('en', 'de')))
+def test_get_wikipedia_url_lang_in_value():
+    t = TagStore(dict(wikipedia='de:Etwas'))
 
-        tags = OrderedDict((('name:en', 'B'), ('name', 'A')))
-        self.assertDictEqual({'name' : 'B'},
-                             TagStore.make_localized(tags, ('en', 'de')))
+    assert t.get_wikipedia_url() == 'https://de.wikipedia.org/wiki/Etwas'
 
-        tags = OrderedDict((('name:en', 'B'), ('name:de', 'A')))
-        self.assertDictEqual({'name' : 'B'},
-                             TagStore.make_localized(tags, ('en', 'de')))
 
-        tags = OrderedDict((('name:en', 'B'), ('name:de', 'A')))
-        self.assertDictEqual({'name' : 'A'},
-                             TagStore.make_localized(tags, ('de', 'en')))
+def test_get_wikipedia_url_special():
+    t = TagStore(dict(wikipedia='de:Etw as'))
 
-        tags = OrderedDict((('name', 'B'), ('name:fr', 'A')))
-        self.assertDictEqual({'name' : 'B', 'name:fr' : 'A'},
-                             TagStore.make_localized(tags, ('en', 'de')))
+    assert t.get_wikipedia_url() == 'https://de.wikipedia.org/wiki/Etw%20as'
 
-    def test_get_prefixed(self):
-        tags = TagStore({'name': 'A', 'name:fr': 'B', 'ref': 'C', 'name:XXX': 'D'})
-        self.assertDictEqual(dict(fr='B', XXX='D'), tags.get_prefixed('name:'))
 
-        tags = TagStore({'name': 'A', 'name:fr': 'B', 'ref': 'C', 'name:XXX': 'D'})
-        self.assertDictEqual({}, tags.get_prefixed('addr:'))
+def test_get_wikipedia_url_lang_in_key():
+    t = TagStore({'wikipedia:est': 'Nada'})
+
+    assert t.get_wikipedia_url() == 'https://est.wikipedia.org/wiki/Nada'
+
+
+@pytest.mark.parametrize('tags', [dict(name='wikipedia'),
+                                  dict(wikipedia='http://en.wikipedia.org/wiki/Something'),
+                                  dict(wikipedia='xxxx:Entry'),
+                                  {'wikipedia:x': 'Nada'},
+                                  {'wikipedia:1234': 'Nada'}])
+def test_get_wikipedia_invalid(tags):
+    assert TagStore(tags).get_wikipedia_url() is None
+
+
+def test_get_wikipedia_tags_simple():
+    t = TagStore(dict(wikipedia='Something'))
+    assert t.get_wikipedia_tags() == dict(en='Something')
+
+
+def test_get_wikipedia_tags_lang_in_value():
+    t = TagStore(dict(wikipedia='de:Etwas'))
+    assert t.get_wikipedia_tags() == dict(de='Etwas')
+
+
+def test_get_wikipedia_tags_with_space():
+    t = TagStore(dict(wikipedia='de:Etw as'))
+    assert t.get_wikipedia_tags() == dict(de='Etw as')
+
+
+def test_get_wikipedia_tags_lang_in_key():
+    t = TagStore({'wikipedia:hun': 'Nada', 'wikipedia:de': 'Nichts'})
+    assert t.get_wikipedia_tags() == dict(hun='Nada', de='Nichts')
+
+
+@pytest.mark.parametrize('tags', [dict(name='wikipedia'),
+                                  dict(wikipedia='http://en.wikipedia.org/wiki/Something'),
+                                  dict(wikipedia='xxxx:Entry'),
+                                  {'wikipedia:x': 'Nada'},
+                                  {'wikipedia:1234': 'Nada'}])
+def test_get_wikipedia_tags_bad(tags):
+    assert TagStore(tags).get_wikipedia_tags() == {}
+
+
+def test_get_url_multiple():
+    t = TagStore({'url' : 'http://foo.bar', 'website' : 'https://foo.bar'})
+    assert t.get_url() == 'http://foo.bar'
+
+
+@pytest.mark.parametrize('value', ('http://google.com', 'https://google.com'))
+def test_get_url_allowed(value):
+    t = TagStore({'website': value})
+    assert t.get_url() == value
+
+
+def test_get_url_custom_schemas():
+    t = TagStore({'website' : 'ftp://google.com'})
+    assert t.get_url(schemes=('ftp','http')) == 'ftp://google.com'
+
+
+def test_get_url_special_chars():
+    t = TagStore({'url' : 'http://myspace.de/me\'me"'})
+    assert t.get_url() == 'http://myspace.de/me%27me%22'
+
+
+@pytest.mark.parametrize('url', ('ftp://foo.bar', 'foo.bar'))
+def test_get_url_illegal(url):
+    t = TagStore({'url' : url})
+    assert t.get_url() is None
+
+
+def test_get_url_custom_key():
+    t = TagStore({'image' : 'http://foo.bar', 'url': 'http://not.that'})
+    assert t.get_url(keys=['image']) == 'http://foo.bar'
+
+
+def test_get_url_custom_key_not_there():
+    t = TagStore({'url': 'http://not.that'})
+    assert t.get_url(keys=['image']) is None
+
+
+def test_get_length_bad_unit():
+    with pytest.raises(ValueError):
+        TagStore({}).get_length(unit='xx')
+
+
+def test_get_length_no_tag():
+    t = TagStore({'name' : 'A'})
+    assert t.get_length('ele') is None
+
+
+def test_get_length_bad_value():
+    t = TagStore({'dist' : '100xx'})
+    assert t.get_length('dist') is None
+
+
+@pytest.mark.parametrize('inp,outp', [('10', 10), ('10km', 10),
+                                      ('10.3 km', 10.3), ('10,3', 10.3),
+                                      ('100m', 0.1), ('100 m ', 0.1)])
+def test_get_length_valid(inp, outp):
+    t = TagStore({'dist': inp})
+    assert t.get_length('dist') == outp
+
+
+def test_get_length_convert():
+    t = TagStore({'ele': '10km'})
+    assert t.get_length('ele', unit='m') == 10000
+
+
+def test_get_length_converted_with_default():
+    t = TagStore({'ele': '10'})
+    assert t.get_length('ele', unit='m', default='ft') == pytest.approx(3.048)
+
+
+@pytest.mark.parametrize('tags,out', [(('name', 'B', 'name:en', 'A'), {'name': 'A'}),
+                                      (('name:en', 'B', 'name', 'A'), {'name' : 'B'}),
+                                      (('name:en', 'B', 'name:de', 'A'), {'name' : 'B'}),
+                                      (('name:de', 'A', 'name:en', 'B'), {'name' : 'B'}),
+                                      (('name', 'B', 'name:fr', 'A'), {'name' : 'B', 'name:fr' : 'A'})])
+def test_make_localized(tags, out):
+    transformed = OrderedDict(zip(tags[::2], tags[1::2]))
+    assert TagStore.make_localized(transformed, ('en', 'de')) == out
+
+
+def test_get_prefixed():
+    t = TagStore({'name': 'A', 'name:fr': 'B', 'ref': 'C', 'name:XXX': 'D'})
+    assert t.get_prefixed('name:') == dict(fr='B', XXX='D')
+
+
+def test_get_prefixed_no_tags():
+    t = TagStore({'name': 'A', 'name:fr': 'B', 'ref': 'C', 'name:XXX': 'D'})
+    assert t.get_prefixed('addr:') == {}
