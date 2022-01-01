@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # This file is part of Osgende.
-# Copyright (C) 2021 Sarah Hoffmann
+# Copyright (C) 2022 Sarah Hoffmann
 import pytest
 
 from collections import OrderedDict
@@ -157,9 +157,12 @@ def test_get_length_valid(inp, outp):
     assert t.get_length('dist') == outp
 
 
-def test_get_length_convert():
-    t = TagStore({'ele': '10km'})
-    assert t.get_length('ele', unit='m') == 10000
+@pytest.mark.parametrize('inp,outp', [('10km', 10000), ('453', 453000),
+                                      ("1000ft", 304.8), ("1000'", 304.8),
+                                      ('889m', 889)])
+def test_get_length_convert(inp, outp):
+    t = TagStore({'ele': inp})
+    assert t.get_length('ele', unit='m') == pytest.approx(outp)
 
 
 def test_get_length_converted_with_default():

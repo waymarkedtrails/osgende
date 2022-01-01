@@ -1,30 +1,21 @@
-# This file is part of Osgende
-# Copyright (C) 2011-2012 Sarah Hoffmann
+# SPDX-License-Identifier: GPL-3.0-only
 #
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
+# This file is part of Osgende.
+# Copyright (C) 2022 Sarah Hoffmann
 import re
 from urllib.parse import urlparse, quote
 
-UNIT_RE = re.compile(r"\s*(\d+)([.,](\d+))?\s*([a-zA-Z]*)")
+UNIT_RE = re.compile(r"\s*(\d+)([.,](\d+))?\s*([a-zA-Z']*)")
 
 # conversion matrix for units of length
-LENGTH_MATRIX = {'km' : {'m': 0.001, 'mi': 1.6093, 'ft': 0.0003048},
-                 'm' : {'km': 1000.0, 'mi': 1609.3, 'ft': 0.3048},
-                 'ft' : {'m': 3.28084, 'km': 3280.84, 'mi': 5280.0},
-                 'mi' : {'m': 0.0006213712, 'km': 0.6213712, 'ft': 0.0001893939}
+LENGTH_MATRIX = {'km' : {'m': 0.001, 'mi': 1.6093,
+                         'ft': 0.0003048, "'": 0.0003048},
+                 'm' : {'km': 1000.0,
+                        'mi': 1609.3, 'ft': 0.3048, "'": 0.3048},
+                 'ft' : {'m': 3.28084, 'km': 3280.84,
+                         'mi': 5280.0, "'": 1.0},
+                 'mi' : {'m': 0.0006213712, 'km': 0.6213712,
+                         'ft': 0.0001893939, "'": 0.0001893939}
                 }
 
 class TagStore(dict):
