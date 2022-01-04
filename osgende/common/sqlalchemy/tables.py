@@ -1,22 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # This file is part of Osgende
-# Copyright (C) 2017 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
+# Copyright (C) 2022 Sarah Hoffmann
 """ Additional Clauses for table manipulation.
 """
 
@@ -27,6 +12,8 @@ from sqlalchemy.sql.expression import ClauseElement, Executable
 class CreateTableAs(Executable, ClauseElement):
     """ Create a table from a select query.
     """
+    inherit_cache = False
+
     def __init__(self, name, query, temporary=True):
         self.name = name
         self.query = query
@@ -44,6 +31,8 @@ def _create_table_as(element, compiler, **kw):
 class Analyse(Executable, ClauseElement):
     """ Analyse the given table with or without vacuuming.
     """
+    inherit_cache = False
+
     def __init__(self, table, dovacuum=False):
         self.table = table
         self.dovacuum = dovacuum
@@ -58,6 +47,8 @@ def _analyse(element, compiler, **kw):
 class CreateView(Executable, ClauseElement):
     """ Create or replace a view from a select statement.
     """
+    inherit_cache = False
+
     def __init__(self, name, select, replace=True):
         self.name = name
         self.select = select
@@ -74,6 +65,8 @@ def visit_create_view(element, compiler, **kw):
 class DropIndexIfExists(Executable, ClauseElement):
     """ Drop given index only if it exists.
     """
+    inherit_cache = False
+
     def __init__(self, index):
         self.index = index
 
@@ -89,6 +82,8 @@ def _analyse(element, compiler, **kw):
 class Truncate(Executable, ClauseElement):
     """ Truncate the given table.
     """
+    inherit_cache = False
+
     def __init__(self, table, reset=False):
         self.table = table
         self.attr = 'RESTART IDENTITY' if reset else ''
