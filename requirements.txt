@@ -3,4 +3,3 @@ shapely
 osmium>=3.0
 SQLAlchemy>1.2,<1.4
 GeoAlchemy2
-SQLAlchemy-Utils<=0.36.7
