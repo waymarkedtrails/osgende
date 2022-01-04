@@ -35,7 +35,7 @@ class FilteredTable(TableSource):
 
     def __init__(self, meta, name, source, subset, view_only=False):
         self.view_only = view_only
-        table = source.data.tometadata(meta, name=name)
+        table = source.data.to_metadata(meta, name=name)
         TableSource.__init__(self, table, name + "_changeset")
 
         self.subset = subset
