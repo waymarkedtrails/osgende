@@ -17,7 +17,7 @@ class TestStatusManager(unittest.TestCase):
         self.assertEqual(0, os.system('dropdb --if-exists osgende_test'))
         self.assertEqual(0, os.system('createdb osgende_test'))
 
-        dba = URL('postgresql', database='osgende_test')
+        dba = URL.create('postgresql', database='osgende_test')
         self.engine = sa.create_engine(dba)
 
     def test_set_base(self):
