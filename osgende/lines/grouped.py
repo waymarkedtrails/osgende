@@ -72,7 +72,7 @@ class GroupedWayTable(TableSource):
             done = set()
             # Remove all virtual IDs that are directly affected by the change.
             modsql = sa.select([self.c.id], distinct=True)\
-                         .where(self.c.child.in_(self.src.select_modify_delete())).alias()
+                         .where(self.c.child.in_(self.src.select_modify_delete()))
 
             delsql = self.data.delete().where(self.c.id.in_(modsql))
 
