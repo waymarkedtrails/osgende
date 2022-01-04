@@ -70,8 +70,8 @@ class MapDB:
             self.status = DummyStatusManager()
 
         if not self.get_option('no_engine'):
-            dba = URL('postgresql', username=options.username,
-                      password=options.password, database=options.database)
+            dba = URL.create('postgresql', username=options.username,
+                             password=options.password, database=options.database)
             self.engine = create_engine(dba, echo=self.get_option('echo_sql', False))
 
         self.metadata = MetaData(schema=self.get_option('schema'))

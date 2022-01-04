@@ -67,7 +67,8 @@ class TestableDB:
             cmd = [IMPORT_CMD, '-c', '-d', DBOptions.database, fd.name]
             subprocess.run(cmd, check=True)
 
-        self.db.engine = create_engine(URL('postgresql', database=DBOptions.database),
+        self.db.engine = create_engine(URL.create('postgresql',
+                                                  database=DBOptions.database),
                                        echo=False)
 
         self.db.create()
