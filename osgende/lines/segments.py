@@ -1,19 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2017 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2022 Sarah Hoffmann
 
 import logging
 from collections import Counter, defaultdict
@@ -171,8 +159,8 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                                   autoload_with=conn)
 
             if log.isEnabledFor(logging.DEBUG):
-                log.debug("Nodes needing updating: ",
-                        [x for x in conn.execute(temp_nodes.select())])
+                log.debug("Nodes needing updating: %s",
+                          [x for x in conn.execute(temp_nodes.select())])
 
             deleted_ids = {}
             # throw out all segments that have one of these points
@@ -187,9 +175,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             while True:
                 additional_ways = set()
                 for c in conn.execute(q):
-                    for w in c['ways']:
-                        if w not in waysdone:
-                            additional_ways.add(w)
+                    additional_ways.update(w for w in c['ways'] if w not in waysdone)
                     deleted_ids[c['id']] = 'D'
 
                 if not additional_ways:
