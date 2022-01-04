@@ -1,28 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2017 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2022 Sarah Hoffmann
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import ARRAY, array_agg, array
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, array_agg, array
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape, to_shape
 import shapely.geometry as sgeom
 
 from osgende.common.table import TableSource
-from osgende.common.sqlalchemy import CreateView, jsonb_array_elements, DropIndexIfExists, Truncate
+from osgende.common.sqlalchemy import CreateView, DropIndexIfExists, Truncate
 from osgende.common.tags import TagStore
 from osgende.common.threads import ThreadableDBObject
 
@@ -90,7 +78,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         self.change.create(bind=engine, checkfirst=True)
 
         rels = self.relation_src.data.alias('r')
-        members = jsonb_array_elements(rels.c.members).lateral()
+        members = sa.func.jsonb_array_elements(rels.c.members)\
+                         .table_valued(sa.column('value', JSONB)).lateral()
 
         sql = sa.select([rels.c.id.label('relation_id'),
                          members.c.value['id'].astext.cast(sa.BigInteger).label('way_id')]
@@ -171,10 +160,10 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
         waynode_sql = sa.select([w.c.nodes]).where(w.c.id == d.c.id)
 
-        cols = [d, waynode_sql.as_scalar().label('new_nodes')]
+        cols = [d, waynode_sql.scalar_subquery().label('new_nodes')]
         if with_tags:
             waytag_sql = sa.select([w.c.tags]).where(w.c.id == d.c.id)
-            cols.append(waytag_sql.as_scalar().label('new_tags'))
+            cols.append(waytag_sql.scalar_subquery().label('new_tags'))
         sql = sa.select(cols).where(sql_idchg.c.id == d.c.id)
 
         inserts = []
@@ -244,14 +233,15 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         sub = sa.select([array_agg(r.c.id)])\
                 .where(r.c.members.contains(
                          sa.func.jsonb_build_array(
-                           sa.func.jsonb_build_object('type', 'W', 'id', w.c.id))))
+                           sa.func.jsonb_build_object('type', 'W', 'id', w.c.id))))\
+                .scalar_subquery()
         sql = sa.select([w.c.id, w.c.rels, sub.label('new_rels')])\
                 .where(sa.or_(
                     w.c.id.in_(
                          sa.select([rs.c.way_id]).
                            where(rs.c.relation_id.in_(
                                self.relation_src.select_add_modify()))),
-                    w.c.rels.op('&& ARRAY')(sa.select([self.relation_src.cc.id]))
+                    w.c.rels.op('&& ARRAY')(sa.select([self.relation_src.cc.id]).scalar_subquery())
                            ))
 
         inserts = []
