@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # This file is part of Osgende
-# Copyright (C) 2010-2020 Sarah Hoffmann
+# Copyright (C) 2022 Sarah Hoffmann
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import array
-from osgende.common.sqlalchemy import Truncate, jsonb_array_elements
+from sqlalchemy.dialects.postgresql import JSONB
+
+from osgende.common.sqlalchemy import Truncate
 
 class RelationHierarchy:
     """Table describing the relation hierarchies of the OSM relations table.
@@ -50,7 +52,8 @@ class RelationHierarchy:
             self.truncate(conn)
             # Insert all direct children
             rels = self.src.data.alias('r')
-            members = jsonb_array_elements(rels.c.members).lateral()
+            members = sa.func.jsonb_array_elements(rels.c.members)\
+                             .table_valued(sa.column('value', JSONB)).lateral()
             id_bigint = members.c.value['id'].astext.cast(sa.BigInteger)
 
             sql = sa.select([rels.c.id.label('parent'),
