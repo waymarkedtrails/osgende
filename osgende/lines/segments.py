@@ -150,7 +150,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             # 2. nodes in segments where ways are changed
             waysel = sa.select([self.src.cc.id.label('tid')])
             segchg = sa.select([saf.func.unnest(self.c.nodes).label('tid')])\
-                       .where(self.c.ways.op('&& ARRAY')(waysel))
+                       .where(self.c.ways.op('&& ARRAY')(waysel.scalar_subquery()))
             conn.execute('DROP TABLE IF EXISTS __temp_updated_nodes')
             conn.execute(osa.CreateTableAs('__temp_updated_nodes',
                                            sa.union(segchg, waychg).alias('sub'),
