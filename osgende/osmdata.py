@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # This file is part of Osgende
-# Copyright (C) 2015-2020 Sarah Hoffmann
+# Copyright (C) 2015-2022 Sarah Hoffmann
 
 from sqlalchemy import Table, Column, BigInteger, String, select
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
@@ -12,7 +12,7 @@ from osgende.common.nodestore import NodeStore, NodeStorePoint
 def _mkpointlist_points(nodes, store):
     ret = []
     prev = None
-    for n in filter(None.__ne__, nodes):
+    for n in filter(lambda x: x is not None, nodes):
         try:
             coord = store[n]
             if coord == prev:
