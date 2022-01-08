@@ -25,11 +25,11 @@ Osgende requires Python3. Python2 might work but is not officially supported.
     Python bindings for the geos library.
     (available as Debian package: python-shapely)
 
-- pyosmium            https://github.com/osmcode/pyosmium
+- pyosmium >= 3.0     https://github.com/osmcode/pyosmium
 
     Python bindings for libosmium, needed for the import tool.
 
-- SQLAlchemy >= 1.0.8 http://www.sqlalchemy.org/
+- SQLAlchemy >= 1.4,< 2.0 http://www.sqlalchemy.org/
 
     SQL toolkit for python. osgende uses the Core package only.
 
@@ -39,7 +39,7 @@ Osgende requires Python3. Python2 might work but is not officially supported.
 
 Optionally, the following packages are required by some of the tools:
 
-- Mapnik >= 3.0       http://mapnik.org/
+- Mapnik >= 3.1       http://mapnik.org/
 
     Map renderer for OSM data. 
 
