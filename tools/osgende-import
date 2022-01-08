@@ -1,20 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+#
 # This file is part of Osgende
-# Copyright (C) 2014-2020 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Copyright (C) 2014-2022 Sarah Hoffmann
 """
 Importer of OSM planet dumps and diffs into a simplified Osmosis
 style postgresql database.
@@ -134,12 +122,12 @@ class OSMImporter(osmium.SimpleHandler):
 
     def __init__(self, options):
         super(OSMImporter, self).__init__()
-        dburl = sqla.engine.url.URL('postgresql', username=options.username,
-                                    password=options.password,
-                                    database=options.database)
-        mgmt_dburl = sqla.engine.url.URL('postgresql', username=options.username,
-                                    password=options.password,
-                                    database='postgres')
+        dburl = sqla.engine.url.URL.create('postgresql', username=options.username,
+                                           password=options.password,
+                                           database=options.database)
+        mgmt_dburl = sqla.engine.url.URL.create('postgresql', username=options.username,
+                                                password=options.password,
+                                                database='postgres')
         mgmt_engine = sqla.create_engine(mgmt_dburl, echo=options.verbose)
         with mgmt_engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
             db_table = sqla.Table('pg_database', sqla.MetaData(),
