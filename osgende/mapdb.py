@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # This file is part of Osgende
-# Copyright (C) 2011-2020 Sarah Hoffmann
+# Copyright (C) 2011-2022 Sarah Hoffmann
 
 import logging
 import collections
@@ -44,9 +44,6 @@ class _Tables:
 
 class MapDB:
     """Basic class for creation and modification of a complete database.
-
-       Subclass this for each database and supply the create_tables()
-       function.
 
        `options` may be extended with arbitrary attributes by subclasses. MapDB
        currently makes use of the following:
