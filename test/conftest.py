@@ -2,7 +2,7 @@
 #
 # This file is part of Osgende
 # Copyright (C) 2020 Sarah Hoffmann
-
+import sys
 import os
 from pathlib import Path
 from textwrap import dedent
@@ -13,6 +13,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.engine.url import URL
 
+# always test against the source
+SRC_DIR = (Path(__file__) / '..' / '..').resolve()
+sys.path.insert(0, str(SRC_DIR))
 
 from osgende import MapDB
 from db_compare import DBCompareValue

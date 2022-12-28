@@ -23,7 +23,6 @@ import os
 import subprocess
 import tempfile
 import unittest
-from nose.tools import *
 from textwrap import dedent
 
 
@@ -41,7 +40,7 @@ class TableTestFixture(unittest.TestCase):
         status = False
 
     def import_data(self, data, nodes={}, grid=None):
-        assert_equal(0, os.system('dropdb --if-exists ' + self.Options.database))
+        assert os.system('dropdb --if-exists ' + self.Options.database) == 0
         osm_data = ""
         for k, v in nodes.items():
             osm_data += "n%d x%f y%f\n" % (k, v[0], v[1])
@@ -100,24 +99,23 @@ class TableTestFixture(unittest.TestCase):
         with self.db.engine.begin() as conn:
             res = conn.execute(table.select())
 
-            assert_equal(len(content), res.rowcount,
-                         "Expected %d rows, got %d." % (len(content), res.rowcount))
+            assert len(content) == res.rowcount
 
             todo = list(content)
             for c in res:
                 for exp in content:
-                    assert_is_instance(exp, dict)
+                    assert isinstance(exp, dict)
                     for k,v in exp.items():
-                        assert_in(k, c, "Column '%s' missing in row: %s" % (k, str(c)))
+                        assert k in c, f"Column '{k}' missing in row: {c!s}"
                         if not DBCompareValue.compare(c[k], v):
                             break
                     else:
                         todo.remove(exp)
                         break
                 else:
-                    assert_false(c, "Row not expected. Stil expected: %s" % str(todo))
+                    assert not c, "Row not expected. Still expected: {todo!s}"
 
-        assert_false(todo, "missing rows in database")
+        assert not todo, "Missing rows in database"
 
     def has_changes(self, tablename, content):
         as_array = [ { 'action' : l[0], 'id' : int(l[1:]) } for l in content ]
