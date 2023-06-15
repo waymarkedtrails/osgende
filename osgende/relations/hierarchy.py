@@ -56,8 +56,7 @@ class RelationHierarchy:
                              .table_valued(sa.column('value', JSONB)).lateral()
             id_bigint = members.c.value['id'].astext.cast(sa.BigInteger)
 
-            sql = sa.select([rels.c.id.label('parent'),
-                             id_bigint.label('child'), 2])\
+            sql = sa.select(rels.c.id.label('parent'), id_bigint.label('child'), 2)\
                     .select_from(rels.join(members, onclause=sa.text("True")))\
                     .where(members.c.value['type'].astext == 'R')\
                     .where(id_bigint != rels.c.id.label('parent'))
@@ -66,14 +65,14 @@ class RelationHierarchy:
             level = 3
             while res.rowcount > 0 and level < 6:
                 pd = self.data.alias()
-                prev = sa.select([pd.c.parent, pd.c.child]).where(pd.c.depth == (level - 1)).alias()
+                prev = sa.select(pd.c.parent, pd.c.child).where(pd.c.depth == (level - 1)).alias()
                 nd = self.data.alias()
-                newly = sa.select([nd.c.parent, nd.c.child]).where(nd.c.depth == 2).alias()
+                newly = sa.select(nd.c.parent, nd.c.child).where(nd.c.depth == 2).alias()
                 old = self.data.alias()
-                subs = sa.select([prev.c.parent, newly.c.child, level])\
+                subs = sa.select(prev.c.parent, newly.c.child, level)\
                         .where(prev.c.child == newly.c.parent)\
                         .where(prev.c.parent != newly.c.child)\
-                        .except_(sa.select([old.c.parent, old.c.child, level]))
+                        .except_(sa.select(old.c.parent, old.c.child, level))
 
                 res = conn.execute(self.data.insert().from_select(self.data.c, subs))
                 level = level + 1
@@ -82,7 +81,7 @@ class RelationHierarchy:
             if self.self_reference:
                 s = self.src.data
                 conn.execute(self.data.insert().from_select(self.data.c,
-                    sa.select([s.c.id.label('parent'), s.c.id.label('child'), 1])))
+                    sa.select(s.c.id.label('parent'), s.c.id.label('child'), 1)))
 
     def update(self, engine):
         """Update the table.

@@ -110,8 +110,8 @@ class TestableTable:
                 for exp in content:
                     assert isinstance(exp, dict)
                     for k, v in exp.items():
-                        assert k in c
-                        if not DBCompareValue.compare(c[k], v):
+                        assert k in c._fields
+                        if not DBCompareValue.compare(c._mapping[k], v):
                             break
                     else:
                         todo.remove(exp)

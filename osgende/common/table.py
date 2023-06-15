@@ -129,9 +129,9 @@ class TableSource:
             all objects are returned.
         """
         if self.change is None:
-            return select([self.c.id])
+            return select(self.c.id)
 
-        return select([self.cc.id]).where(self.cc.action != text("'A'"))
+        return select(self.cc.id).where(self.cc.action != text("'A'"))
 
     def select_add_modify(self):
         """ Return am SQLAlchemy where clause describing all objects which
@@ -139,9 +139,9 @@ class TableSource:
             all objects are returned.
         """
         if self.change is None:
-            return select([self.c.id])
+            return select(self.c.id)
 
-        return select([self.cc.id]).where(self.cc.action != text("'D'"))
+        return select(self.cc.id).where(self.cc.action != text("'D'"))
 
 
     def select_modify(self):
@@ -150,9 +150,9 @@ class TableSource:
             all objects are returned.
         """
         if self.change is None:
-            return select([self.c.id])
+            return select(self.c.id)
 
-        return select([self.cc.id]).where(self.cc.action == text("'M'"))
+        return select(self.cc.id).where(self.cc.action == text("'M'"))
 
 
     def select_delete(self):
@@ -161,6 +161,6 @@ class TableSource:
             all objects are returned.
         """
         if self.change is None:
-            return select([self.c.id])
+            return select(self.c.id)
 
-        return select([self.cc.id]).where(self.cc.action == text("'D'"))
+        return select(self.cc.id).where(self.cc.action == text("'D'"))

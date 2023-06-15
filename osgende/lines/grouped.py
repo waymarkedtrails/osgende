@@ -44,25 +44,26 @@ class GroupedWayTable(TableSource):
         rows = [self.src.c[r] for r in self.rows]
         rows.extend((self.src.c.id, self.src.c.nodes))
 
-        return sa.select(rows)
+        return sa.select(*rows)
 
     def construct(self, engine):
         """ Create full table content from the source table.
         """
-        self.truncate(engine)
+        with engine.begin() as conn:
+            self.truncate(conn)
 
         done = set()
         with engine.begin() as conn:
             cur = conn.execution_options(stream_results=True).execute(self._select_src())
 
             for obj in cur:
-                oid = obj['id']
+                oid = obj.id
                 if oid in done:
                     # already has an id
                     continue
 
-                done.update(self._insert_adjacent_ways((oid, obj['nodes']), obj,
-                                                       conn))
+                done.update(self._insert_adjacent_ways((oid, obj.nodes),
+                                                       obj, conn))
 
 
     def update(self, engine):
@@ -71,8 +72,8 @@ class GroupedWayTable(TableSource):
             todo = set()
             done = set()
             # Remove all virtual IDs that are directly affected by the change.
-            modsql = sa.select([self.c.id], distinct=True)\
-                         .where(self.c.child.in_(self.src.select_modify_delete()))
+            modsql = sa.select(self.c.id).distinct()\
+                       .where(self.c.child.in_(self.src.select_modify_delete()))
 
             delsql = self.data.delete().where(self.c.id.in_(modsql))
 
@@ -83,16 +84,16 @@ class GroupedWayTable(TableSource):
             # Insert added ways
             addsql = self._select_src()\
                        .where(self.src.c.id.in_(self.src.select_add_modify()))
-            cur = engine.execution_options(stream_results=True).execute(addsql)
 
-            for obj in cur:
-                oid = obj['id']
-                if oid in done:
-                    # already has an id
-                    continue
+            with engine.execution_options(stream_results=True).begin() as stream_conn:
+                for obj in stream_conn.execute(addsql):
+                    oid = obj.id
+                    if oid in done:
+                        # already has an id
+                        continue
 
-                done.update(self._insert_adjacent_ways((oid, obj['nodes']), obj,
-                                                       conn, changes))
+                    done.update(self._insert_adjacent_ways((oid, obj.nodes),
+                                                           obj, conn, changes))
 
             # Insert modified ways
             for oid in todo:
@@ -102,8 +103,8 @@ class GroupedWayTable(TableSource):
                 cur = conn.execute(self._select_src().where(self.src.c.id == oid))
 
                 for obj in cur:
-                    done.update(self._insert_adjacent_ways((oid, obj['nodes']), obj,
-                                                           conn, changes))
+                    done.update(self._insert_adjacent_ways((oid, obj.nodes),
+                                                           obj, conn, changes))
 
             # finally fill the changeset table
             self.write_change_table(conn, changes)
@@ -115,7 +116,7 @@ class GroupedWayTable(TableSource):
             It checks for directly adjacent ways and repeats this procedure
             for all found ways until all indirectly adjacent ways are found
         """
-        properties = [obj[name] for name in self.rows]
+        properties = [obj._mapping[name] for name in self.rows]
         unchecked_ways = [base]
         all_adjacent_ways = [base[0]]
         done_ways = set((base[0],))
@@ -129,13 +130,13 @@ class GroupedWayTable(TableSource):
                                  .where(s.c.id.notin_(done_ways))
 
             for candidate in conn.execute(intersecting_ways):
-                done_ways.add(candidate['id'])
+                done_ways.add(candidate.id)
                 for k, v in zip(self.rows, properties):
-                    if candidate[k] != v:
+                    if candidate._mapping[k] != v:
                         break
                 else:
-                    all_adjacent_ways.append(candidate['id'])
-                    unchecked_ways.append((candidate['id'], candidate['nodes']))
+                    all_adjacent_ways.append(candidate.id)
+                    unchecked_ways.append((candidate.id, candidate.nodes))
 
         # only insert ways that have neighbours
         if len(all_adjacent_ways) <= 1:
@@ -144,7 +145,7 @@ class GroupedWayTable(TableSource):
         if changes is not None:
             # Figure out if there is an existing group or we have even
             # combined two groups.
-            res = conn.execute(sa.select([self.c.id], distinct=True)
+            res = conn.execute(sa.select(self.c.id).distinct()
                                  .where(self.c.child.in_(all_adjacent_ways)))
             if res.rowcount > 0:
                 base_id = res.fetchone()[0]

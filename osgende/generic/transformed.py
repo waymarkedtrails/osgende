@@ -44,11 +44,11 @@ class TransformedTable(ThreadableDBObject, TableSource):
 
     def construct(self, engine):
         sql = self.src.data.select()
-        res = engine.execution_options(stream_results=True).execute(sql)
         workers = self.create_worker_queue(engine, self._process_construct_next)
 
-        for obj in res:
-            workers.add_task(obj)
+        with engine.execution_options(stream_results=True).begin() as conn:
+            for obj in conn.execute(sql):
+                workers.add_task(obj)
 
         workers.finish()
 
@@ -76,18 +76,18 @@ class TransformedTable(ThreadableDBObject, TableSource):
             cols.append(c.label('old_' + c.name))
 
         j = s.join(d, d.c.id == s.c.id, full = True)
-        sql = sa.select(cols).select_from(j)\
+        sql = sa.select(*cols).select_from(j)\
                 .where(self.src.c.id.in_(self.src.select_add_modify()))
 
         deleted = []
         inserts = []
         for obj in conn.execute(sql):
-            oid = obj['id']
-            is_added = obj['old_id'] is None
+            oid = obj.id
+            is_added = obj.old_id is None
 
             if oid is None:
-                deleted.append({'oid' : obj['old_id']})
-                changeset[obj['old_id']] = 'D'
+                deleted.append({'oid' : obj.old_id})
+                changeset[obj.old_id] = 'D'
                 continue
 
             cols = self.transform(obj)
@@ -99,7 +99,7 @@ class TransformedTable(ThreadableDBObject, TableSource):
 
             changed = False
             for k, v in cols.items():
-                if str(obj['old_' + k]) != str(v):
+                if str(obj._mapping['old_' + k]) != str(v):
                     changed = True
                     break
 
@@ -119,6 +119,6 @@ class TransformedTable(ThreadableDBObject, TableSource):
         cols = self.transform(obj)
 
         if cols is not None:
-            cols['id'] = obj['id']
+            cols['id'] = obj.id
             self.thread.conn.execute(self.data.insert().values(cols))
 

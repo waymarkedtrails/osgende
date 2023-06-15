@@ -35,7 +35,7 @@ class TransformedTestTable(TransformedTable):
         table.append_column(sa.Column('b', sa.Integer))
 
     def transform(self, obj):
-        t = obj['tags']
+        t = obj.tags
         if 'ignore' in t:
             return None
 

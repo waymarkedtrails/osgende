@@ -105,9 +105,9 @@ class TableTestFixture(unittest.TestCase):
             for c in res:
                 for exp in content:
                     assert isinstance(exp, dict)
-                    for k,v in exp.items():
-                        assert k in c, f"Column '{k}' missing in row: {c!s}"
-                        if not DBCompareValue.compare(c[k], v):
+                    for k, v in exp.items():
+                        assert k in c._fields, f"Column '{k}' missing in row: {c!s}"
+                        if not DBCompareValue.compare(c._mapping[k], v):
                             break
                     else:
                         todo.remove(exp)

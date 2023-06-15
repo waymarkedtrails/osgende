@@ -173,7 +173,7 @@ def _get_member_geometries(conn, members, way_table, rel_table):
 
     for kind, t in (('W', way_table), ('R', rel_table)):
         if geoms[kind]:
-            sql = sa.select([t.c.id, t.c.geom])\
+            sql = sa.select(t.c.id, t.c.geom)\
                     .where(t.c.id.in_(geoms[kind].keys()))\
                     .where(t.c.geom is not None)
             for r in conn.execute(sql):

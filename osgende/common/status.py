@@ -50,20 +50,20 @@ class StatusManager:
         """ Get sequence status of table `part`. Use connection object
             `conn` to query the database.
         """
-        return conn.scalar(sa.select([self.table.c.sequence])
+        return conn.scalar(sa.select(self.table.c.sequence)
                              .where(self.table.c.part == part))
 
     def get_date(self, conn, part='base'):
         """ Get current date of table `part`. Use connection object
             `conn` to query the database.
         """
-        return conn.scalar(sa.select([self.table.c.date])
+        return conn.scalar(sa.select(self.table.c.date)
                              .where(self.table.c.part == part))
 
     def get_min_sequence(self, conn):
         """ Get the smallest sequence number of any table.
         """
-        return conn.scalar(sa.select([sql_min(self.table.c.sequence)]))
+        return conn.scalar(sa.select(sql_min(self.table.c.sequence)))
 
     def set_status_from(self, conn, part, src):
         """ Set the new status of table `part` to the same as table `src`.
@@ -72,7 +72,7 @@ class StatusManager:
         data = conn.execute(self.table.select().where(self.table.c.part == src))
         data = data.fetchone()
 
-        self.set_status(conn, part, data['date'], data['sequence'])
+        self.set_status(conn, part, data.date, data.sequence)
 
     def set_status(self, conn, part, date, sequence):
         """ Set a new status of table `part` to date `date` and sequence id
@@ -93,4 +93,4 @@ class StatusManager:
         conn.execute(self.table.delete().where(self.table.c.part == part))
 
     def grant_read_access(self, conn, user):
-        conn.execute(f'GRANT SELECT ON TABLE {self.table.key} TO "{user}"')
+        conn.execute(sa.text(f'GRANT SELECT ON TABLE {self.table.key} TO "{user}"'))

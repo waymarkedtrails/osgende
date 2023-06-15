@@ -79,8 +79,8 @@ class FilteredTable(TableSource):
             # Deleted rows are all changed objects which are not there anymore.
             # We end up with more objects than were initially in but that's
             # the best we can do.
-            sql = sa.select([self.src.cc.id, self.src.cc.action,
-                            self.src.cc.id.in_(sa.select([self.c.id]))])
+            sql = sa.select(self.src.cc.id, self.src.cc.action,
+                            self.src.cc.id.in_(sa.select(self.c.id)))
             for row in conn.execute(sql):
                 changeset[row[0]] = row[1] if row[2] else 'D'
 
@@ -101,7 +101,7 @@ class FilteredTable(TableSource):
                 changeset[row[0]] = 'D'
             # delete rows that have lost the filter properties
             delsql = self.delete(
-                        sa.select([self.src.c.id])\
+                        sa.select(self.src.c.id)\
                            .where(self._src_id_changed())\
                            .where(sa.not_(self.subset)))
             for row in conn.execute(delsql.returning(self.c.id)):

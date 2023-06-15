@@ -108,13 +108,13 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             prev_prop = None
             wayset = list()
             for w in res:
-                prop = tuple((w[x] for x in self.prop_columns))
+                prop = tuple((w._mapping[x] for x in self.prop_columns))
                 # process the next bit when we get to the next property column
                 if prev_prop is not None and prop != prev_prop:
                     wayproc.process_ways(prev_prop, wayset)
                     wayset = list()
 
-                wayset.append((w['id'], w['nodes'], list(to_shape(w['geom']).coords)))
+                wayset.append((w.id, w.nodes, list(to_shape(w.geom).coords)))
                 prev_prop = prop
 
             if prev_prop is not None:
@@ -139,19 +139,19 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                     .where(self.src.c.id.in_(self.src.select_add_modify()))
 
             for w in conn.execute(sql):
-                prop = tuple((w[x] for x in self.prop_columns))
-                wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
-                waysdone.add(w['id'])
+                prop = tuple((w._mapping[x] for x in self.prop_columns))
+                wayproc.add_way(prop, w.id, w.nodes, w.geom)
+                waysdone.add(w.id)
 
             log.info("Collecting points effected by update")
             # 1. nodes in added or changed ways
-            waychg = sa.select([saf.func.unnest(self.src.c.nodes)])\
+            waychg = sa.select(saf.func.unnest(self.src.c.nodes))\
                        .where(self.src.c.id.in_(self.src.select_add_modify()))
             # 2. nodes in segments where ways are changed
-            waysel = sa.select([self.src.cc.id.label('tid')])
-            segchg = sa.select([saf.func.unnest(self.c.nodes).label('tid')])\
+            waysel = sa.select(self.src.cc.id.label('tid'))
+            segchg = sa.select(saf.func.unnest(self.c.nodes).label('tid'))\
                        .where(self.c.ways.op('&& ARRAY')(waysel.scalar_subquery()))
-            conn.execute('DROP TABLE IF EXISTS __temp_updated_nodes')
+            conn.execute(sa.text('DROP TABLE IF EXISTS __temp_updated_nodes'))
             conn.execute(osa.CreateTableAs('__temp_updated_nodes',
                                            sa.union(segchg, waychg).alias('sub'),
                                            temporary=False))
@@ -174,9 +174,9 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
             while True:
                 additional_ways = set()
-                for c in conn.execute(q):
-                    additional_ways.update(w for w in c['ways'] if w not in waysdone)
-                    deleted_ids[c['id']] = 'D'
+                for c in conn.execute(sa.text(q)):
+                    additional_ways.update(w for w in c.ways if w not in waysdone)
+                    deleted_ids[c.id] = 'D'
 
                 if not additional_ways:
                     break
@@ -185,10 +185,10 @@ class SegmentsTable(ThreadableDBObject, TableSource):
                 sql = self.src.data.select()\
                         .where(self.src.c.id.in_(list(additional_ways)))
                 for w in conn.execute(sql):
-                    prop = tuple((w[x] for x in self.prop_columns))
-                    wayproc.add_way(prop, w['id'], w['nodes'], w['geom'])
-                    waysdone.add(w['id'])
-                    todo_nodes.update(w['nodes'][1:-1])
+                    prop = tuple((w._mapping[x] for x in self.prop_columns))
+                    wayproc.add_way(prop, w.id, w.nodes, w.geom)
+                    waysdone.add(w.id)
+                    todo_nodes.update(w.nodes[1:-1])
 
                 if not todo_nodes:
                     break
@@ -199,7 +199,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
             # done, add the result back to the table
             log.info("Processing segments")
-            cur_id = conn.scalar(sa.select([saf.max(self.c.id)]))
+            cur_id = conn.scalar(sa.select(saf.max(self.c.id)))
             first_new_id = 0 if cur_id is None else cur_id + 1
 
             temp_nodes.drop(conn)
@@ -211,7 +211,7 @@ class SegmentsTable(ThreadableDBObject, TableSource):
             if self.change is not None:
                 self.write_change_table(conn, deleted_ids)
                 conn.execute(self.change.insert().from_select(self.cc,
-                  sa.select([self.c.id, sa.text("'A'")])
+                  sa.select(self.c.id, sa.text("'A'"))
                     .where(self.c.id >= first_new_id)))
 
 
@@ -257,25 +257,26 @@ class _WayCollector(ThreadableDBObject):
         s = self.src.src.data
 
         # create a list of nodes with their position in the way
-        nlist = sa.select([s.c.nodes,
-                        sa.func.generate_subscripts(s.c.nodes, 1).label('i')])\
+        nlist = sa.select(s.c.nodes,
+                          sa.func.generate_subscripts(s.c.nodes, 1).label('i'))\
                     .alias("nodelist")
         # weigh each node by position (front, middle, end)
-        wei = sa.select([nlist.c.nodes[nlist.c.i].label('nid'),
-                     sa.case([(sa.or_(nlist.c.i == 1,
-                                nlist.c.i == sa.func.array_length(nlist.c.nodes, 1)),
-                            1)],
+        wei = sa.select(nlist.c.nodes[nlist.c.i].label('nid'),
+                     sa.case((sa.or_(nlist.c.i == 1,
+                                     nlist.c.i == sa.func.array_length(nlist.c.nodes, 1)),
+                              1),
                           else_ = 2).label('w')
-                     ]).alias('weighted')
+                       ).alias('weighted')
         # sum up the weights for each node
-        total = sa.select([wei.c.nid.label('nid'), saf.sum(wei.c.w).label('sum')])\
+        total = sa.select(wei.c.nid.label('nid'), saf.sum(wei.c.w).label('sum'))\
                   .group_by(wei.c.nid).alias('total')
 
         # anything with weight larger 2 must be a real intersection
-        c = engine.execute(sa.select([total.c.nid]).where(total.c.sum > 2))
+        with engine.begin() as conn:
+            c = conn.execute(sa.select(total.c.nid).where(total.c.sum > 2))
 
-        for ele in c:
-            self.intersections.add(ele['nid'])
+            for ele in c:
+                self.intersections.add(ele.nid)
 
     def process_ways(self, properties, ways):
         self.workers.add_task((properties, ways))
@@ -372,7 +373,7 @@ class _WayCollector(ThreadableDBObject):
                   'ways' : segment.osmids,
                   'geom' : from_shape(LineString(segment.geom), srid=self.srid)}
         fields.update(dict(zip(self.src.prop_columns, props)))
-        self.thread.conn.execute(self.src.data.insert(fields))
+        self.thread.conn.execute(self.src.data.insert().values(fields))
 
 
 

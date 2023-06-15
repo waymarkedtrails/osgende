@@ -29,7 +29,7 @@ import osmium
 import osmium.replication.server as rserv
 from collections import namedtuple
 
-import sqlalchemy as sqla
+import sqlalchemy as sa
 
 from osgende.common.nodestore import NodeStore
 from osgende.common.status import StatusManager
@@ -85,11 +85,11 @@ class DbWriter:
         self.conn = engine.connect()
         self.trans = self.conn.begin()
         if hasattr(table.c, 'id'):
-            self.update_func = table.update().where(table.c.id == sqla.bindparam('oid')).compile(engine)
-            self.delete_func = table.delete().where(table.c.id == sqla.bindparam('oid')).compile(engine)
+            self.update_func = table.update().where(table.c.id == sa.bindparam('oid')).compile(engine)
+            self.delete_func = table.delete().where(table.c.id == sa.bindparam('oid')).compile(engine)
         else:
             self.update_func = table.insert().compile(engine)
-            self.delete_func = table.delete().where(table.c.relation_id == sqla.bindparam('oid')).compile(engine)
+            self.delete_func = table.delete().where(table.c.relation_id == sa.bindparam('oid')).compile(engine)
         columns = [ str(c.name) for c in table.columns ]
         self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n'
 
@@ -125,18 +125,18 @@ class OSMImporter(osmium.SimpleHandler):
     def __init__(self, options):
         super(OSMImporter, self).__init__()
 
-        dburl = sqla.engine.url.URL.create('postgresql', username=options.username,
-                                           password=options.password,
-                                           database=options.database)
+        dburl = sa.engine.url.URL.create('postgresql', username=options.username,
+                                         password=options.password,
+                                         database=options.database)
 
-        self.metadata = sqla.MetaData()
+        self.metadata = sa.MetaData()
         self.tables = OsmSourceTables(self.metadata)
         if options.replication is not None:
             self.status = StatusManager(self.metadata)
         else:
             self.status = None
 
-        self.engine = sqla.create_engine(dburl, echo=options.verbose)
+        self.engine = sa.create_engine(dburl, echo=options.verbose)
 
         if options.replication:
             self.repserver = rserv.ReplicationServer(options.replication)
@@ -214,24 +214,24 @@ class OSMImporter(osmium.SimpleHandler):
         with self.engine.begin() as conn:
             if self.is_change_file:
                 for n in ('node', 'way', 'relation'):
-                    i = sqla.Index('pk_%s_change' % n, self.tables[n].change.c.id)
+                    i = sa.Index('pk_%s_change' % n, self.tables[n].change.c.id)
                     i.create(conn)
             else:
                 for n in ('node', 'way', 'relation'):
-                    i = sqla.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
+                    i = sa.Index('pk_%ss' % n, self.tables[n].data.c.id, unique=True)
                     i.create(conn)
 
     def grant_read_access(self, user):
         with self.engine.begin() as conn:
             for table in (self.tables.node, self.tables.way, self.tables.relation):
-                conn.execute(f'GRANT SELECT ON TABLE {table.data.key} TO "{user}"')
+                conn.execute(sa.text(f'GRANT SELECT ON TABLE {table.data.key} TO "{user}"'))
                 self.status.grant_read_access(conn, user)
 
     def prepare_changeset(self):
         with self.engine.begin() as conn:
             for n in ('node', 'way', 'relation'):
-                conn.execute("DROP INDEX IF EXISTS pk_%s_change" % n)
-                conn.execute("TRUNCATE %s_changeset" % n)
+                conn.execute(sa.text(f"DROP INDEX IF EXISTS pk_{n}_change"))
+                conn.execute(sa.text(f"TRUNCATE {n}_changeset"))
 
     def node(self, node):
         if not self.nodestore or len(node.tags) > 0:

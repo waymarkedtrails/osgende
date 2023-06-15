@@ -81,47 +81,49 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         members = sa.func.jsonb_array_elements(rels.c.members)\
                          .table_valued(sa.column('value', JSONB)).lateral()
 
-        sql = sa.select([rels.c.id.label('relation_id'),
-                         members.c.value['id'].astext.cast(sa.BigInteger).label('way_id')]
+        sql = sa.select(rels.c.id.label('relation_id'),
+                        members.c.value['id'].astext.cast(sa.BigInteger).label('way_id')
                        ).select_from(rels.join(members, onclause=sa.text("True")))\
                     .where(members.c.value['type'].astext == 'W')
 
         engine.execute(CreateView(self.relway_view.key, sql))
 
     def construct(self, engine):
-        self.truncate(engine)
+        with engine.begin() as conn:
+            self.truncate(conn)
 
-        # manual indexes
-        relidx = sa.Index(self.data.name + "_rels_idx",
-                          self.data.c.rels, postgresql_using='gin')
-        ndsidx = sa.Index(self.data.name + "_nodes_idx",
-                          self.data.c.nodes, postgresql_using='gin')
-        # drop indexes if any
-        engine.execute(DropIndexIfExists(relidx))
-        engine.execute(DropIndexIfExists(ndsidx))
+            # manual indexes
+            relidx = sa.Index(self.data.name + "_rels_idx",
+                              self.data.c.rels, postgresql_using='gin')
+            ndsidx = sa.Index(self.data.name + "_nodes_idx",
+                              self.data.c.nodes, postgresql_using='gin')
+            # drop indexes if any
+            conn.execute(DropIndexIfExists(relidx))
+            conn.execute(DropIndexIfExists(ndsidx))
 
         w = self.way_src.data
         r = self.relway_view
 
-        sub = sa.select([r.c.way_id, array_agg(r.c.relation_id).label('rels')])\
+        sub = sa.select(r.c.way_id, array_agg(r.c.relation_id).label('rels'))\
                 .group_by(r.c.way_id).alias('aggway')
 
         cols = [sub.c.way_id, sub.c.rels, w.c.nodes]
         if hasattr(self, 'transform_tags'):
             cols.append(w.c.tags)
 
-        sql = sa.select(cols).where(w.c.id == sub.c.way_id)
-
-        res = engine.execution_options(stream_results=True).execute(sql)
+        sql = sa.select(*cols).where(w.c.id == sub.c.way_id)
         workers = self.create_worker_queue(engine, self._process_construct_next)
-        for obj in res:
-            workers.add_task(obj)
+
+        with engine.execution_options(stream_results=True).begin() as conn:
+            for obj in conn.execute(sql):
+                workers.add_task(obj)
 
         workers.finish()
 
         # need reverse lookup indexes for rels and nodes
-        relidx.create(engine)
-        ndsidx.create(engine)
+        with engine.begin() as conn:
+            relidx.create(conn)
+            ndsidx.create(conn)
 
     def update(self, engine):
         # first pass: handle changed ways and nodes
@@ -146,80 +148,82 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         wc = self.way_src.change
 
         # ids of ways that have changed directly
-        sql_idchg = sa.select([d.c.id])\
-                       .where(d.c.id == wc.c.id).where(wc.c.action != 'D')
+        sql_idchg = sa.select(d.c.id)\
+                      .where(d.c.id == wc.c.id).where(wc.c.action != 'D')
 
         # ids of ways where nodes have changed (only geometry mode)
         if with_geom:
             nc = self.osmdata.node.cc.id
-            sql_ndchg = sa.select([d.c.id])\
-                           .where(d.c.nodes.overlap(array([nc])))
+            sql_ndchg = sa.select(d.c.id)\
+                          .where(d.c.nodes.overlap(array([nc])))
             sql_idchg = sa.union(sql_idchg, sql_ndchg)
 
         sql_idchg = sql_idchg.alias('ids')
 
-        waynode_sql = sa.select([w.c.nodes]).where(w.c.id == d.c.id)
+        waynode_sql = sa.select(w.c.nodes).where(w.c.id == d.c.id)
 
         cols = [d, waynode_sql.scalar_subquery().label('new_nodes')]
         if with_tags:
-            waytag_sql = sa.select([w.c.tags]).where(w.c.id == d.c.id)
+            waytag_sql = sa.select(w.c.tags).where(w.c.id == d.c.id)
             cols.append(waytag_sql.scalar_subquery().label('new_tags'))
-        sql = sa.select(cols).where(sql_idchg.c.id == d.c.id)
+        sql = sa.select(*cols).where(sql_idchg.c.id == d.c.id)
 
         inserts = []
         deletes = []
         changeset = {}
-        for obj in engine.execute(sql):
-            oid = obj['id']
-            if obj['new_nodes'] is None:
-                deletes.append({'oid' : oid})
-                changeset[oid] = 'D'
-                continue
-            changed = False
-            if with_tags:
-                cols = self.transform_tags(oid, TagStore(obj['new_tags']))
-                if cols is None:
+
+        with engine.begin() as conn, engine.begin() as inner:
+            for obj in conn.execute(sql):
+                oid = obj.id
+                if obj.new_nodes is None:
                     deletes.append({'oid' : oid})
                     changeset[oid] = 'D'
                     continue
-                # check if there are actual tag changes
-                for k, v in cols.items():
-                    if str(obj[k]) != str(v):
-                        changed = True
-                        break
-            else:
-                cols = {}
+                changed = False
+                if with_tags:
+                    cols = self.transform_tags(oid, TagStore(obj.new_tags))
+                    if cols is None:
+                        deletes.append({'oid' : oid})
+                        changeset[oid] = 'D'
+                        continue
+                    # check if there are actual tag changes
+                    for k, v in cols.items():
+                        if str(obj._mapping[k]) != str(v):
+                            changed = True
+                            break
+                else:
+                    cols = {}
 
-            # Always rebuild the geometry when with_geom as nodes might have
-            # moved.
-            if with_geom:
-                # TODO only look up new/changed nodes
-                points = self.osmdata.get_points(obj['new_nodes'], engine)
-                if len(points) <= 1:
-                    deletes.append({'oid' : oid})
-                    changeset[oid] = 'D'
-                    continue
-                if self.srid == 3857:
-                    points = [p.to_mercator() for p in points]
-                new_geom = sgeom.LineString(points)
-                cols['geom'] = from_shape(new_geom, srid=self.srid)
-                changed = changed or (new_geom != to_shape(obj['geom']))
-            elif obj['nodes'] != obj['new_nodes']:
-                changed = True
+                # Always rebuild the geometry when with_geom as nodes might have
+                # moved.
+                if with_geom:
+                    # TODO only look up new/changed nodes
+                    points = self.osmdata.get_points(obj.new_nodes, inner)
+                    if len(points) <= 1:
+                        deletes.append({'oid' : oid})
+                        changeset[oid] = 'D'
+                        continue
+                    if self.srid == 3857:
+                        points = [p.to_mercator() for p in points]
+                    new_geom = sgeom.LineString(points)
+                    cols['geom'] = from_shape(new_geom, srid=self.srid)
+                    changed = changed or (new_geom != to_shape(obj.geom))
+                elif obj.nodes != obj.new_nodes:
+                    changed = True
 
-            if changed:
-                cols['nodes'] = obj['new_nodes']
-                cols['id'] = oid
-                cols['rels'] = obj['rels']
-                inserts.append(cols)
-                changeset[oid] = 'M'
+                if changed:
+                    cols['nodes'] = obj.new_nodes
+                    cols['id'] = oid
+                    cols['rels'] = obj.rels
+                    inserts.append(cols)
+                    changeset[oid] = 'M'
 
-        if len(inserts):
-            engine.execute(self.upsert_data().values(inserts))
-        if len(deletes):
-            engine.execute(self.data.delete()
-                            .where(self.c.id == sa.bindparam('oid')),
-                           deletes)
+            if len(inserts):
+                conn.execute(self.upsert_data().values(inserts))
+            if len(deletes):
+                conn.execute(self.data.delete()
+                                .where(self.c.id == sa.bindparam('oid')),
+                               deletes)
 
         return changeset
 
@@ -230,47 +234,48 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         rs = self.relway_view.alias('relsrc')
 
         # Recreate the relation set for all ways in changed relations.
-        sub = sa.select([array_agg(r.c.id)])\
+        sub = sa.select(array_agg(r.c.id))\
                 .where(r.c.members.contains(
                          sa.func.jsonb_build_array(
                            sa.func.jsonb_build_object('type', 'W', 'id', w.c.id))))\
                 .scalar_subquery()
-        sql = sa.select([w.c.id, w.c.rels, sub.label('new_rels')])\
+        sql = sa.select(w.c.id, w.c.rels, sub.label('new_rels'))\
                 .where(sa.or_(
                     w.c.id.in_(
-                         sa.select([rs.c.way_id]).
-                           where(rs.c.relation_id.in_(
+                         sa.select(rs.c.way_id)
+                           .where(rs.c.relation_id.in_(
                                self.relation_src.select_add_modify()))),
-                    w.c.rels.op('&& ARRAY')(sa.select([self.relation_src.cc.id]).scalar_subquery())
+                    w.c.rels.op('&& ARRAY')(sa.select(self.relation_src.cc.id).scalar_subquery())
                            ))
 
         inserts = []
         deletes = []
         changeset = {}
-        for obj in engine.execute(sql):
-            oid = obj['id']
-            # If the new set is empty, the way has been removed from the set.
-            if obj['new_rels'] is None:
-                deletes.append({'oid' : oid})
-                changeset[oid] = 'D'
-            # If the relation set differs, there was a relevant change.
-            # (Only update the way set here. geometry and tag changes have
-            #  already been done during the first pass.)
-            else:
-                rels = sorted(obj['new_rels'])
-                if rels != obj['rels']:
-                    inserts.append({'oid' : oid, 'rels' : rels})
-                    changeset[oid] = 'M'
+        with engine.begin() as conn:
+            for obj in conn.execute(sql):
+                oid = obj.id
+                # If the new set is empty, the way has been removed from the set.
+                if obj.new_rels is None:
+                    deletes.append({'oid' : oid})
+                    changeset[oid] = 'D'
+                # If the relation set differs, there was a relevant change.
+                # (Only update the way set here. geometry and tag changes have
+                #  already been done during the first pass.)
+                else:
+                    rels = sorted(obj.new_rels)
+                    if rels != obj.rels:
+                        inserts.append({'oid' : oid, 'rels' : rels})
+                        changeset[oid] = 'M'
 
-        if len(inserts):
-            engine.execute(self.data.update()
-                             .where(self.c.id == sa.bindparam('oid'))
-                             .values(rels=sa.bindparam('rels')), inserts)
+            if len(inserts):
+                conn.execute(self.data.update()
+                                 .where(self.c.id == sa.bindparam('oid'))
+                                 .values(rels=sa.bindparam('rels')), inserts)
 
-        if len(deletes):
-            engine.execute(self.data.delete()
-                            .where(self.c.id == sa.bindparam('oid')),
-                           deletes)
+            if len(deletes):
+                conn.execute(self.data.delete()
+                                 .where(self.c.id == sa.bindparam('oid')),
+                             deletes)
 
         return changeset
 
@@ -279,26 +284,28 @@ class RelationWayTable(ThreadableDBObject, TableSource):
         r = self.relway_view
         wold = self.data
 
-        sub = sa.select([r.c.way_id, array_agg(r.c.relation_id).label('rels')])\
-                .where(r.c.way_id.notin_(sa.select([wold.c.id])))\
+        sub = sa.select(r.c.way_id, array_agg(r.c.relation_id).label('rels'))\
+                .where(r.c.way_id.notin_(sa.select(wold.c.id)))\
                 .group_by(r.c.way_id).alias('aggway')
 
         cols = [sub.c.way_id, sub.c.rels, w.c.nodes]
         if hasattr(self, 'transform_tags'):
             cols.append(w.c.tags)
 
-        sql = sa.select(cols).where(w.c.id == sub.c.way_id)
+        sql = sa.select(*cols).where(w.c.id == sub.c.way_id)
 
         changeset = {}
         inserts = []
-        for obj in engine.execute(sql):
-            cols = self._construct_row(obj, engine)
-            if cols is not None:
-                changeset[obj['way_id']] = 'A'
-                inserts.append(cols)
+        with engine.begin() as conn, engine.begin() as inner:
+            for obj in conn.execute(sql):
+                cols = self._construct_row(obj, inner)
+                if cols is not None:
+                    changeset[obj.way_id] = 'A'
+                    inserts.append(cols)
 
         if len(inserts):
-            engine.execute(self.data.insert().values(inserts))
+            with engine.begin() as conn:
+                conn.execute(self.data.insert().values(inserts))
 
         return changeset
 
@@ -311,14 +318,14 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
     def _construct_row(self, obj, conn):
         if hasattr(self, 'transform_tags'):
-            cols = self.transform_tags(obj['way_id'], TagStore(obj['tags']))
+            cols = self.transform_tags(obj.way_id, TagStore(obj.tags))
             if cols is None:
                 return None
         else:
             cols = {}
 
         if self.osmdata is not None:
-            points = self.osmdata.get_points(obj['nodes'], conn)
+            points = self.osmdata.get_points(obj.nodes, conn)
             if len(points) <= 1:
                 return
             if self.srid == 3857:
@@ -326,8 +333,8 @@ class RelationWayTable(ThreadableDBObject, TableSource):
             cols['geom'] = from_shape(sgeom.LineString(points),
                                       srid=self.srid)
 
-        cols['id'] = obj['way_id']
-        cols['rels'] = sorted(obj['rels'])
-        cols['nodes'] = obj['nodes']
+        cols['id'] = obj.way_id
+        cols['rels'] = sorted(obj.rels)
+        cols['nodes'] = obj.nodes
 
         return cols

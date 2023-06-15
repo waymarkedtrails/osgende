@@ -83,10 +83,10 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
         # insert
         sql = self.src.data.select()
-        res = engine.execution_options(stream_results=True).execute(sql)
         workers = self.create_worker_queue(engine, self._process_construct_next)
-        for obj in res:
-            workers.add_task(obj)
+        with engine.execution_options(stream_results=True).begin() as conn:
+            for obj in conn.execute(sql):
+                workers.add_task(obj)
 
         workers.finish()
 
@@ -106,7 +106,7 @@ class PlainWayTable(ThreadableDBObject, TableSource):
         if cols is None:
             return None
 
-        points = self.osmdata.get_points(obj['nodes'], conn)
+        points = self.osmdata.get_points(obj.nodes, conn)
         if len(points) <= 1:
             return None
 
@@ -115,14 +115,14 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
         cols['geom'] = from_shape(LineString(points), srid=self.srid)
 
-        cols['id'] = obj['id']
-        cols['nodes'] = obj['nodes']
+        cols['id'] = obj.id
+        cols['nodes'] = obj.nodes
 
         return cols
 
 
     def transform_tags(self, obj):
-        return {c.name: obj[c.name]
+        return {c.name: obj._mapping[c.name]
                   for c in self.src.c if c.name not in ('nodes', 'id')}
 
 
@@ -160,7 +160,7 @@ class PlainWayTable(ThreadableDBObject, TableSource):
         waysql = self.src.select_add_modify()
         # ways with modified nodes
         od = self.data.alias("old")
-        ndsql = sa.select([od.c.id])\
+        ndsql = sa.select(od.c.id)\
                   .where(od.c.nodes.overlap(array([self.osmdata.node.cc.id])))\
                   .where(self.osmdata.node.cc.action != 'D')
         # combine both to get the id of modified ways
@@ -168,15 +168,15 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
         # now get the info
         j = s.join(d, d.c.id == s.c.id, isouter=True)
-        sql = sa.select(cols).select_from(j)\
+        sql = sa.select(*cols).select_from(j)\
                  .where(s.c.id == idsql.c.id)
 
         deleted = []
         inserts = []
         changeset = {}
         for obj in conn.execute(sql):
-            oid = obj['id']
-            is_added = obj['old_geom'] is None
+            oid = obj.id
+            is_added = obj.old_geom is None
             changed = False
 
             cols = self.transform_tags(obj)
@@ -190,11 +190,11 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
             changed = False
             for k, v in cols.items():
-                if str(obj['old_' + k]) != str(v):
+                if str(obj._mapping['old_' + k]) != str(v):
                     changed = True
                     break
 
-            points = self.osmdata.get_points(obj['nodes'], conn)
+            points = self.osmdata.get_points(obj.nodes, conn)
             if len(points) <= 1:
                 if not is_added:
                     deleted.append({'oid': oid})
@@ -206,10 +206,10 @@ class PlainWayTable(ThreadableDBObject, TableSource):
 
             new_geom = LineString(points)
             cols['geom'] = from_shape(new_geom, srid=self.srid)
-            changed = changed or is_added or (new_geom != to_shape(obj['old_geom']))
+            changed = changed or is_added or (new_geom != to_shape(obj.old_geom))
 
             if changed:
-                cols['nodes'] = obj['nodes']
+                cols['nodes'] = obj.nodes
                 cols['id'] = oid
                 inserts.append(cols)
                 changeset[oid] = 'A' if is_added else 'M'
@@ -221,8 +221,3 @@ class PlainWayTable(ThreadableDBObject, TableSource):
                          deleted)
 
         return changeset
-
-
-
-
-

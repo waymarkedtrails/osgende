@@ -90,11 +90,11 @@ class OsmSourceTables:
 
     def __table_get_points(self, nodes, conn):
         t = self.node.data
-        sql = select([t.c.id, t.c.geom.ST_X().label('x'),
-                      t.c.geom.ST_Y().label('y')]).where(t.c.id.in_(nodes))
+        sql = select(t.c.id, t.c.geom.ST_X().label('x'),
+                     t.c.geom.ST_Y().label('y')).where(t.c.id.in_(nodes))
 
         geoms = {}
         for res in conn.execute(sql):
-            geoms[res['id']] = NodeStorePoint(res['x'], res['y'])
+            geoms[res.id] = NodeStorePoint(res.x, res.y)
 
         return _mkpointlist_points(nodes, geoms)

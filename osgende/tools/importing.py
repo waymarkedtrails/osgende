@@ -32,5 +32,5 @@ class BaseImportManager:
         database_create(self.dbname)
 
         with self.engine.begin() as conn:
-            conn.execute("CREATE EXTENSION postgis")
+            conn.execute(sa.text("CREATE EXTENSION postgis"))
         self.metadata.create_all(self.engine)

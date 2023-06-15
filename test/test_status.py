@@ -23,7 +23,7 @@ class TestStatusManager(unittest.TestCase):
     def test_set_base(self):
         status = StatusManager(sa.MetaData())
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             status.create(conn)
 
             for i in range(2):
@@ -38,7 +38,7 @@ class TestStatusManager(unittest.TestCase):
     def test_set_subtables(self):
         status = StatusManager(sa.MetaData())
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             status.create(conn)
             date = datetime.now(timezone.utc)
             status.set_status(conn, 'base', date, 123)
@@ -50,7 +50,7 @@ class TestStatusManager(unittest.TestCase):
     def test_remove(self):
         status = StatusManager(sa.MetaData())
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             status.create(conn)
             date = datetime.now(timezone.utc)
             status.set_status(conn, 'base', date, 123)
