@@ -10,7 +10,7 @@ with a file-based node-location storage provided by libosmium.
 Requirements
 ------------
 
-Osgende requires Python3. Python2 might work but is not officially supported.
+Osgende requires Python3.
 
 - PostgreSQL >= 9.5   https://www.postgresql.org
 
@@ -41,7 +41,7 @@ Optionally, the following packages are required by some of the tools:
 
 - Mapnik >= 3.1       http://mapnik.org/
 
-    Map renderer for OSM data. 
+    Map renderer for OSM data.
 
 
 Installation

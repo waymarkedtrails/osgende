@@ -35,6 +35,7 @@ from osgende.common.nodestore import NodeStore
 from osgende.common.status import StatusManager
 from osgende.osmdata import OsmSourceTables
 from osgende.common.sqlalchemy.database import database_exists, database_create
+from osgende.tools.importing import BaseImportManager
 
 
 def mkdict(tags):
@@ -128,17 +129,10 @@ class OSMImporter(osmium.SimpleHandler):
                                            password=options.password,
                                            database=options.database)
 
-        if options.createdb:
-            database_create(options.database)
-        else:
-            if not database_exists(options.database):
-                raise RuntimeError("Database does not exist.")
-
         self.metadata = sqla.MetaData()
         self.tables = OsmSourceTables(self.metadata)
         if options.replication is not None:
             self.status = StatusManager(self.metadata)
-            self.status.create
         else:
             self.status = None
 
@@ -149,11 +143,6 @@ class OSMImporter(osmium.SimpleHandler):
             self.change_size = options.change_size
         else:
             self.repserver = None
-
-        if options.createdb:
-            with self.engine.begin() as conn:
-                conn.execute("CREATE EXTENSION postgis")
-            self.metadata.create_all(self.engine)
 
         if options.nodestore is None:
             self.nodestore = None
@@ -361,6 +350,17 @@ if __name__ == '__main__':
                         help='OSM input file')
 
     options = parser.parse_args()
+
+    mgr = BaseImportManager(options.database, options.verbose)
+    if options.replication:
+        mgr.set_replication_source(options.replication)
+
+    if options.createdb:
+        mgr.create_database()
+    else:
+        if not database_exists(options.database):
+            raise RuntimeError("Database does not exist.")
+
     importer = OSMImporter(options)
     importer.readfile()
     if options.createindices:
