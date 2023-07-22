@@ -6,7 +6,9 @@
 import logging
 import collections
 import types
-from sqlalchemy import MetaData, create_engine
+
+import sqlalchemy as sa
+
 from sqlalchemy.engine.url import URL
 from sqlalchemy.schema import CreateSchema
 
@@ -58,20 +60,20 @@ class MapDB:
 
     def __init__(self, options):
         self.options = options
-        self.osmdata = OsmSourceTables(MetaData(),
+        self.osmdata = OsmSourceTables(sa.MetaData(),
                                        nodestore=self.get_option('nodestore'))
 
         if self.get_option('status', True):
-            self.status = StatusManager(MetaData())
+            self.status = StatusManager(sa.MetaData())
         else:
             self.status = DummyStatusManager()
 
         if not self.get_option('no_engine'):
             dba = URL.create('postgresql', username=options.username,
                              password=options.password, database=options.database)
-            self.engine = create_engine(dba, echo=self.get_option('echo_sql', False))
+            self.engine = sa.create_engine(dba, echo=self.get_option('echo_sql', False))
 
-        self.metadata = MetaData(schema=self.get_option('schema'))
+        self.metadata = sa.MetaData(schema=self.get_option('schema'))
 
         self.tables = _Tables()
 
@@ -112,14 +114,14 @@ class MapDB:
             if schema is not None:
                 conn.execute(CreateSchema(schema))
                 if rouser is not None:
-                    conn.execute(f'GRANT USAGE ON SCHEMA {schema} TO "{rouser}"')
+                    conn.execute(sa.text(f'GRANT USAGE ON SCHEMA {schema} TO "{rouser}"'))
 
             for table in self.tables:
                 table.create(conn)
 
             if rouser is not None:
                 for table in self.tables:
-                    conn.execute(f'GRANT SELECT ON TABLE {table.data.key} TO "{rouser}"')
+                    conn.execute(sa.text(f'GRANT SELECT ON TABLE {table.data.key} TO "{rouser}"'))
 
     def construct(self):
         for tab in self.tables:
@@ -127,14 +129,17 @@ class MapDB:
             tab.construct(self.engine)
             if hasattr(tab, 'after_construct'):
                 tab.after_construct(self.engine)
-            self.status.set_status_from(self.engine, tab.data.key, 'base')
+            with self.engine.begin() as conn:
+                self.status.set_status_from(conn, tab.data.key, 'base')
 
     def update(self):
-        base_state = self.status.get_sequence(self.engine)
+        with self.engine.begin() as conn:
+            base_state = self.status.get_sequence(conn)
 
         for tab in self.tables:
             if base_state is not None:
-                table_state = self.status.get_sequence(self.engine, tab.data.key)
+                with self.engine.begin() as conn:
+                    table_state = self.status.get_sequence(conn, tab.data.key)
                 if table_state is not None and table_state >= base_state:
                     LOG.info("Table %s already up-to-date.", tab)
                     continue
@@ -146,7 +151,8 @@ class MapDB:
             if hasattr(tab, 'after_update'):
                 tab.after_update(self.engine)
 
-            self.status.set_status_from(self.engine, tab.data.key, 'base')
+            with self.engine.begin() as conn:
+                self.status.set_status_from(conn, tab.data.key, 'base')
 
     def finalize(self, dovacuum):
         """ Analyse the tables to update the statistics.

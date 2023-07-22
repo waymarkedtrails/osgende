@@ -53,7 +53,7 @@ class GroupedWayTable(TableSource):
             self.truncate(conn)
 
         done = set()
-        with engine.begin() as conn:
+        with engine.begin() as conn, engine.begin() as iconn:
             cur = conn.execution_options(stream_results=True).execute(self._select_src())
 
             for obj in cur:
@@ -63,7 +63,7 @@ class GroupedWayTable(TableSource):
                     continue
 
                 done.update(self._insert_adjacent_ways((oid, obj.nodes),
-                                                       obj, conn))
+                                                       obj, iconn))
 
 
     def update(self, engine):
