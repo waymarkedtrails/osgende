@@ -16,6 +16,7 @@ setup(name='osgende',
                 'osgende.generic',
                 'osgende.lines',
                 'osgende.relations',
+                'osgende.tools'
                ],
       scripts=['tools/osgende-import', 'tools/osgende-mapgen', 'tools/osgende-mapserv',
                'tools/osgende-mapserv-falcon.py'],
