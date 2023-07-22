@@ -122,9 +122,9 @@ class SegmentsTable(ThreadableDBObject, TableSource):
 
             wayproc.finish()
 
-            # Finally (re)create indices needed for updates.
-            wayidx.create(conn)
-            ndsidx.create(conn)
+        # Finally (re)create indices needed for updates.
+        wayidx.create(engine)
+        ndsidx.create(engine)
 
     def update(self, engine):
         """ Update changed segments.
