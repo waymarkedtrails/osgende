@@ -29,7 +29,7 @@ Osgende requires Python3.
 
     Python bindings for libosmium, needed for the import tool.
 
-- SQLAlchemy >= 1.4,< 2.0 http://www.sqlalchemy.org/
+- SQLAlchemy >= 1.4   http://www.sqlalchemy.org/
 
     SQL toolkit for python. osgende uses the Core package only.
 
