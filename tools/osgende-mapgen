@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # This file is part of Osgende
-# Copyright (C) 2011 Sarah Hoffmann
+# Copyright (C) 2011-2024 Sarah Hoffmann
 #               2013 Michael Spreng
 #
 # This is free software; you can redistribute it and/or
@@ -35,8 +35,6 @@ postgresql: store the tile into a PostgreSQL database. Output location should
             have the following columns: id and pixbuf. It will
             create a suitable table if none exists under the given name.
 """
-# Code was inspired by the tile generation scrips of openstreetmap.org.
-# See: http://trac.openstreetmap.org/browser/applications/rendering/mapnik/generate_tiles.py
 
 from copy import copy
 from optparse import OptionParser, Option, OptionValueError
@@ -62,6 +60,18 @@ except ImportError as e:
         raise e
 
 log = logging.getLogger(__name__)
+
+MERCATOR_WIDTH = 20037508.34
+
+def tile_to_bbox(zoom, x, y):
+    if zoom == 0:
+        return (-MERCATOR_WIDTH, -MERCATOR_WIDTH, MERCATOR_WIDTH, MERCATOR_WIDTH)
+
+    fac = MERCATOR_WIDTH / (1 << (zoom - 1))
+    xmin, ymin = x * fac - MERCATOR_WIDTH, MERCATOR_WIDTH - y * fac
+
+    return (xmin, ymin - fac, xmin + fac, ymin)
+
 
 def mk_tileid(zoom, x, y):
     """Create a unique 64 bit tile ID.
@@ -193,108 +203,53 @@ class TileWriterPSQL:
         self.db.autocommit = True
 
         # prepare our queries
-        cur = self.db.cursor()
-        # try to create the table
-        cur.execute("CREATE TABLE IF NOT EXISTS %s (id bigint PRIMARY KEY, pixbuf bytea)" % tablename)
-        if truncate:
-            cur.execute("TRUNCATE TABLE %s" % tablename)
+        with self.db.cursor() as cur:
+            # try to create the table
+            cur.execute("CREATE TABLE IF NOT EXISTS %s (id bigint PRIMARY KEY, pixbuf bytea)" % tablename)
+            if truncate:
+                cur.execute("TRUNCATE TABLE %s" % tablename)
 
-        cur.execute("""PREPARE delete_tile(bigint) AS 
-                DELETE FROM %s WHERE id=$1"""
-                % tablename)
-        cur.execute("""PREPARE insert_tile(bigint, bytea) AS
-                INSERT INTO %s (id, pixbuf) VALUES ($1,$2)
-                ON CONFLICT (id) DO UPDATE SET pixbuf = EXCLUDED.pixbuf"""
-                % tablename)
-        cur.execute("SET synchronous_commit TO OFF")
+            cur.execute("""PREPARE delete_tile(bigint) AS 
+                    DELETE FROM %s WHERE id=$1"""
+                    % tablename)
+            cur.execute("""PREPARE insert_tile(bigint, bytea) AS
+                    INSERT INTO %s (id, pixbuf) VALUES ($1,$2)
+                    ON CONFLICT (id) DO UPDATE SET pixbuf = EXCLUDED.pixbuf"""
+                    % tablename)
+            cur.execute("SET synchronous_commit TO OFF")
 
 
     def setup(self):
-        self.cursor = self.db.cursor()
+        pass
 
     def finish(self):
         pass
 
     def remove_tile(self, zoom, x, y):
-        self.cursor.execute("EXECUTE delete_tile(%s)", (mk_tileid(zoom, x, y), ))
+        with self.db.cursor() as cur:
+            cur.execute("EXECUTE delete_tile(%s)", (mk_tileid(zoom, x, y), ))
 
     def save_tile(self, image, zoom, x, y):
         binary = psycopg2.Binary(image.tostring('png256'))
         self.add_tile(binary, mk_tileid(zoom, x, y))
 
     def add_tile(self, binary, tileid):
-        self.cursor.execute("EXECUTE insert_tile(%s, %s)", (tileid, binary))
+        with self.db.cursor() as cur:
+            cur.execute("EXECUTE insert_tile(%s, %s)", (tileid, binary))
 
     def reserve_tile(self, zoom, x, y):
         self.add_tile(None, mk_tileid(zoom, x, y))
 
 
-
-
-DEG_TO_RAD = pi/180
-RAD_TO_DEG = 180/pi
-
-class GoogleProjection:
-    def __init__(self,levels=18):
-        self.Bc = []
-        self.Cc = []
-        self.zc = []
-        self.Ac = []
-        c = 256
-        for d in range(0,levels):
-            e = c/2;
-            self.Bc.append(c/360.0)
-            self.Cc.append(c/(2 * pi))
-            self.zc.append((e,e))
-            self.Ac.append(c)
-            c *= 2
-
-    def minmax (self, a,b,c):
-        a = max(a,b)
-        a = min(a,c)
-        return a
-
-    def fromLLtoPixel(self,ll,zoom):
-         d = self.zc[zoom]
-         e = round(d[0] + ll[0] * self.Bc[zoom])
-         f = self.minmax(sin(DEG_TO_RAD * ll[1]),-0.9999,0.9999)
-         g = round(d[1] + 0.5*log((1+f)/(1-f))*-self.Cc[zoom])
-         return (e,g)
-
-    def fromPixelToLL(self,px,zoom):
-         e = self.zc[zoom]
-         f = (px[0] - e[0])/self.Bc[zoom]
-         g = (px[1] - e[1])/-self.Cc[zoom]
-         h = RAD_TO_DEG * ( 2 * atan(exp(g)) - 0.5 * pi)
-         return (f,h)
-
-    def fromTileToLL(self, zoom, x, y):
-         e = self.zc[zoom]
-         f = (x*256.0 - e[0])/self.Bc[zoom]
-         g = (y*256.0 - e[1])/-self.Cc[zoom]
-         h = RAD_TO_DEG * ( 2 * atan(exp(g)) - 0.5 * pi)
-         return (f,h)
-
-gprojection = None
-
 class Tile:
-    
+
     def __init__(self, zoom, x, y):
         self.zoom = zoom
         self.x = x
         self.y = y
         self.to_delete = False
         self.image = None
-
-    def compute_bounds(self, projection):
-        p0 = gprojection.fromTileToLL(self.zoom, self.x, self.y+1)
-        p1 = gprojection.fromTileToLL(self.zoom, self.x+1, self.y)
-
-        self.c0 = projection.forward(mapnik.Coord(p0[0],p0[1]))
-        self.c1 = projection.forward(mapnik.Coord(p1[0],p1[1]))
-
-    def get_bounds(self):
-        return (self.c0.x, self.c0.y, self.c1.x, self.c1.y)
+        self.bounds = tile_to_bbox(zoom, x, y)
 
 
 class MapnikOverlayGenerator:
@@ -355,17 +310,14 @@ class MapnikOverlayGenerator:
             return basequery("ST_SetSRID('BOX3D(%f %f, %f %f)'::box3d,3857)" % (xmin, ymin, xmax, ymax))
 
         boxquery = boxquery3857
-        cur = self.conn.cursor()
-        try:
-            cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
-        except Exception:
-            # did not work, try the other projection
-            self.conn.rollback()
-            boxquery = boxquery900913
+        with self.conn.cursor() as cur:
             try:
                 cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
-            finally:
-                cur.close()
+            except Exception:
+                # did not work, try the other projection
+                self.conn.rollback()
+                boxquery = boxquery900913
+                cur.execute(boxquery(-20037508.342789, -20037508.342789, 20037508.342789, 20037508.342789))
 
         return boxquery
 
@@ -386,21 +338,21 @@ class MapnikOverlayGenerator:
             log.info("Rendering Zoom %2d tile %d/%d", zoom, x, y)
 
         current = Tile(zoom, x, y)
-        current.compute_bounds(self.projection)
-        params = current.get_bounds()
 
         # is there an update pending?
         if self.changequery is not None:
-            self.cursor.execute(self.changequery(*params))
-            if self.cursor.fetchone() is None:
-                return
+            with self.conn.cursor() as cur:
+                cur.execute(self.changequery(*current.bounds))
+                if cur.fetchone() is None:
+                    return
 
         # is there something on the tile?
         hasdata = True
         if self.dataquery is not None:
-            self.cursor.execute(self.dataquery(*params))
-            if self.cursor.fetchone() is None:
-                hasdata = False
+            with self.conn.cursor() as cur:
+                cur.execute(self.dataquery(*current.bounds))
+                if cur.fetchone() is None:
+                    hasdata = False
 
         if hasdata:
             if zoom <= self.prerender_zoom:
@@ -442,21 +394,15 @@ class MapnikOverlayGenerator:
             x and y are tile numbers for the highest zoomlevel to be rendered.
             All tuples are Python ranges, i.e. the to value is non-inclusive.
         """
-        global gprojection
         zrange, xrange, yrange = box
-
-        gprojection = GoogleProjection(zrange[1])
 
         # set up the rendering threads
         log.info("Using %d parallel threads.", self.num_threads)
         self.queue = queue.Queue(4*self.num_threads)
         self.outqueue = queue.Queue(10*self.num_threads)
-        self.projection = None
         renderers = []
         for i in range(self.num_threads):
             renderer = RenderThread(self.outqueue, stylefile, self.queue)
-            if self.projection is None:
-                self.projection = mapnik.Projection(renderer.map.srs)
             render_thread = threading.Thread(target=renderer.loop)
             render_thread.start()
             renderers.append(render_thread)
@@ -465,11 +411,9 @@ class MapnikOverlayGenerator:
         writer_thread.start()
 
         try:
-            self.cursor = self.conn.cursor()
             for x in range(xrange[0], xrange[1]):
                 for y in range(yrange[0], yrange[1]):
                     self._render_tile(x,y, zrange[0], zrange[1]-1)
-            self.cursor.close()
         finally:
             for i in range(self.num_threads):
                 self.queue.put(None)
@@ -519,7 +463,7 @@ class RenderThread:
         mapnik.load_map(self.map, stylefile)
 
     def render_tile(self, tile):
-        bbox = mapnik.Box2d(tile.c0.x, tile.c0.y, tile.c1.x, tile.c1.y)
+        bbox = mapnik.Box2d(*tile.bounds)
         self.map.zoom_to_box(bbox)
 
         tile.image = mapnik.Image(256, 256)
