@@ -16,7 +16,7 @@ Osgende requires Python3.
 
    Postgres database.
 
-- psycopg >= 2.5.0    http://initd.org/psycopg/
+- psycopg3            https://www.psycopg.org/psycopg3/
 
     Python bindings for PostgreSQL.
 
@@ -29,7 +29,7 @@ Osgende requires Python3.
 
     Python bindings for libosmium, needed for the import tool.
 
-- SQLAlchemy >= 1.4   http://www.sqlalchemy.org/
+- SQLAlchemy >= 2.0   http://www.sqlalchemy.org/
 
     SQL toolkit for python. osgende uses the Core package only.
 
@@ -70,4 +70,4 @@ location file to speed up processing using the `-n` option.
 
 You need to create your own MapDB and instances of tables. For an
 example see the
-[waymarked-trails project](https://github.com/lonvia/waymarked-trails-site).
+[waymarked-trails project](https://github.com/waymarkedtrails/waymarkedtrails-backend).

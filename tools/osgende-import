@@ -30,6 +30,7 @@ import osmium.replication.server as rserv
 from collections import namedtuple
 
 import sqlalchemy as sa
+from psycopg import sql
 
 from osgende.common.nodestore import NodeStore
 from osgende.common.status import StatusManager
@@ -62,16 +63,17 @@ class CopyThread(threading.Thread):
         threading.Thread.__init__(self)
         self.rcv = rcv
         self.engine = engine
-        self.table = table
-        self.columns = columns
+        self.copy_sql = sql.SQL("COPY {} ({}) FROM STDOUT").format(
+                                    sql.Identifier(table),
+                                    sql.Composed([sql.Identifier(c) for c in columns]).join(','))
 
     def run(self):
         conn = self.engine.raw_connection()
         try:
-            cur = conn.cursor()
-            cur.copy_from(os.fdopen(self.rcv), self.table,
-                          null='NULL', columns=self.columns, size=32*1024)
-            cur.close()
+            with conn.cursor() as cur:
+                with cur.copy(self.copy_sql) as copy, os.fdopen(self.rcv) as fd:
+                    while data := fd.read():
+                        copy.write(data)
             conn.commit()
         finally:
             conn.close()
@@ -125,7 +127,7 @@ class OSMImporter(osmium.SimpleHandler):
     def __init__(self, options):
         super(OSMImporter, self).__init__()
 
-        dburl = sa.engine.url.URL.create('postgresql', username=options.username,
+        dburl = sa.engine.url.URL.create('postgresql+psycopg', username=options.username,
                                          password=options.password,
                                          database=options.database)
 

@@ -99,7 +99,7 @@ class TableTestFixture(unittest.TestCase):
         with self.db.engine.begin() as conn:
             res = conn.execute(table.select())
 
-            assert len(content) == res.rowcount
+            assert len(content) == res.rowcount, f"Got bad number of rows: {list(res)}"
 
             todo = list(content)
             for c in res:

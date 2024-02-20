@@ -74,7 +74,7 @@ class PostgresCache(object):
                 self.empty[fmt] = myfile.read()
 
         self.max_zoom = config.get('max_zoom', 100)
-        self.pg = __import__('psycopg2')
+        self.pg = __import__('psycopg')
         self.dba = config['dba']
 
         self.cmd_get = "SELECT pixbuf FROM %s WHERE id=%%s" % config['table']

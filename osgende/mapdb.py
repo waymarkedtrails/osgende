@@ -69,7 +69,7 @@ class MapDB:
             self.status = DummyStatusManager()
 
         if not self.get_option('no_engine'):
-            dba = URL.create('postgresql', username=options.username,
+            dba = URL.create('postgresql+psycopg', username=options.username,
                              password=options.password, database=options.database)
             self.engine = sa.create_engine(dba, echo=self.get_option('echo_sql', False))
 

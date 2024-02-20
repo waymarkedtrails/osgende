@@ -16,7 +16,7 @@ class BaseImportManager:
 
     def __init__(self, dbname, verbose=False):
         self.dbname = dbname
-        dburl = sa.engine.url.URL.create('postgresql', database=dbname)
+        dburl = sa.engine.url.URL.create('postgresql+psycopg', database=dbname)
         self.engine = sa.create_engine(dburl, echo=verbose)
 
         self.metadata = sa.MetaData()
