@@ -50,7 +50,7 @@ except ImportError:
     import Queue as queue
 import threading
 
-import psycopg2
+import psycopg
 try:
     import mapnik
 except ImportError as e:
@@ -197,7 +197,7 @@ class TileWriterSqlite3:
 class TileWriterPSQL:
 
     def __init__(self, dba, tablename, truncate):
-        self.db = psycopg2.connect(dba)
+        self.db = psycopg.connect(dba)
         # set into autocommit mode so that tiles still can be
         # read while the db is updated
         self.db.autocommit = True
@@ -230,7 +230,7 @@ class TileWriterPSQL:
             cur.execute("EXECUTE delete_tile(%s)", (mk_tileid(zoom, x, y), ))
 
     def save_tile(self, image, zoom, x, y):
-        binary = psycopg2.Binary(image.tostring('png256'))
+        binary = psycopg.Binary(image.tostring('png256'))
         self.add_tile(binary, mk_tileid(zoom, x, y))
 
     def add_tile(self, binary, tileid):
@@ -285,7 +285,7 @@ class MapnikOverlayGenerator:
     def __init__(self, dba, dataquery=None, changequery=None,
                   numprocesses=1, prerender=100):
         self.num_threads = numprocesses
-        self.conn = psycopg2.connect(dba)
+        self.conn = psycopg.connect(dba)
         self.prerender_zoom = prerender
         # read-only connection and the DB won't change in between
         # no transactions required

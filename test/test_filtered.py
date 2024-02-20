@@ -16,7 +16,7 @@ from osgende.generic import FilteredTable
 def filter_table(request, db):
     table = db.add_table(FilteredTable(db.db.metadata, 'test',
                                        db.db.osmdata.relation,
-                                       sa.text("tags ? 'foo'"),
+                                       sa.literal_column("tags ? 'foo'"),
                                        view_only=request.param))
 
     db.import_data("""\

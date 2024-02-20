@@ -60,7 +60,11 @@ class RelationHierarchy:
                     .select_from(rels.join(members, onclause=sa.text("True")))\
                     .where(members.c.value['type'].astext == 'R')\
                     .where(id_bigint != rels.c.id.label('parent'))
-            res = conn.execute(self.data.insert().from_select(self.data.c, sql))
+            # XXX adding 'returning' here because otherwise SQLAlchemy/psycopg3
+            # refuses to give us a rowcount,
+            # see https://github.com/sqlalchemy/sqlalchemy/issues/10974
+            res = conn.execute(self.data.insert().from_select(self.data.c, sql)
+                                                 .returning(self.data.c.parent))
 
             level = 3
             while res.rowcount > 0 and level < 6:
@@ -74,7 +78,8 @@ class RelationHierarchy:
                         .where(prev.c.parent != newly.c.child)\
                         .except_(sa.select(old.c.parent, old.c.child, level))
 
-                res = conn.execute(self.data.insert().from_select(self.data.c, subs))
+                res = conn.execute(self.data.insert().from_select(self.data.c, subs)
+                                                     .returning(self.data.c.parent))
                 level = level + 1
 
             # Finally add all relations themselves.

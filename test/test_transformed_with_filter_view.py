@@ -57,7 +57,7 @@ class TestTransformedTableViewFilteredTable(TableTestFixture):
 
     def create_tables(self, db):
         filtered = FilteredTable(db.metadata, "filter", db.osmdata.node,
-                                 sa.text("tags ? 'include'"),
+                                 sa.literal_column("tags ? 'include'"),
                                  view_only=self.view_only)
         test = TransformedTestTable(db, filtered)
         return (filtered, test)
