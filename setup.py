@@ -18,7 +18,7 @@ setup(name='osgende',
                 'osgende.relations',
                 'osgende.tools'
                ],
-      scripts=['tools/osgende-import', 'tools/osgende-mapgen', 'tools/osgende-mapserv',
+      scripts=['tools/osgende-import', 'tools/osgende-mapgen',
                'tools/osgende-mapserv-falcon.py'],
       license='GPL 3.0',
       keywords=["OSM", "OpenStreetMap", "Databases"],
