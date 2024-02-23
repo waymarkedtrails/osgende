@@ -201,6 +201,7 @@ class TileWriterPSQL:
         # set into autocommit mode so that tiles still can be
         # read while the db is updated
         self.db.autocommit = True
+        self.tablename = tablename
 
         # prepare our queries
         with self.db.cursor() as cur:
@@ -209,13 +210,6 @@ class TileWriterPSQL:
             if truncate:
                 cur.execute("TRUNCATE TABLE %s" % tablename)
 
-            cur.execute("""PREPARE delete_tile(bigint) AS 
-                    DELETE FROM %s WHERE id=$1"""
-                    % tablename)
-            cur.execute("""PREPARE insert_tile(bigint, bytea) AS
-                    INSERT INTO %s (id, pixbuf) VALUES ($1,$2)
-                    ON CONFLICT (id) DO UPDATE SET pixbuf = EXCLUDED.pixbuf"""
-                    % tablename)
             cur.execute("SET synchronous_commit TO OFF")
 
 
@@ -227,7 +221,8 @@ class TileWriterPSQL:
 
     def remove_tile(self, zoom, x, y):
         with self.db.cursor() as cur:
-            cur.execute("EXECUTE delete_tile(%s)", (mk_tileid(zoom, x, y), ))
+            cur.execute(f"DELETE FROM {self.tablename} WHERE id=%s",
+                        (mk_tileid(zoom, x, y), ), prepare=True)
 
     def save_tile(self, image, zoom, x, y):
         binary = psycopg.Binary(image.tostring('png256'))
@@ -235,10 +230,13 @@ class TileWriterPSQL:
 
     def add_tile(self, binary, tileid):
         with self.db.cursor() as cur:
-            cur.execute("EXECUTE insert_tile(%s, %s)", (tileid, binary))
+            cur.execute(f"""INSERT INTO {self.tablename} (id, pixbuf) VALUES (%s, %s)
+                            ON CONFLICT (id) DO UPDATE SET pixbuf = EXCLUDED.pixbuf
+                         """,
+                        (tileid, binary), prepare=True)
 
     def reserve_tile(self, zoom, x, y):
-        self.add_tile(None, mk_tileid(zoom, x, y))
+        self.add_tile(psycopg.Binary(None), mk_tileid(zoom, x, y))
 
 
 class Tile:
