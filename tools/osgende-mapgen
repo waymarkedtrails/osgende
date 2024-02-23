@@ -289,7 +289,7 @@ class MapnikOverlayGenerator:
         self.prerender_zoom = prerender
         # read-only connection and the DB won't change in between
         # no transactions required
-        self.conn.set_isolation_level(0)
+        self.conn.autocommit = True
         try:
             self.dataquery = self._make_box_query(dataquery)
         except Exception:
