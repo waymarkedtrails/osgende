@@ -71,12 +71,13 @@ class CopyThread(threading.Thread):
         conn = self.engine.raw_connection()
         try:
             with conn.cursor() as cur:
-                with cur.copy(self.copy_sql) as copy, os.fdopen(self.rcv) as fd:
-                    while data := fd.read():
+                with cur.copy(self.copy_sql) as copy:
+                    while data := os.read(self.rcv, 1024 * 1024):
                         copy.write(data)
             conn.commit()
         finally:
             conn.close()
+            os.close(self.rcv)
 
 
 
@@ -95,20 +96,19 @@ class DbWriter:
         columns = [ str(c.name) for c in table.columns ]
         self.linepattern = '\t'.join([u"%%(%s)s" % x for x in columns]) + '\n'
 
-        fd_rcv, fd_snd = os.pipe()
-        self.out_pipe = os.fdopen(fd_snd, 'w')
+        fd_rcv, self.out_pipe = os.pipe()
 
         self.thread = CopyThread(fd_rcv, engine, str(table.name), columns)
         self.thread.daemon = True
         self.thread.start()
 
     def write(self, **attrs):
-        self.out_pipe.write(self.linepattern % attrs)
+        os.write(self.out_pipe, (self.linepattern % attrs).encode('utf-8'))
 
     def close(self):
         self.trans.commit()
         self.conn.close()
-        self.out_pipe.close()
+        os.close(self.out_pipe)
         self.thread.join()
 
     def update(self, **attrs):
