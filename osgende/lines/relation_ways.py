@@ -197,15 +197,14 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                 # Always rebuild the geometry when with_geom as nodes might have
                 # moved.
                 if with_geom:
-                    # TODO only look up new/changed nodes
                     points = self.osmdata.get_points(obj.new_nodes, inner)
-                    if len(points) <= 1:
+                    if self.srid == 3857:
+                        points = [p.to_mercator() for p in points]
+                    new_geom = self.make_geometry(points)
+                    if new_geom is None:
                         deletes.append({'oid' : oid})
                         changeset[oid] = 'D'
                         continue
-                    if self.srid == 3857:
-                        points = [p.to_mercator() for p in points]
-                    new_geom = sgeom.LineString(points)
                     cols['geom'] = from_shape(new_geom, srid=self.srid)
                     changed = changed or (new_geom != to_shape(obj.geom))
                 elif obj.nodes != obj.new_nodes:
@@ -226,6 +225,13 @@ class RelationWayTable(ThreadableDBObject, TableSource):
                                deletes)
 
         return changeset
+
+
+    def make_geometry(self, points):
+        if len(points) <= 1:
+            return None
+
+        return sgeom.LineString(points)
 
 
     def _update_handle_changed_rels(self, engine):
@@ -326,12 +332,12 @@ class RelationWayTable(ThreadableDBObject, TableSource):
 
         if self.osmdata is not None:
             points = self.osmdata.get_points(obj.nodes, conn)
-            if len(points) <= 1:
-                return
             if self.srid == 3857:
                 points = [p.to_mercator() for p in points]
-            cols['geom'] = from_shape(sgeom.LineString(points),
-                                      srid=self.srid)
+            new_geom = self.make_geometry(points)
+            if new_geom is None:
+                return
+            cols['geom'] = from_shape(new_geom, srid=self.srid)
 
         cols['id'] = obj.way_id
         cols['rels'] = sorted(obj.rels)
