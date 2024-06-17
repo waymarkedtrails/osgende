@@ -104,8 +104,8 @@ class TableSource:
         if not changeset:
             return
 
-        conn.execute(self.change.insert()
-                     .values([{'id': k, 'action': v} for k, v in changeset.items()]))
+        conn.execute(self.change.insert(),
+                     [{'id': k, 'action': v} for k, v in changeset.items()])
 
 
     def upsert_data(self):
