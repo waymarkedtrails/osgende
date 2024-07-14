@@ -1,0 +1,33 @@
+[project]
+name = "osgende"
+description = "A tool for building a PostgreSQL database from OSM data."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "GPL-3.0-or-later"
+maintainers = [
+  { name = "Sarah Hoffmann", email = "lonvia@denofr.de" }
+]
+keywords = ["OpenStreetMap", "OSM", "Databases"]
+dependencies = [
+    "psycopg",
+    "SQLAlchemy>=2.0",
+    "GeoAlchemy2",
+    "shapely",
+    "osmium>=3.0"
+]
+version = "2.0"
+
+[project.urls]
+Repository = "https://github.com/waymarkedtrails/osgende"
+Issues = "https://github.com/waymarkedtrails/osgende/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = ["osgende", "tools", "test"]
+
+[tool.hatch.build.targets.wheel.shared-scripts]
+"tools" = "/"
+
