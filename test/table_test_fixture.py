@@ -20,6 +20,7 @@ from geoalchemy2.shape import to_shape
 from collections import namedtuple, OrderedDict
 from pathlib import Path
 import os
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -29,6 +30,7 @@ from textwrap import dedent
 from osgende import MapDB
 from db_compare import DBCompareValue
 
+SRC_DIR = (Path(__file__) / '..' / '..').resolve()
 IMPORT_CMD = Path(__file__, '..', '..', 'tools', 'osgende-import').resolve()
 
 class TableTestFixture(unittest.TestCase):
@@ -73,8 +75,13 @@ class TableTestFixture(unittest.TestCase):
             fd.write(osm_data.encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = [IMPORT_CMD, '-c', '-d', self.Options.database, fd.name]
-            subprocess.run(cmd, check=True)
+            cmd = [sys.executable, IMPORT_CMD, '-c', '-d', self.Options.database, fd.name]
+            env = dict(os.environ)
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = str(SRC_DIR)
+            subprocess.run(cmd, env=env, check=True)
 
         self.db = MapDB(self.Options())
         for table in self.create_tables(self.db):
@@ -88,8 +95,14 @@ class TableTestFixture(unittest.TestCase):
             fd.write(dedent(data).encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = [IMPORT_CMD, '-C', '-d', self.Options.database, fd.name]
-            subprocess.run(cmd)
+            cmd = [sys.executable, IMPORT_CMD, '-C', '-d', self.Options.database, fd.name]
+            env = dict(os.environ)
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = str(SRC_DIR)
+
+            subprocess.run(cmd, env=env, check=True)
 
         self.db.update()
 

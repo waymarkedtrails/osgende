@@ -67,8 +67,13 @@ class TestableDB:
             fd.write(osm_data.encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = [IMPORT_CMD, '-c', '-d', DBOptions.database, fd.name]
-            subprocess.run(cmd, check=True)
+            cmd = [sys.executable, IMPORT_CMD, '-c', '-d', DBOptions.database, fd.name]
+            env = dict(os.environ)
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = str(SRC_DIR)
+            subprocess.run(cmd, env=env, check=True)
 
         self.db.engine = create_engine(URL.create('postgresql',
                                                   database=DBOptions.database),
@@ -83,8 +88,13 @@ class TestableDB:
             fd.write(dedent(data).encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = [IMPORT_CMD, '-C', '-d', DBOptions.database, fd.name]
-            subprocess.run(cmd)
+            cmd = [sys.executable, IMPORT_CMD, '-C', '-d', DBOptions.database, fd.name]
+            env = dict(os.environ)
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = str(SRC_DIR)
+            subprocess.run(cmd, env=env, check=True)
 
         self.db.update()
 
