@@ -20,7 +20,15 @@ sys.path.insert(0, str(SRC_DIR))
 from osgende import MapDB
 from db_compare import DBCompareValue
 
-IMPORT_CMD = Path(__file__, '..', '..', 'tools', 'osgende-import').resolve()
+def run_osgende_import(params):
+    cmd = [sys.executable, str(SRC_DIR / 'tools' / 'osgende-import')] + params
+    env = dict(os.environ)
+    if 'PYTHONPATH' in env:
+        env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
+    else:
+        env['PYTHONPATH'] = str(SRC_DIR)
+    subprocess.run(cmd, env=env, check=True)
+
 
 class DBOptions:
     database = 'osgende_test'
@@ -67,13 +75,7 @@ class TestableDB:
             fd.write(osm_data.encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = [sys.executable, IMPORT_CMD, '-c', '-d', DBOptions.database, fd.name]
-            env = dict(os.environ)
-            if 'PYTHONPATH' in env:
-                env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
-            else:
-                env['PYTHONPATH'] = str(SRC_DIR)
-            subprocess.run(cmd, env=env, check=True)
+            run_osgende_import(['-c', '-d', DBOptions.database, fd.name])
 
         self.db.engine = create_engine(URL.create('postgresql',
                                                   database=DBOptions.database),
@@ -88,13 +90,7 @@ class TestableDB:
             fd.write(dedent(data).encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            cmd = [sys.executable, IMPORT_CMD, '-C', '-d', DBOptions.database, fd.name]
-            env = dict(os.environ)
-            if 'PYTHONPATH' in env:
-                env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
-            else:
-                env['PYTHONPATH'] = str(SRC_DIR)
-            subprocess.run(cmd, env=env, check=True)
+            run_osgende_import(['-C', '-d', DBOptions.database, fd.name])
 
         self.db.update()
 
