@@ -1,12 +1,10 @@
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # This file is part of Osgende
-# Copyright (C) 2017-2020 Sarah Hoffmann
-
+# Copyright (C) 2024 Sarah Hoffmann
 """
 Tests for FilteredTable
 """
-
 import pytest
 import sqlalchemy as sa
 

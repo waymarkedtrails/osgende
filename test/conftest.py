@@ -1,7 +1,7 @@
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # This file is part of Osgende
-# Copyright (C) 2020 Sarah Hoffmann
+# Copyright (C) 2024 Sarah Hoffmann
 import sys
 import os
 from pathlib import Path
@@ -48,7 +48,11 @@ class TestableDB:
         osm_data = ""
         DBCompareValue.nodestore = {}
 
-        if grid is not None:
+        if isinstance(grid, dict):
+            for nid, pt in grid.items():
+                osm_data += f"n{nid} x{pt[0]} y{pt[1]}\n"
+                DBCompareValue.nodestore[nid] = pt
+        elif isinstance(grid, str):
             x = 1
             for l in grid.splitlines():
                 y = 1
@@ -128,11 +132,11 @@ class TestableTable:
         assert not todo, f"Missing rows in database: {todo}"
 
     def has_data(self, *content):
-        return self._contains(self.table.data, content)
+        self._contains(self.table.data, content)
 
     def has_changes(self, *content):
         as_array = [{ 'action' : l[0], 'id' : int(l[1:]) } for l in content]
-        return self._contains(self.table.change, as_array)
+        self._contains(self.table.change, as_array)
 
 
 @pytest.fixture

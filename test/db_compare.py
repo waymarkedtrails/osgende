@@ -1,20 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
 # This file is part of Osgende
-# Copyright (C) 2018 Sarah Hoffmann
-#
-# This is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
+# Copyright (C) 2024 Sarah Hoffmann
 """
 Provide special compare classes for complex database values.
 """
@@ -28,7 +15,7 @@ def make_db_line(oid, **kargs):
     line['id'] = oid
     return line
 
-class DBCompareValue(object):
+class DBCompareValue:
     """ Generic DB value comparator. Inherit from this class for more
         specific comparators and implement the compare() function.
     """
