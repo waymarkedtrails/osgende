@@ -182,6 +182,16 @@ class BaseImportManager:
         if self.nodestore is not None:
             self.nodestore.close()
             self.nodestore = None
+        self.engine.dispose()
+
+
+    def __enter__(self):
+        return self
+
+
+    def __exit__(self, *_):
+        self.close()
+
 
     def set_replication_source(self, url):
         self.replication = osmium.replication.server.ReplicationServer(url)

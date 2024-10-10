@@ -18,16 +18,8 @@ SRC_DIR = (Path(__file__) / '..' / '..').resolve()
 sys.path.insert(0, str(SRC_DIR))
 
 from osgende import MapDB
+from osgende.tools.importing import BaseImportManager
 from db_compare import DBCompareValue
-
-def run_osgende_import(params):
-    cmd = [sys.executable, str(SRC_DIR / 'tools' / 'osgende-import')] + params
-    env = dict(os.environ)
-    if 'PYTHONPATH' in env:
-        env['PYTHONPATH'] = f"{SRC_DIR!s}:{env['PYTHONPATH']}"
-    else:
-        env['PYTHONPATH'] = str(SRC_DIR)
-    subprocess.run(cmd, env=env, check=True)
 
 
 class DBOptions:
@@ -79,7 +71,10 @@ class TestableDB:
             fd.write(osm_data.encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            run_osgende_import(['-c', '-d', DBOptions.database, fd.name])
+            with BaseImportManager(DBOptions.database) as mgr:
+                mgr.create_database()
+                mgr.process_file(fd.name, False)
+                mgr.create_indices()
 
         self.db.engine = create_engine(URL.create('postgresql',
                                                   database=DBOptions.database),
@@ -94,7 +89,8 @@ class TestableDB:
             fd.write(dedent(data).encode('utf-8'))
             fd.write(b'\n')
             fd.flush()
-            run_osgende_import(['-C', '-d', DBOptions.database, fd.name])
+            with BaseImportManager(DBOptions.database) as mgr:
+                mgr.process_file(fd.name, True)
 
         self.db.update()
 
