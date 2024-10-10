@@ -3,11 +3,9 @@
 # This file is part of Osgende
 # Copyright (C) 2024 Sarah Hoffmann
 import sys
-import os
 from pathlib import Path
 from textwrap import dedent
 import tempfile
-import subprocess
 
 import pytest
 from sqlalchemy import create_engine
@@ -19,6 +17,7 @@ sys.path.insert(0, str(SRC_DIR))
 
 from osgende import MapDB
 from osgende.tools.importing import BaseImportManager
+from osgende.common.sqlalchemy.database import database_drop
 from db_compare import DBCompareValue
 
 
@@ -36,7 +35,7 @@ class TestableDB:
         self.db = MapDB(DBOptions())
 
     def import_data(self, data, grid=None):
-        assert os.system(f'dropdb --if-exists {DBOptions.database}') == 0
+        database_drop(DBOptions.database, True)
         osm_data = ""
         DBCompareValue.nodestore = {}
 

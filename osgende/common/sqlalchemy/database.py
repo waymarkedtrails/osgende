@@ -23,6 +23,22 @@ def _create_database(element, compiler, **kw):
     return f'CREATE DATABASE "{element.name}"'
 
 
+
+class DropDatabase(Executable, ClauseElement):
+    """ Drop an existing database.
+    """
+    inherit_cache = False
+
+    def __init__(self, name, if_exists=False):
+        self.name = quoted_name(name, True)
+        self.if_exists = ' IF EXISTS' if if_exists else ''
+
+@compiles(DropDatabase, 'postgresql')
+def _create_database(element, compiler, **kw):
+    return f'DROP DATABASE{element.if_exists} "{element.name}"'
+
+
+
 def _find_database(conn, dbname):
     db_table = sa.Table('pg_database', sa.MetaData(),
                         sa.Column('datname'))
@@ -52,3 +68,14 @@ def database_create(dbname, verbose=False):
             raise RuntimeError(f"Database '{dbname}' already exists.")
 
         conn.execute(CreateDatabase(dbname))
+
+
+def database_drop(dbname, if_exists=False):
+    """ Drop the database with the given name. Will not raise an error,
+        when the database does not exists, when 'if_exists' is set to true.
+    """
+    mgmt_engine = sa.create_engine('postgresql:///postgres',
+                                   isolation_level='AUTOCOMMIT', future=True)
+
+    with mgmt_engine.begin() as conn:
+        conn.execute(DropDatabase(dbname, if_exists))
