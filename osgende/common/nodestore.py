@@ -59,6 +59,12 @@ class NodeStore:
     def __del__(self):
         self.close()
 
+    def create_handler(self, apply_nodes_to_ways=False):
+        handler = osmium.NodeLocationForWays(self.mapfile)
+        handler.apply_nodes_to_ways = apply_nodes_to_ways
+        handler.ignore_errors()
+        return handler
+
     def __getitem__(self, nodeid):
         loc = self.mapfile.get(nodeid)
         return NodeStorePoint(loc.lon, loc.lat)

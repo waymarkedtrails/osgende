@@ -39,14 +39,14 @@ def test_update_add(db, filter_table):
       r11 Tfoo=foo,source=gogo Mr11@
       """)
 
+    filter_table.has_data(R1_EXPECT,
+                          dict(id=11, tags={'foo': 'foo', 'source': 'gogo'},
+                               members=[dict(id=11, type='R', role='')]))
+
     if filter_table.table.view_only:
         filter_table.has_changes('M11', 'D10')
     else:
         filter_table.has_changes('M11')
-
-    filter_table.has_data(R1_EXPECT,
-                          dict(id=11, tags={'foo': 'foo', 'source': 'gogo'},
-                               members=[dict(id=11, type='R', role='')]))
 
 
 def test_update_delete(db, filter_table):

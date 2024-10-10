@@ -145,4 +145,5 @@ def db(tmp_path):
 
     yield db
 
-    db.db.engine.dispose()
+    if hasattr(db.db, 'engine'):
+        db.db.engine.dispose()
