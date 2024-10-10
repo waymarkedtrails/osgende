@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # This file is part of Osgende
-# Copyright (C) 2014-2022 Sarah Hoffmann
+# Copyright (C) 2014-2024 Sarah Hoffmann
 """
 Importer of OSM planet dumps and diffs into a simplified Osmosis
 style postgresql database.
@@ -14,29 +14,10 @@ older diff iff all diffs that follow are reapplied as well.
 Diffs must not contain duplicates. Use osmosis' simplifyChange to remove
 duplicates.
 """
-
-import sys
-import os.path as ospath
-import os
-import threading
-import codecs
-import json
-import struct
-import tempfile
-from binascii import hexlify
 import argparse
-import osmium
-import osmium.replication.server as rserv
-from collections import namedtuple
 
-import sqlalchemy as sa
-from psycopg import sql
-
-from osgende.common.nodestore import NodeStore
-from osgende.common.status import StatusManager
-from osgende.osmdata import OsmSourceTables
-from osgende.common.sqlalchemy.database import database_exists, database_create
 from osgende.tools.importing import BaseImportManager
+from osgende.common.sqlalchemy.database import database_exists
 
 
 if __name__ == '__main__':
