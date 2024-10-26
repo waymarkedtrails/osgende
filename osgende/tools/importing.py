@@ -20,6 +20,7 @@ from osgende.common.nodestore import NodeStore
 from osgende.common.sqlalchemy.database import database_create
 from osgende.osmdata import OsmSourceTables
 from osgende.common.status import StatusManager
+from osmium.replication.server import ReplicationServer
 
 def obj2action(obj):
     if obj.visible:
@@ -149,7 +150,6 @@ class UpdateHandler:
 
 
     def relation(self, rel):
-        print('Change relation', rel.id, obj2action(rel))
         self.copy_change.write('R', rel.id, obj2action(rel))
 
         if rel.deleted:
@@ -194,12 +194,12 @@ class BaseImportManager:
 
 
     def set_replication_source(self, url):
-        self.replication = osmium.replication.server.ReplicationServer(url)
+        self.replication = ReplicationServer(url)
         self.status = StatusManager(self.metadata)
 
     def set_nodestore(self, filename):
         assert filename
-        self.nodestore = Nodestore(filename)
+        self.nodestore = NodeStore(filename)
 
     def create_database(self):
         database_create(self.dbname)
@@ -226,7 +226,7 @@ class BaseImportManager:
             osmium.apply(reader, *self._make_extra_handlers(is_change_file), h)
 
         if self.replication is not None:
-            ts = osmium.replication.newest_change_from_file(options.inputfile)
+            ts = osmium.replication.newest_change_from_file(filename)
             diffinfo = self.replication.get_state_info(
                            self.replication.timestamp_to_sequence(ts))
             with self.engine.begin() as conn:
@@ -265,7 +265,7 @@ class BaseImportManager:
         if self.nodestore is not None:
             handlers.append(self.nodestore.create_handler())
             if not is_change:
-                handlers.append(osmium.filters.EmptyTagFilter())
+                handlers.append(osmium.filter.EmptyTagFilter())
 
         return handlers
 

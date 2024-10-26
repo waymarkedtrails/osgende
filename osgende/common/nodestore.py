@@ -23,7 +23,7 @@ from binascii import hexlify
 from struct import pack
 from collections import namedtuple
 
-from osmium import index, osm
+from osmium import index, osm, NodeLocationsForWays
 from osmium.geom import lonlat_to_mercator, Coordinates
 
 LOG = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class NodeStore:
         self.close()
 
     def create_handler(self, apply_nodes_to_ways=False):
-        handler = osmium.NodeLocationForWays(self.mapfile)
+        handler = NodeLocationsForWays(self.mapfile)
         handler.apply_nodes_to_ways = apply_nodes_to_ways
         handler.ignore_errors()
         return handler

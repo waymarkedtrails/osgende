@@ -64,6 +64,9 @@ if __name__ == '__main__':
         if not database_exists(options.database):
             raise RuntimeError("Database does not exist.")
 
+    if options.nodestore:
+        mgr.set_nodestore(options.nodestore)
+
     if options.inputfile == '-':
         mgr.process_replication(options.change_size)
     else:
