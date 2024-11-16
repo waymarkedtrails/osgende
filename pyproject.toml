@@ -13,7 +13,7 @@ dependencies = [
     "SQLAlchemy>=2.0",
     "GeoAlchemy2",
     "shapely",
-    "osmium>=3.0"
+    "osmium>=4.0"
 ]
 version = "2.0"
 

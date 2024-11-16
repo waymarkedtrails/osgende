@@ -1,5 +1,0 @@
-psycopg
-shapely
-osmium>=3.0
-SQLAlchemy>2.0
-GeoAlchemy2
