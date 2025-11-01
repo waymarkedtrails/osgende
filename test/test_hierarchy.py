@@ -63,7 +63,7 @@ class TestHierarchyTableWithChanges:
                               track_changes=True))
 
         db.import_data("""
-            r1 Mr2@
+            r1 Mr2@,r2@
             r2 Mr3@
             r3 Mw3@
             r100 Mw34@
@@ -81,6 +81,7 @@ class TestHierarchyTableWithChanges:
         db.update_data("r55 Mr2@,r100@")
 
         self.has_data(
+            (1, 2, 2),
             (1, 2, 2),
             (1, 3, 3),
             (2, 3, 2),

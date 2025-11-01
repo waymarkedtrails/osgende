@@ -63,7 +63,8 @@ class RelationHierarchy:
                 conn.execute(Truncate(self.change))
                 conn.execute(self.change.insert().from_select(
                     ['parent', 'child', 'action'],
-                    sa.select(self.data.c.parent, self.data.c.child, sa.literal('D'))))
+                    sa.select(self.data.c.parent, self.data.c.child, sa.literal('D'))
+                      .distinct()))
 
             self._compute_table(conn)
 
