@@ -175,7 +175,7 @@ class BaseImportManager:
         self.metadata = sa.MetaData()
         self.tables = OsmSourceTables(self.metadata)
         self.replication = None
-        self.status = None
+        self.status = StatusManager(self.metadata)
         self.nodestore = None
 
     def close(self):
@@ -195,7 +195,6 @@ class BaseImportManager:
 
     def set_replication_source(self, url):
         self.replication = ReplicationServer(url)
-        self.status = StatusManager(self.metadata)
 
     def set_nodestore(self, filename):
         assert filename
